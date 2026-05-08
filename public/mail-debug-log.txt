@@ -1,0 +1,172 @@
+2026-02-19 09:31:05 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-02-19 09:31:05 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-02-19 09:31:05 [DEBUG] SMTP password is set (masked)
+2026-02-19 09:31:05 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-573.pdf
+2026-02-19 09:31:05 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-573.pdf
+2026-02-19 09:31:09 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-02-19 09:31:37 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-02-19 09:31:37 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-02-19 09:31:37 [DEBUG] SMTP password is set (masked)
+2026-02-19 09:31:37 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-574.pdf
+2026-02-19 09:31:37 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-574.pdf
+2026-02-19 09:31:41 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-02-19 10:09:25 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-02-19 10:09:25 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-02-19 10:09:25 [DEBUG] SMTP password is set (masked)
+2026-02-19 10:09:25 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-575.pdf
+2026-02-19 10:09:25 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-575.pdf
+2026-02-19 10:09:29 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-02-26 11:22:50 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-02-26 11:22:50 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-02-26 11:22:50 [DEBUG] SMTP password is set (masked)
+2026-02-26 11:22:50 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-576.pdf
+2026-02-26 11:22:50 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-576.pdf
+2026-02-26 11:22:54 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-09 13:32:59 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-09 13:32:59 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-09 13:32:59 [DEBUG] SMTP password is set (masked)
+2026-03-09 13:32:59 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-577.pdf
+2026-03-09 13:32:59 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-577.pdf
+2026-03-09 13:33:03 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-09 13:34:37 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-09 13:34:37 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-09 13:34:37 [DEBUG] SMTP password is set (masked)
+2026-03-09 13:34:37 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-578.pdf
+2026-03-09 13:34:37 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-578.pdf
+2026-03-09 13:34:41 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-10 12:40:52 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-10 12:40:52 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-10 12:40:52 [DEBUG] SMTP password is set (masked)
+2026-03-10 12:40:52 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-579.pdf
+2026-03-10 12:40:52 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-579.pdf
+2026-03-10 12:40:58 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-12 09:23:13 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-12 09:23:13 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-12 09:23:13 [DEBUG] SMTP password is set (masked)
+2026-03-12 09:23:13 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-580.pdf
+2026-03-12 09:23:13 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-580.pdf
+2026-03-12 09:23:19 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-12 13:13:59 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-12 13:13:59 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-12 13:13:59 [DEBUG] SMTP password is set (masked)
+2026-03-12 13:13:59 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-581.pdf
+2026-03-12 13:13:59 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-581.pdf
+2026-03-12 13:14:05 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-24 11:30:21 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-24 11:30:21 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-24 11:30:21 [DEBUG] SMTP password is set (masked)
+2026-03-24 11:30:21 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-582.pdf
+2026-03-24 11:30:21 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-582.pdf
+2026-03-24 11:30:25 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-24 11:32:23 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-24 11:32:23 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-24 11:32:23 [DEBUG] SMTP password is set (masked)
+2026-03-24 11:32:23 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-583.pdf
+2026-03-24 11:32:23 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-583.pdf
+2026-03-24 11:32:27 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-24 12:58:53 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-24 12:58:53 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-24 12:58:53 [DEBUG] SMTP password is set (masked)
+2026-03-24 12:58:53 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-584.pdf
+2026-03-24 12:58:53 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-584.pdf
+2026-03-24 12:58:58 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-03-24 12:59:59 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-03-24 12:59:59 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-03-24 12:59:59 [DEBUG] SMTP password is set (masked)
+2026-03-24 12:59:59 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-585.pdf
+2026-03-24 12:59:59 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-585.pdf
+2026-03-24 13:00:04 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-04-13 08:34:42 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-04-13 08:34:42 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-04-13 08:34:42 [DEBUG] SMTP password is set (masked)
+2026-04-13 08:34:42 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-586.pdf
+2026-04-13 08:34:42 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-586.pdf
+2026-04-13 08:34:48 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-04-13 08:56:57 [DEBUG] sendBookingConfirmation called. To: earllick@earllick.com, Name: 
+2026-04-13 08:56:57 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-04-13 08:56:57 [DEBUG] SMTP password is set (masked)
+2026-04-13 08:56:57 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-588.pdf
+2026-04-13 08:56:57 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-588.pdf
+2026-04-13 08:57:01 [DEBUG] Email sent successfully to earllick@earllick.com
+2026-04-13 09:04:21 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-04-13 09:04:21 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-04-13 09:04:21 [DEBUG] SMTP password is set (masked)
+2026-04-13 09:04:21 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-590.pdf
+2026-04-13 09:04:21 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-590.pdf
+2026-04-13 09:04:26 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-04-14 11:05:08 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-04-14 11:05:08 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-04-14 11:05:08 [DEBUG] SMTP password is set (masked)
+2026-04-14 11:05:08 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-591.pdf
+2026-04-14 11:05:08 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-591.pdf
+2026-04-14 11:05:12 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-01 09:44:00 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: 
+2026-05-01 09:44:00 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-01 09:44:00 [DEBUG] SMTP password is set (masked)
+2026-05-01 09:44:00 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-599.pdf
+2026-05-01 09:44:00 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-599.pdf
+2026-05-01 09:44:04 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-06 10:52:11 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Vreyene Josharu Canapi Guarino
+2026-05-06 10:52:11 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-06 10:52:11 [DEBUG] SMTP password is set (masked)
+2026-05-06 10:52:11 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-600.pdf
+2026-05-06 10:52:11 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-600.pdf
+2026-05-06 10:52:16 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-06 11:24:04 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Vreyene Josharu Guariño
+2026-05-06 11:24:04 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-06 11:24:04 [DEBUG] SMTP password is set (masked)
+2026-05-06 11:24:04 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-601.pdf
+2026-05-06 11:24:04 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-601.pdf
+2026-05-06 11:24:08 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-06 11:40:05 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Vreyene Josharu Guariño
+2026-05-06 11:40:05 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-06 11:40:05 [DEBUG] SMTP password is set (masked)
+2026-05-06 11:40:05 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-603.pdf
+2026-05-06 11:40:05 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-603.pdf
+2026-05-06 11:40:09 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-06 11:45:39 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Vreyene Josharu Guariño
+2026-05-06 11:45:39 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-06 11:45:39 [DEBUG] SMTP password is set (masked)
+2026-05-06 11:45:39 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-605.pdf
+2026-05-06 11:45:39 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-605.pdf
+2026-05-06 11:45:43 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-06 11:58:38 [DEBUG] sendBookingConfirmation called. To: , Name: 
+2026-05-06 11:58:38 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-06 11:58:38 [DEBUG] SMTP password is set (masked)
+2026-05-06 11:58:38 [ERROR] PHPMailer Exception: Invalid address:  (to): 
+ErrorInfo: Invalid address:  (to): 
+2026-05-06 11:59:11 [DEBUG] sendBookingConfirmation called. To: , Name: 
+2026-05-06 11:59:11 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-06 11:59:11 [DEBUG] SMTP password is set (masked)
+2026-05-06 11:59:11 [ERROR] PHPMailer Exception: Invalid address:  (to): 
+ErrorInfo: Invalid address:  (to): 
+2026-05-06 12:01:50 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Vreyene Josharu Guariño
+2026-05-06 12:01:50 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-06 12:01:50 [DEBUG] SMTP password is set (masked)
+2026-05-06 12:01:50 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-608.pdf
+2026-05-06 12:01:50 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-608.pdf
+2026-05-06 12:01:54 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-08 06:47:09 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Vreyene Josharu Guariño
+2026-05-08 06:47:09 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-08 06:47:09 [DEBUG] SMTP password is set (masked)
+2026-05-08 06:47:09 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-611.pdf
+2026-05-08 06:47:09 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-611.pdf
+2026-05-08 06:47:13 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-08 06:52:45 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Vreyene Josharu Guariño
+2026-05-08 06:52:45 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-08 06:52:45 [DEBUG] SMTP password is set (masked)
+2026-05-08 06:52:45 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-612.pdf
+2026-05-08 06:52:45 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-612.pdf
+2026-05-08 06:52:48 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-05-08 11:55:28 [DEBUG] sendBookingConfirmation called. To: test@user.com, Name: 
+2026-05-08 11:55:28 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-08 11:55:28 [DEBUG] SMTP password is set (masked)
+2026-05-08 11:55:28 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-614.pdf
+2026-05-08 11:55:28 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-614.pdf
+2026-05-08 11:55:32 [DEBUG] Email sent successfully to test@user.com
+2026-05-08 12:15:57 [DEBUG] sendBookingConfirmation called. To: test@user.com, Name: 
+2026-05-08 12:15:57 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-08 12:15:57 [DEBUG] SMTP password is set (masked)
+2026-05-08 12:15:57 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Contracts/contract-616.pdf
+2026-05-08 12:15:57 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Controllers/../../Invoices/invoice-616.pdf
+2026-05-08 12:16:01 [DEBUG] Email sent successfully to test@user.com

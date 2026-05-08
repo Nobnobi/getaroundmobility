@@ -1,0 +1,12 @@
+2026-04-14 12:13:31 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Doctor Krotty Jimenez
+2026-04-14 12:13:31 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-04-14 12:13:31 [DEBUG] SMTP password is set (masked)
+2026-04-14 12:13:31 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Models/../../Contracts/contract-592.pdf
+2026-04-14 12:13:31 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Models/../../Invoices/invoice-592.pdf
+2026-04-14 12:13:35 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
+2026-04-14 12:44:12 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Doctor Krotty Jimenez
+2026-04-14 12:44:12 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-04-14 12:44:12 [DEBUG] SMTP password is set (masked)
+2026-04-14 12:44:12 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Models/../../Contracts/contract-593.pdf
+2026-04-14 12:44:12 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Models/../../Invoices/invoice-593.pdf
+2026-04-14 12:44:17 [DEBUG] Email sent successfully to vrey.josharu@gmail.com

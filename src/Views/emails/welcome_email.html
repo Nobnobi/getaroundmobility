@@ -1,0 +1,151 @@
+<!-- Save as welcome_email.html or paste into PHPMailer body -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Welcome to Get Around Mobility</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    /* Some clients support head styles — keep minimal */
+    @media only screen and (max-width:600px) {
+      .container { width:100% !important; }
+      .stack { display:block !important; width:100% !important; }
+      .hero-image { height:auto !important; max-width:100% !important; }
+      .h1 { font-size:22px !important; }
+      .p { font-size:15px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Helvetica, Arial, sans-serif;">
+  <!-- Outer table -->
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f4f6f8;padding:20px 0;">
+    <tr>
+      <td align="center">
+        <!-- Container -->
+        <table width="600" cellpadding="0" cellspacing="0" role="presentation" class="container" style="width:600px;max-width:600px;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06);">
+          <!-- Header / Logo -->
+          <tr>
+            <td style="padding:20px 24px;background:linear-gradient(90deg,#0086C9);color:#ffffff;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td valign="middle">
+                    <img src="/img/Original logo.png" alt="Get Around Mobility Logo" class="h-8">
+                  </td>
+                  <td align="right" valign="middle" style="font-size:14px;color:rgba(255,255,255,0.95);">
+                    Welcome aboard, <strong style="color:#ffffff;">{{name}}</strong>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Hero -->
+          <tr>
+            <td style="padding:28px 24px 8px 24px;text-align:center;">
+              <h1 class="h1" style="margin:0;font-size:26px;line-height:32px;color:#0f172a;font-weight:700;">
+                Thank you for choosing Get Around Mobility!
+              </h1>
+              <p class="p" style="margin:12px 0 0 0;color:#475569;font-size:16px;line-height:22px;">
+                You're all set to reserve and rent scooters in a single tap. Ready to ride?
+              </p>
+            </td>
+          </tr>
+
+          <!-- CTA -->
+          <tr>
+            <td style="padding:16px 24px 8px 24px;text-align:center;">
+              <a href="/" target="_blank" style="display:inline-block;padding:12px 20px;border-radius:8px;background:#0086C9;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;">
+                Confirm & Start Renting
+              </a>
+            </td>
+          </tr>
+
+          <!-- Features (three columns, collapse on small screens) -->
+          <tr>
+            <td style="padding:6px 24px 0 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td class="stack" width="50%" valign="top" style="padding:10px 8px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="font-size:28px;line-height:28px">⚡</td>
+                        <td style="padding-left:10px;vertical-align:top;">
+                          <strong style="display:block;font-size:15px;color:#0f172a;">1-click checkout</strong>
+                          <span style="display:block;color:#64748b;font-size:13px;line-height:18px;">Reserve & pay in seconds — fewer taps, faster rides.</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td class="stack" width="50%" valign="top" style="padding:10px 8px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="font-size:28px;line-height:28px">📍</td>
+                        <td style="padding-left:10px;vertical-align:top;">
+                          <strong style="display:block;font-size:15px;color:#0f172a;">Reserve nearby</strong>
+                          <span style="display:block;color:#64748b;font-size:13px;line-height:18px;">Find scooters near you with live availability.</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 24px 24px;text-align:center;">
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                <tr>
+                  <td style="padding:10px 8px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="font-size:28px;line-height:28px">🛠️</td>
+                        <td style="padding-left:10px;vertical-align:top;">
+                          <strong style="display:block;font-size:15px;color:#0f172a;">24/7 support</strong>
+                          <span style="display:block;color:#64748b;font-size:13px;line-height:18px;">Quick help when you need it — chat or call anytime.</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Secondary CTA / Quick-links -->
+          <tr>
+            <td style="padding:12px 24px 20px 24px;text-align:center;background:#fbfdff;">
+              <a href="{{dashboard_link}}" style="display:inline-block;margin:6px;padding:10px 16px;border-radius:6px;border:1px solid #dbeafe;text-decoration:none;background:#ffffff;color:#0f172a;font-weight:600;font-size:14px;">Go to Dashboard</a>
+              &nbsp;
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:18px 24px;background:#0f172a;color:#94a3b8;font-size:13px;line-height:18px;">
+              <div style="text-align:left;">
+                <strong style="color:#ffffff;">Get Around Mobility</strong> — Your Partner in Mobility.
+                <div style="margin-top:8px;">
+                  <div style="margin-bottom:6px;">Support: <a href="mailto:support@getaroundmobility.com" style="color:#9ae6b4;text-decoration:none;">support@getaroundmobility.com</a></div>
+                  <div>Address: 3420 Spring Mountain Rd, # A, Las Vegas, NV 89102.</div>
+                </div>
+              </div>
+
+              <div style="margin-top:12px;color:#6b7280;">
+                If you didn't create this account, <a href="{{help_link}}" style="color:#9ae6b4;text-decoration:none;">let us know</a> or ignore this email.
+              </div>
+
+              <div style="margin-top:12px;color:#94a3b8;">
+                © {{year}} Get Around Mobility. All rights reserved.
+                <br>
+                <a href="{{unsubscribe_link}}" style="color:#9ae6b4;text-decoration:none;">Unsubscribe</a>
+              </div>
+            </td>
+          </tr>
+
+        </table>
+        <!-- End container -->
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

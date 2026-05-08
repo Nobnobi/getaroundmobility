@@ -1,0 +1,29 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+vendor/
+node_modules/
+
+docusign_private.key
+
+config/
+
+# Debug logs
+order-debug-log.txt
+stripe-debug.txt
+stripe-webhook-logs.txt
+debug_*.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Compiled CSS (Tailwind)
+public/css/output.css
