@@ -13,6 +13,24 @@ $roleLabels = [
 $roleKey = $_SESSION['admin_role'] ?? 'admin';
 $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
 
+$statusOptions = ['pending', 'approved', 'paid', 'completed', 'cancelled'];
+$currentQuery = $_GET;
+unset($currentQuery['page']);
+
+$sortByCurrent = $sortBy ?? 'order_id';
+$sortDirCurrent = strtolower($sortDir ?? 'desc') === 'asc' ? 'asc' : 'desc';
+
+$buildSortLink = function (string $column) use ($currentQuery, $sortByCurrent, $sortDirCurrent) {
+    $nextDir = ($sortByCurrent === $column && $sortDirCurrent === 'asc') ? 'desc' : 'asc';
+    $query = array_merge($currentQuery, ['sort_by' => $column, 'sort_dir' => $nextDir, 'page' => 1]);
+    return '?' . http_build_query($query);
+};
+
+$buildPageLink = function (int $pageNumber) use ($currentQuery) {
+    $query = array_merge($currentQuery, ['page' => $pageNumber]);
+    return '?' . http_build_query($query);
+};
+
 ?>
 
 
@@ -31,22 +49,57 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
         <!-- Topbar -->
         <header class="bg-white shadow p-4 flex justify-between items-center">
             <h1 class="text-2xl font-bold">Orders</h1>
-            <span class="text-gray-600">Welcome, <?= htmlspecialchars($roleLabel) ?></span>
+            <div class="flex items-center gap-4">
+                <button id="toggleAnalytics" class="px-4 py-2 bg-[#0086C9] text-white rounded-md font-semibold hover:bg-[#005a99] transition-colors duration-150 cursor-pointer">Show Analytics</button>
+                <span class="text-gray-600">Welcome, <?= htmlspecialchars($roleLabel) ?></span>
+            </div>
         </header>
 
-        <!-- Analytics/Graphs -->
-        <section class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div class="bg-white rounded shadow p-4 flex flex-col items-center">
-                <span class="text-gray-500">Total Sales</span>
-                <span class="text-2xl font-bold mt-2">$<?= number_format($totalSales ?? 0, 2) ?></span>
+        <!-- Analytics/Graphs (Hidden by Default) -->
+        <section id="analyticsSection" class="p-6 hidden">
+            <!-- Key Metrics -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                    <span class="text-gray-500 text-sm font-semibold uppercase">Total Sales</span>
+                    <span class="text-3xl font-bold mt-2 text-green-600">$<?= number_format($totalSales ?? 0, 2) ?></span>
+                    <span class="text-xs text-gray-400 mt-1">All completed orders</span>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                    <span class="text-gray-500 text-sm font-semibold uppercase">Total Orders</span>
+                    <span class="text-3xl font-bold mt-2 text-blue-600"><?= $totalOrders ?? 0 ?></span>
+                    <span class="text-xs text-gray-400 mt-1">All orders (any status)</span>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                    <span class="text-gray-500 text-sm font-semibold uppercase">Completed</span>
+                    <span class="text-3xl font-bold mt-2 text-purple-600"><?= $completedOrders ?? 0 ?></span>
+                    <span class="text-xs text-gray-400 mt-1">Finished orders</span>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                    <span class="text-gray-500 text-sm font-semibold uppercase">Pending</span>
+                    <span class="text-3xl font-bold mt-2 text-orange-600"><?= $pendingOrders ?? 0 ?></span>
+                    <span class="text-xs text-gray-400 mt-1">Awaiting approval</span>
+                </div>
             </div>
-            <div class="bg-white rounded shadow p-4 flex flex-col items-center">
-                <span class="text-gray-500">Total Orders</span>
-                <span class="text-2xl font-bold mt-2"><?= $totalOrders ?? 0 ?></span>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Sales Over Time Chart -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-800">Sales Over Last 30 Days</h3>
+                    <canvas id="salesChart" class="max-h-80"></canvas>
+                </div>
+
+                <!-- Orders by Status Chart -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-800">Orders by Status</h3>
+                    <canvas id="statusChart" class="max-h-80"></canvas>
+                </div>
             </div>
-            <div class="bg-white rounded shadow p-4 flex flex-col items-center">
-                <span class="text-gray-500">Completed Orders</span>
-                <span class="text-2xl font-bold mt-2"><?= $completedOrders ?? 0 ?></span>
+
+            <!-- Order Count Chart -->
+            <div class="bg-white rounded-lg shadow p-6 mt-6">
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Order Volume Over Last 30 Days</h3>
+                <canvas id="volumeChart" class="max-h-80"></canvas>
             </div>
         </section>
 
@@ -65,10 +118,9 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
             $inactiveClass = 'bg-white text-[#062B41] hover:bg-[#062B41] hover:text-white transition-colors duration-150';
             $arrowClass = 'bg-white text-[#062B41] hover:bg-[#062B41] hover:text-white transition-colors duration-150';
             $pillClass = 'px-3 py-1 mx-0.5 text-base';
-            $searchParam = isset($_GET['order_id_search']) && $_GET['order_id_search'] !== '' ? '&order_id_search=' . urlencode($_GET['order_id_search']) : '';
             // Left arrow
             if ($page > 1) {
-                echo '<a href="?page=' . ($page - 1) . $searchParam . '" class="' . $arrowClass . ' ' . $pillClass . ' mr-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg></a>';
+                echo '<a href="' . htmlspecialchars($buildPageLink($page - 1)) . '" class="' . $arrowClass . ' ' . $pillClass . ' mr-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg></a>';
             }
             for ($i = 1; $i <= $totalPages; $i++) {
                 if (
@@ -81,14 +133,14 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
                         $dots = false;
                     }
                     $isActive = ($i == $page);
-                    echo '<a href="?page=' . $i . $searchParam . '" class="' . ($isActive ? $activeClass : $inactiveClass) . ' ' . $pillClass . '">' . $i . '</a>';
+                    echo '<a href="' . htmlspecialchars($buildPageLink($i)) . '" class="' . ($isActive ? $activeClass : $inactiveClass) . ' ' . $pillClass . '">' . $i . '</a>';
                 } else {
                     $dots = true;
                 }
             }
             // Right arrow
             if ($page < $totalPages) {
-                echo '<a href="?page=' . ($page + 1) . $searchParam . '" class="' . $arrowClass . ' ' . $pillClass . ' ml-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></a>';
+                echo '<a href="' . htmlspecialchars($buildPageLink($page + 1)) . '" class="' . $arrowClass . ' ' . $pillClass . ' ml-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></a>';
             }
             ?>
         </div>
@@ -112,26 +164,82 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
                     <?php unset($_SESSION['order_complete_message']); ?>
                 <?php endif; ?>
                 
-                <!-- Search Bar for Order ID -->
-                <form method="GET" class="mb-4 flex gap-2 items-center">
-                    <input type="text" name="order_id_search" value="<?= htmlspecialchars($_GET['order_id_search'] ?? '') ?>" placeholder="Search Order ID..." class="border rounded px-4 py-2 w-64 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <button type="submit" class="cursor-pointer ml-2 px-4 py-2 bg-[#062B41] text-white rounded-md font-semibold shadow hover:bg-[#08456b] transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[#062B41] focus:ring-opacity-50">Search</button>
+                <form method="GET" class="mb-4 rounded-xl border border-[#c6d9e8] bg-gradient-to-r from-[#f8fcff] to-[#eef6fb] p-4 shadow-sm">
+                    <input type="hidden" name="sort_by" value="<?= htmlspecialchars($sortByCurrent) ?>">
+                    <input type="hidden" name="sort_dir" value="<?= htmlspecialchars($sortDirCurrent) ?>">
+
+                    <div class="mb-3 flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-bold text-[#062B41]">Advanced Filters</p>
+                            <p class="text-xs text-gray-500">Applied to all orders, including pagination.</p>
+                        </div>
+                        <a href="/admin/orders" class="text-xs font-semibold text-[#0b5f8a] hover:underline">Reset all</a>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-6">
+                        <div class="lg:col-span-2">
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Order ID</label>
+                            <input type="text" name="order_id_search" value="<?= htmlspecialchars($searchTerm ?? '') ?>" placeholder="Search Order ID..." class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Status</label>
+                            <select name="status" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <option value="">All</option>
+                                <?php foreach ($statusOptions as $statusOption): ?>
+                                    <option value="<?= htmlspecialchars($statusOption) ?>" <?= (($statusFilter ?? '') === $statusOption) ? 'selected' : '' ?>><?= htmlspecialchars(ucfirst($statusOption)) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Customer Type</label>
+                            <select name="customer_type" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <option value="">All</option>
+                                <option value="user" <?= (($customerTypeFilter ?? '') === 'user') ? 'selected' : '' ?>>User</option>
+                                <option value="guest" <?= (($customerTypeFilter ?? '') === 'guest') ? 'selected' : '' ?>>Guest</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Sale Type</label>
+                            <select name="sale_type" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <option value="">All</option>
+                                <option value="rental" <?= (($saleTypeFilter ?? '') === 'rental') ? 'selected' : '' ?>>Rental</option>
+                                <option value="sale" <?= (($saleTypeFilter ?? '') === 'sale') ? 'selected' : '' ?>>Sale</option>
+                            </select>
+                        </div>
+
+                        <div class="lg:col-span-2">
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Date Range (Order Date)</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input id="orderDateFromDisplay" type="text" value="<?= htmlspecialchars($dateFromFilter ?? '') ?>" placeholder="From date" class="js-order-date-display w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <input id="orderDateToDisplay" type="text" value="<?= htmlspecialchars($dateToFilter ?? '') ?>" placeholder="To date" class="js-order-date-display w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            </div>
+                            <input id="orderDateFrom" type="hidden" name="date_from" value="<?= htmlspecialchars($dateFromFilter ?? '') ?>">
+                            <input id="orderDateTo" type="hidden" name="date_to" value="<?= htmlspecialchars($dateToFilter ?? '') ?>">
+                        </div>
+                    </div>
+
+                    <div class="mt-3 flex justify-end gap-2">
+                        <button type="submit" class="cursor-pointer rounded-lg bg-[#062B41] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#08456b] transition-colors duration-150">Apply Filters</button>
+                    </div>
                 </form>
 
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
+                    <table id="ordersTable" class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-4 py-2">Order ID</th>
+                                <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('order_id')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Order ID <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'order_id') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
                                 <th class="px-4 py-2">Customer</th>
                                 <th class="px-4 py-2">Type</th> <!-- New: Customer Type -->
                                 <th class="px-4 py-2">Email</th>
-                                <th class="px-4 py-2">Sale Type</th> <!-- New: Sale Type -->
-                                <th class="px-4 py-2">Total Amount</th>
-                                <th class="px-4 py-2">Status</th>
-                                <th class="px-4 py-2">Date Ordered</th>
-                                <th>Pickup Date/Time</th>
-                                <th>Return Date/Time</th>
+                                <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('sale_type')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Sale Type <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'sale_type') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th> <!-- New: Sale Type -->
+                                <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('total_amount')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Total Amount <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'total_amount') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
+                                <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('status')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Status <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'status') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
+                                <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('order_date')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Date Ordered <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'order_date') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
+                                <th class="text-left"><a href="<?= htmlspecialchars($buildSortLink('pickup_datetime')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Pickup Date/Time <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'pickup_datetime') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
+                                <th class="text-left"><a href="<?= htmlspecialchars($buildSortLink('return_datetime')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Return Date/Time <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'return_datetime') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
                                 <th class="px-4 py-2">Actions</th>
                             </tr>
                         </thead>
@@ -177,7 +285,7 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
                                             <button type="submit" class="bg-yellow-500 text-white px-2 py-1 rounded text-xs hover:bg-yellow-600 cursor-pointer">Mark as Paid</button>
                                         </form>
                                     <?php elseif ($order['status'] === 'paid'): ?>
-                                        <form method="post" action="/admin/orders/complete" class="inline" onsubmit="return confirm('Mark this order as completed?');">
+                                        <form method="post" action="/admin/orders/complete" class="inline order-complete-form">
                                             <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                             <button type="submit" class="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600 cursor-pointer">Complete</button>
@@ -205,10 +313,9 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
             $inactiveClass = 'bg-white text-[#062B41] hover:bg-[#062B41] hover:text-white transition-colors duration-150';
             $arrowClass = 'bg-white text-[#062B41] hover:bg-[#062B41] hover:text-white transition-colors duration-150';
             $pillClass = 'px-3 py-1 mx-0.5 text-base';
-            $searchParam = isset($_GET['order_id_search']) && $_GET['order_id_search'] !== '' ? '&order_id_search=' . urlencode($_GET['order_id_search']) : '';
             // Left arrow
             if ($page > 1) {
-                echo '<a href="?page=' . ($page - 1) . $searchParam . '" class="' . $arrowClass . ' ' . $pillClass . ' mr-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg></a>';
+                echo '<a href="' . htmlspecialchars($buildPageLink($page - 1)) . '" class="' . $arrowClass . ' ' . $pillClass . ' mr-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg></a>';
             }
             for ($i = 1; $i <= $totalPages; $i++) {
                 if (
@@ -221,14 +328,14 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
                         $dots = false;
                     }
                     $isActive = ($i == $page);
-                    echo '<a href="?page=' . $i . $searchParam . '" class="' . ($isActive ? $activeClass : $inactiveClass) . ' ' . $pillClass . '">' . $i . '</a>';
+                    echo '<a href="' . htmlspecialchars($buildPageLink($i)) . '" class="' . ($isActive ? $activeClass : $inactiveClass) . ' ' . $pillClass . '">' . $i . '</a>';
                 } else {
                     $dots = true;
                 }
             }
             // Right arrow
             if ($page < $totalPages) {
-                echo '<a href="?page=' . ($page + 1) . $searchParam . '" class="' . $arrowClass . ' ' . $pillClass . ' ml-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></a>';
+                echo '<a href="' . htmlspecialchars($buildPageLink($page + 1)) . '" class="' . $arrowClass . ' ' . $pillClass . ' ml-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></a>';
             }
             ?>
         </div>
@@ -385,9 +492,15 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
             });
         }
 
-        document.querySelectorAll('form[action="/admin/orders/complete"]').forEach(form => {
+        document.querySelectorAll('.order-complete-form').forEach(form => {
             form.addEventListener('submit', function(e) {
                 if (form.dataset.submitting === 'true') {
+                    e.preventDefault();
+                    return;
+                }
+
+                const confirmed = window.confirm('Mark this order as completed?');
+                if (!confirmed) {
                     e.preventDefault();
                     return;
                 }
@@ -400,6 +513,65 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
                 showOrderActionLoadingState('Completing order', 'Please wait while inventory, PDFs, and order status are being finalized.');
             });
         });
+
+        if (typeof flatpickr === 'function') {
+            const fromHidden = document.getElementById('orderDateFrom');
+            const toHidden = document.getElementById('orderDateTo');
+            const fromDisplay = document.getElementById('orderDateFromDisplay');
+            const toDisplay = document.getElementById('orderDateToDisplay');
+
+            if (fromDisplay && fromHidden) {
+                flatpickr(fromDisplay, {
+                    dateFormat: 'Y-m-d',
+                    altInput: true,
+                    altFormat: 'M j, Y',
+                    defaultDate: fromHidden.value || null,
+                    allowInput: true,
+                    disableMobile: true,
+                    onChange: function(selectedDates, dateStr) {
+                        fromHidden.value = dateStr || '';
+                    },
+                    onClose: function(selectedDates, dateStr) {
+                        fromHidden.value = dateStr || '';
+                    }
+                });
+            }
+
+            if (toDisplay && toHidden) {
+                flatpickr(toDisplay, {
+                    dateFormat: 'Y-m-d',
+                    altInput: true,
+                    altFormat: 'M j, Y',
+                    defaultDate: toHidden.value || null,
+                    allowInput: true,
+                    disableMobile: true,
+                    onChange: function(selectedDates, dateStr) {
+                        toHidden.value = dateStr || '';
+                    },
+                    onClose: function(selectedDates, dateStr) {
+                        toHidden.value = dateStr || '';
+                    }
+                });
+            }
+        }
+
+        const filterForm = document.querySelector('form[method="GET"]');
+        if (filterForm) {
+            filterForm.addEventListener('submit', function() {
+                const fromDisplayInput = document.getElementById('orderDateFromDisplay');
+                const toDisplayInput = document.getElementById('orderDateToDisplay');
+                const fromHiddenInput = document.getElementById('orderDateFrom');
+                const toHiddenInput = document.getElementById('orderDateTo');
+
+                if (fromDisplayInput && fromDisplayInput._flatpickr && fromHiddenInput) {
+                    fromHiddenInput.value = fromDisplayInput._flatpickr.input.value || '';
+                }
+
+                if (toDisplayInput && toDisplayInput._flatpickr && toHiddenInput) {
+                    toHiddenInput.value = toDisplayInput._flatpickr.input.value || '';
+                }
+            });
+        }
     });
     
     function validatePickupLocation() {
@@ -425,5 +597,172 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
     </script>
 </body>
 
-<!-- <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+    <style>
+    .flatpickr-calendar {
+        border-radius: 14px;
+        border: 1px solid #dbe8f2;
+        box-shadow: 0 16px 34px rgba(6, 43, 65, 0.14);
+    }
+
+    .flatpickr-day.selected,
+    .flatpickr-day.startRange,
+    .flatpickr-day.endRange {
+        background: #0086c9;
+        border-color: #0086c9;
+    }
+
+    .flatpickr-day.today {
+        border-color: #0b5f8a;
+    }
+    </style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Chart.js charts initialization
+    document.addEventListener('DOMContentLoaded', function() {
+        const chartColors = {
+            primary: '#0086C9',
+            success: '#10B981',
+            warning: '#F59E0B',
+            danger: '#EF4444',
+            purple: '#8B5CF6',
+            gray: '#6B7280'
+        };
+
+        // Toggle Analytics Section
+        const toggleBtn = document.getElementById('toggleAnalytics');
+        const analyticsSection = document.getElementById('analyticsSection');
+        let chartsInitialized = false;
+
+        toggleBtn?.addEventListener('click', function() {
+            analyticsSection.classList.toggle('hidden');
+            
+            if (!analyticsSection.classList.contains('hidden')) {
+                toggleBtn.textContent = 'Hide Analytics';
+                
+                // Initialize charts only when analytics is shown (for better performance)
+                if (!chartsInitialized) {
+                    initializeCharts();
+                    chartsInitialized = true;
+                }
+            } else {
+                toggleBtn.textContent = 'Show Analytics';
+            }
+        });
+
+        function initializeCharts() {
+            // Sales Over Time Chart
+            const salesData = <?php echo json_encode($salesByDate ?? []); ?>;
+            const salesCtx = document.getElementById('salesChart');
+            if (salesCtx) {
+                new Chart(salesCtx, {
+                    type: 'line',
+                    data: {
+                        labels: salesData.map(d => new Date(d.date).toLocaleDateString()),
+                        datasets: [{
+                            label: 'Daily Sales ($)',
+                            data: salesData.map(d => parseFloat(d.total || 0)),
+                            borderColor: chartColors.primary,
+                            backgroundColor: 'rgba(0, 134, 201, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 4,
+                            pointBackgroundColor: chartColors.primary,
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Sales ($)'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Orders by Status Chart
+            const statusData = <?php echo json_encode($ordersByStatus ?? []); ?>;
+            const statusCtx = document.getElementById('statusChart');
+            if (statusCtx && statusData.length > 0) {
+                const statusLabels = statusData.map(d => d.status.charAt(0).toUpperCase() + d.status.slice(1));
+                const statusCounts = statusData.map(d => d.count);
+                const statusColors = [chartColors.warning, chartColors.primary, chartColors.success, chartColors.danger, chartColors.purple];
+                
+                new Chart(statusCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: statusLabels,
+                        datasets: [{
+                            data: statusCounts,
+                            backgroundColor: statusColors.slice(0, statusLabels.length),
+                            borderColor: '#fff',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Order Volume Chart
+            const volumeData = <?php echo json_encode($orderCountByDate ?? []); ?>;
+            const volumeCtx = document.getElementById('volumeChart');
+            if (volumeCtx) {
+                new Chart(volumeCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: volumeData.map(d => new Date(d.date).toLocaleDateString()),
+                        datasets: [{
+                            label: 'Orders per Day',
+                            data: volumeData.map(d => parseInt(d.count || 0)),
+                            backgroundColor: chartColors.success,
+                            borderColor: '#047857',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    });
+</script>
 </html>

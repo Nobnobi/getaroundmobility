@@ -62,8 +62,10 @@ class OrderModel {
     public function markScootersSoldIfForSale($cart, $assignedScooters, $orderSaleType = null) {
         // Mark as sold if sale_type is 'sale' or type is 'for-sale'
         $scooterIdsToMark = [];
-        $debugFile = fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
-        fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] ENTERED markScootersSoldIfForSale\nCart: " . print_r($cart, true) . "\nAssigned: " . print_r($assignedScooters, true));
+        $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+        if (is_resource($debugFile)) {
+            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] ENTERED markScootersSoldIfForSale\nCart: " . print_r($cart, true) . "\nAssigned: " . print_r($assignedScooters, true));
+        }
         foreach ($cart as $idx => $item) {
             $isForSale = strtolower((string)($orderSaleType ?? '')) === 'sale';
             if (!$isForSale && isset($item['type']) && $item['type'] === 'for-sale') {
@@ -77,13 +79,19 @@ class OrderModel {
                 }
             }
         }
-        fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Scooters to mark as sold: " . print_r($scooterIdsToMark, true));
+        if (is_resource($debugFile)) {
+            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Scooters to mark as sold: " . print_r($scooterIdsToMark, true));
+        }
         if (!empty($scooterIdsToMark)) {
             $scooterModel = new \App\Models\ScooterModel();
             $scooterModel->markScootersAsSold($scooterIdsToMark);
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] markScootersAsSold called for: " . print_r($scooterIdsToMark, true));
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] markScootersAsSold called for: " . print_r($scooterIdsToMark, true));
+            }
         }
-        fclose($debugFile);
+        if (is_resource($debugFile)) {
+            fclose($debugFile);
+        }
     }
     
     protected $db;
@@ -540,6 +548,85 @@ class OrderModel {
         return $results;
     }
 
+    public function getOrdersFilteredPaginated(array $filters, $page = 1, $perPage = 10, &$total = null) {
+        $page = max(1, (int)$page);
+        $perPage = max(1, (int)$perPage);
+        $offset = ($page - 1) * $perPage;
+
+        $where = [];
+        $params = [];
+
+        $searchTerm = trim((string)($filters['order_id_search'] ?? ''));
+        if ($searchTerm !== '') {
+            $where[] = 'CAST(order_id AS CHAR) LIKE ?';
+            $params[] = '%' . $searchTerm . '%';
+        }
+
+        $status = strtolower(trim((string)($filters['status'] ?? '')));
+        if ($status !== '') {
+            $where[] = 'LOWER(status) = ?';
+            $params[] = $status;
+        }
+
+        $customerType = strtolower(trim((string)($filters['customer_type'] ?? '')));
+        if ($customerType !== '') {
+            $where[] = 'LOWER(customer_type) = ?';
+            $params[] = $customerType;
+        }
+
+        $saleType = strtolower(trim((string)($filters['sale_type'] ?? '')));
+        if ($saleType !== '') {
+            $where[] = 'LOWER(sale_type) = ?';
+            $params[] = $saleType;
+        }
+
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
+        if ($dateFrom !== '') {
+            $where[] = 'DATE(order_date) >= ?';
+            $params[] = $dateFrom;
+        }
+
+        $dateTo = trim((string)($filters['date_to'] ?? ''));
+        if ($dateTo !== '') {
+            $where[] = 'DATE(order_date) <= ?';
+            $params[] = $dateTo;
+        }
+
+        $whereSql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
+
+        $allowedSortColumns = ['order_id', 'sale_type', 'total_amount', 'status', 'order_date', 'pickup_datetime', 'return_datetime'];
+        $sortBy = $filters['sort_by'] ?? 'order_id';
+        if (!in_array($sortBy, $allowedSortColumns, true)) {
+            $sortBy = 'order_id';
+        }
+
+        $sortDir = strtolower((string)($filters['sort_dir'] ?? 'desc'));
+        $sortDir = $sortDir === 'asc' ? 'ASC' : 'DESC';
+
+        $sql = "SELECT * FROM orders" . $whereSql . " ORDER BY {$sortBy} {$sortDir} LIMIT ? OFFSET ?";
+        $stmt = $this->db->prepare($sql);
+
+        $idx = 1;
+        foreach ($params as $param) {
+            $stmt->bindValue($idx++, $param, \PDO::PARAM_STR);
+        }
+        $stmt->bindValue($idx++, $perPage, \PDO::PARAM_INT);
+        $stmt->bindValue($idx, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
+        $results = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $countSql = "SELECT COUNT(*) FROM orders" . $whereSql;
+        $countStmt = $this->db->prepare($countSql);
+        $idx = 1;
+        foreach ($params as $param) {
+            $countStmt->bindValue($idx++, $param, \PDO::PARAM_STR);
+        }
+        $countStmt->execute();
+        $total = (int)$countStmt->fetchColumn();
+
+        return $results;
+    }
+
     // Update order status to 'approved'
     public function approveOrder($orderId) {
         $stmt = $this->db->prepare("UPDATE orders SET status = 'approved' WHERE order_id = ?");
@@ -564,18 +651,55 @@ class OrderModel {
         return $stmt->execute([$orderId]);
     }
     
+    // Analytics methods
+    public function getCompletedOrdersCount() {
+        $stmt = $this->db->query("SELECT COUNT(*) FROM orders WHERE status = 'completed'");
+        return (int)$stmt->fetchColumn();
+    }
+
+    public function getTotalSales() {
+        $stmt = $this->db->query("SELECT SUM(total_amount) FROM orders WHERE status = 'completed'");
+        $result = $stmt->fetchColumn();
+        return (float)($result ?? 0);
+    }
+
+    public function getPendingOrdersCount() {
+        $stmt = $this->db->query("SELECT COUNT(*) FROM orders WHERE status = 'pending'");
+        return (int)$stmt->fetchColumn();
+    }
+
+    public function getOrdersByStatus() {
+        $stmt = $this->db->query("SELECT status, COUNT(*) as count FROM orders GROUP BY status");
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function getSalesByDate($days = 30) {
+        $stmt = $this->db->prepare("SELECT DATE(order_date) as date, SUM(total_amount) as total FROM orders WHERE status = 'completed' AND order_date >= DATE_SUB(NOW(), INTERVAL ? DAY) GROUP BY DATE(order_date) ORDER BY date ASC");
+        $stmt->execute([$days]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function getOrderCountByDate($days = 30) {
+        $stmt = $this->db->prepare("SELECT DATE(order_date) as date, COUNT(*) as count FROM orders WHERE order_date >= DATE_SUB(NOW(), INTERVAL ? DAY) GROUP BY DATE(order_date) ORDER BY date ASC");
+        $stmt->execute([$days]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
 
     /**
      * Full order process: creates order, items, reservations, generates PDFs, sends email, returns orderId
      */
     public function fullOrderProcess($form, $cart, $session) {
-                $myfile = fopen("order-debug-log.txt", "a") or die("Unable to open file!");
-                fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Entered fullOrderProcess in OrderModel\n");
-                fclose($myfile);
+                $myfile = @fopen("order-debug-log.txt", "a");
+                if (is_resource($myfile)) {
+                    fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Entered fullOrderProcess in OrderModel\n");
+                    fclose($myfile);
+                }
             // DEBUG: Confirm function is called and file can be created
-            $myfile = fopen("order-debug-log.txt", "a") or die("Unable to open file!");
-            fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Entered fullOrderProcess\n");
-            fclose($myfile);
+            $myfile = @fopen("order-debug-log.txt", "a");
+            if (is_resource($myfile)) {
+                fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Entered fullOrderProcess\n");
+                fclose($myfile);
+            }
         // Address logic
         $deliveryType = $form['delivery_type'] ?? 'preferred';
         if ($deliveryType === 'hotel') {
@@ -655,6 +779,10 @@ class OrderModel {
         $totalAmountWithTax = $totalAmount + $tax;
         $pickup_datetime = $form['pickup_datetime'] ?? null;
         $return_datetime = $form['return_datetime'] ?? null;
+        $deliveryTypeForOrder = in_array(($form['delivery_type'] ?? ''), ['hotel', 'pickup'], true)
+            ? $form['delivery_type']
+            : 'hotel';
+        $hotelIdForOrder = !empty($form['hotel_id']) ? $form['hotel_id'] : null;
             // Insert order with error logging
             try {
                 $insertValues = [
@@ -674,48 +802,94 @@ class OrderModel {
                     $totalAmountWithTax,
                     $customerType,
                     $pickup_datetime,
-                    $return_datetime
+                    $return_datetime,
+                    $deliveryTypeForOrder,
+                    $hotelIdForOrder
                 ];
-                $myfile = fopen("order-debug-log.txt", "a") or die("Unable to open file!");
-                fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
+                $myfile = @fopen("order-debug-log.txt", "a");
+                if (is_resource($myfile)) {
+                    fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
+                }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, customer_type, pickup_datetime, return_datetime, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, customer_type, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
-                fwrite($myfile, "OrderModel fullOrderProcess LAST INSERT ID: " . print_r($orderId, true) . "\n\n");
-                fclose($myfile);
-                    $myfile = fopen("order-debug-log.txt", "a");
-                    fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Order insert SUCCESS. orderId: $orderId\nParams: " . var_export($insertValues, true) . "\n");
+                if (is_resource($myfile)) {
+                    fwrite($myfile, "OrderModel fullOrderProcess LAST INSERT ID: " . print_r($orderId, true) . "\n\n");
                     fclose($myfile);
+                }
+                    $myfile = @fopen("order-debug-log.txt", "a");
+                    if (is_resource($myfile)) {
+                        fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Order insert SUCCESS. orderId: $orderId\nParams: " . var_export($insertValues, true) . "\n");
+                        fclose($myfile);
+                    }
             } catch (\PDOException $e) {
-                $myfile = fopen("order-debug-log.txt", "a") or die("Unable to open file!");
-                fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess SQL Error: " . $e->getMessage() . "\n\n");
-                fclose($myfile);
-                    $myfile = fopen("order-debug-log.txt", "a");
-                    fwrite($myfile, date('Y-m-d H:i:s') . "\n[ERROR] Order insert FAILED: " . $e->getMessage() . "\nParams: " . var_export($insertValues ?? [], true) . "\n");
+                $myfile = @fopen("order-debug-log.txt", "a");
+                if (is_resource($myfile)) {
+                    fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess SQL Error: " . $e->getMessage() . "\n\n");
                     fclose($myfile);
+                }
+                    $myfile = @fopen("order-debug-log.txt", "a");
+                    if (is_resource($myfile)) {
+                        fwrite($myfile, date('Y-m-d H:i:s') . "\n[ERROR] Order insert FAILED: " . $e->getMessage() . "\nParams: " . var_export($insertValues ?? [], true) . "\n");
+                        fclose($myfile);
+                    }
                 return false;
             }
         // Debug: Fetch the order after insert to verify and log (fix WHERE clause)
-        $debugFile = fopen("order-debug-log.txt", "a");
+        $debugFile = @fopen("order-debug-log.txt", "a");
         try {
             $stmt = $this->db->prepare("SELECT * FROM orders WHERE order_id = ?");
             $stmt->execute([$orderId]);
             $orderDebug = $stmt->fetch(\PDO::FETCH_ASSOC);
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Order fetch debug for orderId: $orderId: " . var_export($orderDebug, true) . "\n");
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Order fetch debug for orderId: $orderId: " . var_export($orderDebug, true) . "\n");
+            }
         } catch (\PDOException $e) {
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Exception during order fetch debug for orderId: $orderId: " . $e->getMessage() . "\n");
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Exception during order fetch debug for orderId: $orderId: " . $e->getMessage() . "\n");
+            }
         }
         // Continue with order items and reservations
-        fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Starting scooter assignment with overlap check in fullOrderProcess\n");
+        if (is_resource($debugFile)) {
+            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Starting scooter assignment with overlap check in fullOrderProcess\n");
+        }
         $assignedScooters = [];
         $assignmentOk = $this->ensureOrderAssignments($orderId, $cart, $form['pickup_datetime'], $form['return_datetime'], $assignedScooters, $debugFile);
         if (!$assignmentOk) {
-            $this->db->prepare("DELETE FROM orders WHERE order_id = ?")->execute([$orderId]);
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Order {$orderId} removed because scooter assignment failed.\n");
-            fclose($debugFile);
-            return false;
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Scooter assignment failed for order {$orderId}. Preserving paid order for manual fulfillment.\n");
+            }
+
+            // Ensure order_items exist even when scooter assignment fails.
+            $itemCountStmt = $this->db->prepare("SELECT COUNT(*) FROM order_items WHERE order_id = ?");
+            $itemCountStmt->execute([$orderId]);
+            $existingOrderItems = (int)$itemCountStmt->fetchColumn();
+
+            if ($existingOrderItems === 0) {
+                $fallbackItemStmt = $this->db->prepare("INSERT INTO order_items (order_id, product_id, product_name, price, quantity, image_url, variation_id, variation_name, scooter_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)");
+                foreach ($cart as $item) {
+                    $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
+                    $fallbackItemStmt->execute([
+                        $orderId,
+                        $item['id'] ?? null,
+                        $item['name'] ?? 'Item',
+                        (float)($item['price'] ?? 0),
+                        $qty,
+                        $item['image_url'] ?? null,
+                        $item['variation_id'] ?? null,
+                        $item['variation_name'] ?? null,
+                    ]);
+                }
+            }
+
+            $notesSuffix = trim(($notes ?? '') . "\n[System] Scooter assignment pending manual review.");
+            $updateNotesStmt = $this->db->prepare("UPDATE orders SET notes = ? WHERE order_id = ?");
+            $updateNotesStmt->execute([$notesSuffix, $orderId]);
+
+            // Continue the flow so PDF generation and email still run.
+            $assignedScooters = [];
         }
 
         // Debug: Log reservation and order_items count for this order after scooter assignment
@@ -725,14 +899,18 @@ class OrderModel {
                 $itemCount = $this->db->prepare("SELECT COUNT(*) FROM order_items WHERE order_id = ?");
                 $itemCount->execute([$orderId]);
                 $orderItemCount = $itemCount->fetchColumn();
-                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] (Post-Assignment) Reservation count for order_id $orderId: $reservationCount\n");
-                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] (Post-Assignment) Order item count for order_id $orderId: $orderItemCount\n");
-                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] After order item insertions, before PDF/email code in fullOrderProcess\n");
-                fclose($debugFile);
+                if (is_resource($debugFile)) {
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] (Post-Assignment) Reservation count for order_id $orderId: $reservationCount\n");
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] (Post-Assignment) Order item count for order_id $orderId: $orderItemCount\n");
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] After order item insertions, before PDF/email code in fullOrderProcess\n");
+                    fclose($debugFile);
+                }
                // Mark scooters as sold if for-sale (for-sale flow)
-               $debugFile = fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
-               fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] About to call markScootersSoldIfForSale in fullOrderProcess\nCart: " . print_r($cart, true) . "\nAssigned: " . print_r($assignedScooters, true));
-               fclose($debugFile);
+               $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+               if (is_resource($debugFile)) {
+                   fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] About to call markScootersSoldIfForSale in fullOrderProcess\nCart: " . print_r($cart, true) . "\nAssigned: " . print_r($assignedScooters, true));
+                   fclose($debugFile);
+               }
                $this->markScootersSoldIfForSale($cart, $assignedScooters, $form['sale_type'] ?? null);
         // --- CONTRACT PDF GENERATION ---
         $customerAddress = $address1 . ($address2 ? " " . $address2 : "");
@@ -747,60 +925,98 @@ class OrderModel {
             $itemsTable .= "<tr><td class='border px-2 py-1'>{$qty}</td><td class='border px-2 py-1'>{$name}</td><td class='border px-2 py-1'>{$unitPrice}</td><td class='border px-2 py-1'>{$lineTotal}</td></tr>";
         }
         $itemsTable .= '</tbody></table>';
-        ob_start();
-        $debugFile = fopen("order-debug-log.txt", "a");
-        fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Entering PDF generation block in fullOrderProcess\n");
-        fclose($debugFile);
-        include __DIR__ . '/../../Contracts/contract-template.php';
-        $html = ob_get_clean();
-        $options = new Options();
-        $options->set('isRemoteEnabled', true);
-        $options->set('isHtml5ParserEnabled', true);
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($html);
-        $dompdf->setPaper('A4', 'portrait');
-        $dompdf->render();
-        $pdfDir = __DIR__ . '/../../Contracts/';
-        if (!is_dir($pdfDir)) mkdir($pdfDir, 0777, true);
-        file_put_contents($pdfDir . "contract-{$orderId}.pdf", $dompdf->output());
-        $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
-        // --- INVOICE PDF GENERATION ---
-        $invoiceItemsTable = '';
-        foreach ($cart as $item) {
-            $qty = htmlspecialchars($item['qty']);
-            $name = htmlspecialchars($item['name']);
-            $unitPrice = number_format($item['price'], 2);
-            $lineTotal = number_format($item['qty'] * $item['price'], 2);
-            $invoiceItemsTable .= "<tr><td class='border p-2'>{$qty}</td><td class='border p-2'>{$name}</td><td class='border p-2'>\${$unitPrice}</td><td class='border p-2'>\${$lineTotal}</td></tr>";
-        }
-        $logoSrc = '';
-        if (extension_loaded('gd')) {
-            $logoPath = __DIR__ . '/../../public/img/Original logo.png';
-            if (!file_exists($logoPath)) {
-                $logoPath = __DIR__ . '/../../public/img/Original logo.svg';
+        
+        // WRAP PDF & EMAIL GENERATION IN TRY-CATCH TO PREVENT BREAKING PAYMENT RESPONSE
+        $pdfPath = null;
+        $invoicePath = null;
+        try {
+            ob_start();
+            $debugFile = @fopen("order-debug-log.txt", "a");
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Entering PDF generation block in fullOrderProcess\n");
+                fclose($debugFile);
             }
-            if (file_exists($logoPath)) {
-                $mime = mime_content_type($logoPath);
-                $data = file_get_contents($logoPath);
-                $logoSrc = 'data:' . $mime . ';base64,' . base64_encode($data);
+            include __DIR__ . '/../../Contracts/contract-template.php';
+            $html = ob_get_clean();
+            $options = new Options();
+            $options->set('isRemoteEnabled', true);
+            $options->set('isHtml5ParserEnabled', true);
+            $dompdf = new Dompdf($options);
+            $dompdf->loadHtml($html);
+            $dompdf->setPaper('A4', 'portrait');
+            $dompdf->render();
+            $pdfDir = __DIR__ . '/../../Contracts/';
+            if ((!is_dir($pdfDir) && !@mkdir($pdfDir, 0777, true)) || !is_writable($pdfDir)) {
+                $pdfDir = __DIR__ . '/../../public/Contracts/';
+                if (!is_dir($pdfDir) && !@mkdir($pdfDir, 0777, true)) {
+                    throw new \RuntimeException('Unable to create Contracts directory.');
+                }
             }
+            $contractTarget = $pdfDir . "contract-{$orderId}.pdf";
+            $written = @file_put_contents($contractTarget, $dompdf->output());
+            if ($written === false || !is_file($contractTarget) || filesize($contractTarget) === 0) {
+                throw new \RuntimeException('Failed to write contract PDF.');
+            }
+            $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
+            
+            // --- INVOICE PDF GENERATION ---
+            $invoiceItemsTable = '';
+            foreach ($cart as $item) {
+                $qty = htmlspecialchars($item['qty']);
+                $name = htmlspecialchars($item['name']);
+                $unitPrice = number_format($item['price'], 2);
+                $lineTotal = number_format($item['qty'] * $item['price'], 2);
+                $invoiceItemsTable .= "<tr><td class='border p-2'>{$qty}</td><td class='border p-2'>{$name}</td><td class='border p-2'>\${$unitPrice}</td><td class='border p-2'>\${$lineTotal}</td></tr>";
+            }
+            $logoSrc = '';
+            if (extension_loaded('gd')) {
+                $logoPath = __DIR__ . '/../../public/img/Original logo.png';
+                if (!file_exists($logoPath)) {
+                    $logoPath = __DIR__ . '/../../public/img/Original logo.svg';
+                }
+                if (file_exists($logoPath)) {
+                    $mime = mime_content_type($logoPath);
+                    $data = file_get_contents($logoPath);
+                    $logoSrc = 'data:' . $mime . ';base64,' . base64_encode($data);
+                }
+            }
+            $itemsTable = $invoiceItemsTable;
+            $totalAmount = $totalAmount ?? 0;
+            ob_start();
+            include __DIR__ . '/../../Invoices/invoice-template.php';
+            $invoiceHtml = ob_get_clean();
+            $invoiceOptions = new Options();
+            $invoiceOptions->set('isRemoteEnabled', true);
+            $invoiceOptions->set('isHtml5ParserEnabled', true);
+            $invoiceDompdf = new Dompdf($invoiceOptions);
+            $invoiceDompdf->loadHtml($invoiceHtml);
+            $invoiceDompdf->setPaper('A4', 'portrait');
+            $invoiceDompdf->render();
+            $invoiceDir = __DIR__ . '/../../Invoices/';
+            if ((!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) || !is_writable($invoiceDir)) {
+                $invoiceDir = __DIR__ . '/../../public/Invoices/';
+                if (!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) {
+                    throw new \RuntimeException('Unable to create Invoices directory.');
+                }
+            }
+            $invoiceTarget = $invoiceDir . "invoice-{$orderId}.pdf";
+            $written = @file_put_contents($invoiceTarget, $invoiceDompdf->output());
+            if ($written === false || !is_file($invoiceTarget) || filesize($invoiceTarget) === 0) {
+                throw new \RuntimeException('Failed to write invoice PDF.');
+            }
+            $invoicePath = $invoiceDir . "invoice-{$orderId}.pdf";
+        } catch (\Throwable $e) {
+            // PDF generation failed, but order is already created - log it and continue
+            @ob_end_clean();
+            error_log("PDF/Invoice generation failed for order {$orderId}: " . $e->getMessage());
+            $debugFile = @fopen("order-debug-log.txt", "a");
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] PDF generation error: " . $e->getMessage() . "\n");
+                fclose($debugFile);
+            }
+            // Continue without PDFs - don't break the order
         }
-        $itemsTable = $invoiceItemsTable;
-        $totalAmount = $totalAmount ?? 0;
-        ob_start();
-        include __DIR__ . '/../../Invoices/invoice-template.php';
-        $invoiceHtml = ob_get_clean();
-        $invoiceOptions = new Options();
-        $invoiceOptions->set('isRemoteEnabled', true);
-        $invoiceOptions->set('isHtml5ParserEnabled', true);
-        $invoiceDompdf = new Dompdf($invoiceOptions);
-        $invoiceDompdf->loadHtml($invoiceHtml);
-        $invoiceDompdf->setPaper('A4', 'portrait');
-        $invoiceDompdf->render();
-        $invoiceDir = __DIR__ . '/../../Invoices/';
-        if (!is_dir($invoiceDir)) mkdir($invoiceDir, 0777, true);
-        file_put_contents($invoiceDir . "invoice-{$orderId}.pdf", $invoiceDompdf->output());
-        $invoicePath = $invoiceDir . "invoice-{$orderId}.pdf";
+        
         // --- EMAIL SENDING ---
         // Ensure finalEmail and finalName are set correctly
         if ($customerType === 'guest') {
@@ -810,30 +1026,53 @@ class OrderModel {
             $finalEmail = $customerEmail;
             $finalName = $customerName;
         }
-        $mail = new PHPMailer(true);
-        $debugFile = fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
-        fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Preparing to send contract/invoice email to: $finalEmail\n");
-        try {
-            $mail->isSMTP();
-            $mail->Host = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
-            $mail->SMTPAuth = true;
-            $mail->Username = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
-            $mail->Password = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
-            $mail->SMTPSecure = 'tls';
-            $mail->Port = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
-            $mail->setFrom(getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? null), 'Get Around Mobility');
-            $mail->addAddress($finalEmail, $finalName);
-            $mail->Subject = 'Your Rental Booking Confirmation';
-            $mail->Body = "Thank you for your booking! Please find your rental contract and invoice attached.";
-            $mail->addAttachment($pdfPath, "Rental-Contract-{$orderId}.pdf");
-            $mail->addAttachment($invoicePath, "Invoice-{$orderId}.pdf");
-            $mail->send();
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Contract/invoice email sent successfully to: $finalEmail\n");
-        } catch (MailException $e) {
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Contract/invoice email failed: " . $mail->ErrorInfo . "\nException: " . $e->getMessage() . "\n");
-            error_log("Mailer Error: {$mail->ErrorInfo}");
+        
+        if (filter_var($finalEmail, FILTER_VALIDATE_EMAIL)) {
+            try {
+                $mail = new PHPMailer(true);
+                $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+                if (is_resource($debugFile)) {
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Preparing to send contract/invoice email to: $finalEmail\n");
+                }
+                $mail->isSMTP();
+                $mail->Host = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
+                $mail->SMTPAuth = true;
+                $mail->Username = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
+                $mail->Password = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
+                $mail->SMTPSecure = 'tls';
+                $mail->Port = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
+                $mail->setFrom(getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? null), 'Get Around Mobility');
+                $mail->addAddress($finalEmail, $finalName);
+                $mail->Subject = 'Your Rental Booking Confirmation';
+                if ($pdfPath && is_file($pdfPath) && $invoicePath && is_file($invoicePath)) {
+                    $mail->Body = "Thank you for your booking! Please find your rental contract and invoice attached.";
+                    $mail->addAttachment($pdfPath, "Rental-Contract-{$orderId}.pdf");
+                    $mail->addAttachment($invoicePath, "Invoice-{$orderId}.pdf");
+                } else {
+                    $mail->Body = "Thank you for your booking! Your contract/invoice files are being prepared and will be sent shortly.";
+                }
+                $mail->send();
+                if (is_resource($debugFile)) {
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Contract/invoice email sent successfully to: $finalEmail\n");
+                }
+            } catch (MailException $e) {
+                $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+                if (is_resource($debugFile)) {
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Contract/invoice email failed: " . $mail->ErrorInfo . "\nException: " . $e->getMessage() . "\n");
+                    fclose($debugFile);
+                }
+                error_log("Mailer Error: {$mail->ErrorInfo}");
+            }
+        } else {
+            $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Skipped email: invalid recipient for order {$orderId}. Value: {$finalEmail}\n");
+                fclose($debugFile);
+            }
         }
-        fclose($debugFile);
+        if (is_resource($debugFile)) {
+            fclose($debugFile);
+        }
         // Generate one-time secure token
         $token = bin2hex(random_bytes(32));
         $_SESSION["order_token_{$orderId}"] = $token;
@@ -841,16 +1080,20 @@ class OrderModel {
     }
 
     public function ensureOrderDocumentsAndEmail($orderId, $cart = null) {
-        $debugFile = fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
-        fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] ensureOrderDocumentsAndEmail started for orderId: {$orderId}\n");
+        $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+        if (is_resource($debugFile)) {
+            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] ensureOrderDocumentsAndEmail started for orderId: {$orderId}\n");
+        }
 
         $stmt = $this->db->prepare("SELECT * FROM orders WHERE order_id = ? LIMIT 1");
         $stmt->execute([$orderId]);
         $order = $stmt->fetch(\PDO::FETCH_ASSOC);
 
         if (!$order) {
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Order not found for document recovery. orderId: {$orderId}\n");
-            fclose($debugFile);
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Order not found for document recovery. orderId: {$orderId}\n");
+                fclose($debugFile);
+            }
             return ['success' => false, 'error' => 'Order not found'];
         }
 
@@ -900,25 +1143,50 @@ class OrderModel {
 
         $contractDir = __DIR__ . '/../../Contracts/';
         $invoiceDir = __DIR__ . '/../../Invoices/';
-        if (!is_dir($contractDir)) mkdir($contractDir, 0777, true);
-        if (!is_dir($invoiceDir)) mkdir($invoiceDir, 0777, true);
+        if ((!is_dir($contractDir) && !@mkdir($contractDir, 0777, true)) || !is_writable($contractDir)) {
+            $contractDir = __DIR__ . '/../../public/Contracts/';
+            if (!is_dir($contractDir) && !@mkdir($contractDir, 0777, true)) {
+                $contractDir = null;
+            }
+        }
+        if ((!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) || !is_writable($invoiceDir)) {
+            $invoiceDir = __DIR__ . '/../../public/Invoices/';
+            if (!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) {
+                $invoiceDir = null;
+            }
+        }
 
-        $pdfPath = $contractDir . "contract-{$orderId}.pdf";
-        $invoicePath = $invoiceDir . "invoice-{$orderId}.pdf";
+        $pdfPath = $contractDir ? $contractDir . "contract-{$orderId}.pdf" : null;
+        $invoicePath = $invoiceDir ? $invoiceDir . "invoice-{$orderId}.pdf" : null;
 
-        if (!file_exists($pdfPath) || filesize($pdfPath) === 0) {
-            ob_start();
-            include __DIR__ . '/../../Contracts/contract-template.php';
-            $html = ob_get_clean();
-            $options = new Options();
-            $options->set('isRemoteEnabled', true);
-            $options->set('isHtml5ParserEnabled', true);
-            $dompdf = new Dompdf($options);
-            $dompdf->loadHtml($html);
-            $dompdf->setPaper('A4', 'portrait');
-            $dompdf->render();
-            file_put_contents($pdfPath, $dompdf->output());
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Contract PDF generated for orderId: {$orderId}\n");
+        // WRAP PDF GENERATION IN TRY-CATCH
+        try {
+            if ($pdfPath && (!file_exists($pdfPath) || filesize($pdfPath) === 0)) {
+                ob_start();
+                include __DIR__ . '/../../Contracts/contract-template.php';
+                $html = ob_get_clean();
+                $options = new Options();
+                $options->set('isRemoteEnabled', true);
+                $options->set('isHtml5ParserEnabled', true);
+                $dompdf = new Dompdf($options);
+                $dompdf->loadHtml($html);
+                $dompdf->setPaper('A4', 'portrait');
+                $dompdf->render();
+                $written = @file_put_contents($pdfPath, $dompdf->output());
+                if ($written === false || !is_file($pdfPath) || filesize($pdfPath) === 0) {
+                    throw new \RuntimeException('Failed to write recovery contract PDF.');
+                }
+                if (is_resource($debugFile)) {
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Contract PDF generated for orderId: {$orderId}\n");
+                }
+            }
+        } catch (\Throwable $e) {
+            @ob_end_clean();
+            error_log("Contract PDF generation failed for order {$orderId}: " . $e->getMessage());
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Contract PDF error: " . $e->getMessage() . "\n");
+            }
+            $pdfPath = null;
         }
 
         $logoSrc = '';
@@ -935,39 +1203,63 @@ class OrderModel {
         }
 
         $itemsTable = $invoiceItemsTable;
-        if (!file_exists($invoicePath) || filesize($invoicePath) === 0) {
-            ob_start();
-            include __DIR__ . '/../../Invoices/invoice-template.php';
-            $invoiceHtml = ob_get_clean();
-            $invoiceOptions = new Options();
-            $invoiceOptions->set('isRemoteEnabled', true);
-            $invoiceOptions->set('isHtml5ParserEnabled', true);
-            $invoiceDompdf = new Dompdf($invoiceOptions);
-            $invoiceDompdf->loadHtml($invoiceHtml);
-            $invoiceDompdf->setPaper('A4', 'portrait');
-            $invoiceDompdf->render();
-            file_put_contents($invoicePath, $invoiceDompdf->output());
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Invoice PDF generated for orderId: {$orderId}\n");
+        
+        // WRAP INVOICE PDF GENERATION IN TRY-CATCH
+        try {
+            if ($invoicePath && (!file_exists($invoicePath) || filesize($invoicePath) === 0)) {
+                ob_start();
+                include __DIR__ . '/../../Invoices/invoice-template.php';
+                $invoiceHtml = ob_get_clean();
+                $invoiceOptions = new Options();
+                $invoiceOptions->set('isRemoteEnabled', true);
+                $invoiceOptions->set('isHtml5ParserEnabled', true);
+                $invoiceDompdf = new Dompdf($invoiceOptions);
+                $invoiceDompdf->loadHtml($invoiceHtml);
+                $invoiceDompdf->setPaper('A4', 'portrait');
+                $invoiceDompdf->render();
+                $written = @file_put_contents($invoicePath, $invoiceDompdf->output());
+                if ($written === false || !is_file($invoicePath) || filesize($invoicePath) === 0) {
+                    throw new \RuntimeException('Failed to write recovery invoice PDF.');
+                }
+                if (is_resource($debugFile)) {
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Invoice PDF generated for orderId: {$orderId}\n");
+                }
+            }
+        } catch (\Throwable $e) {
+            @ob_end_clean();
+            error_log("Invoice PDF generation failed for order {$orderId}: " . $e->getMessage());
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Invoice PDF error: " . $e->getMessage() . "\n");
+            }
+            $invoicePath = null;
         }
 
         $emailSent = false;
         if ($customerEmail) {
             require_once __DIR__ . '/../Utils/Mailer.php';
             $attachments = [];
-            if (file_exists($pdfPath)) {
+            if ($pdfPath && file_exists($pdfPath)) {
                 $attachments[] = ['path' => $pdfPath, 'name' => "Rental-Contract-{$orderId}.pdf"];
             }
-            if (file_exists($invoicePath)) {
+            if ($invoicePath && file_exists($invoicePath)) {
                 $attachments[] = ['path' => $invoicePath, 'name' => "Invoice-{$orderId}.pdf"];
             }
-            $bodyHtml = 'Thank you for your booking! Please find your rental contract and invoice attached.';
+            $bodyHtml = !empty($attachments)
+                ? 'Thank you for your booking! Please find your rental contract and invoice attached.'
+                : 'Thank you for your booking! Your contract/invoice files are being prepared and will be sent shortly.';
             $emailSent = \sendBookingConfirmation($customerEmail, $customerName, 'Your Rental Booking Confirmation', $bodyHtml, $attachments);
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Recovery email send result for orderId {$orderId}: " . ($emailSent ? 'sent' : 'failed') . "\n");
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Recovery email send result for orderId {$orderId}: " . ($emailSent ? 'sent' : 'failed') . "\n");
+            }
         } else {
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Recovery skipped because customer email is invalid for orderId: {$orderId}\n");
+            if (is_resource($debugFile)) {
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Recovery skipped because customer email is invalid for orderId: {$orderId}\n");
+            }
         }
 
-        fclose($debugFile);
+        if (is_resource($debugFile)) {
+            fclose($debugFile);
+        }
         return [
             'success' => true,
             'contractPath' => $pdfPath,
@@ -1097,14 +1389,43 @@ class OrderModel {
         $stmt = $pdo->prepare("SELECT * FROM order_items WHERE order_id = ?");
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        // Contract PDF
-        $contractPdfPath = "/GetAroundMobility/Contracts/contract-{$orderId}.pdf";
-        $contractFullPath = __DIR__ . '/../../Contracts/contract-' . $orderId . '.pdf';
-        $contractPdf = (file_exists($contractFullPath) && is_readable($contractFullPath)) ? $contractPdfPath : null;
-        // Invoice PDF
-        $invoicePdfPath = "/GetAroundMobility/Invoices/invoice-{$orderId}.pdf";
-        $invoiceFullPath = __DIR__ . '/../../Invoices/invoice-' . $orderId . '.pdf';
-        $invoicePdf = (file_exists($invoiceFullPath) && is_readable($invoiceFullPath)) ? $invoicePdfPath : null;
+        // Contract PDF (support both root and public fallback directories)
+        $contractPdf = null;
+        $contractCandidates = [
+            [
+                'url' => "/GetAroundMobility/Contracts/contract-{$orderId}.pdf",
+                'path' => __DIR__ . '/../../Contracts/contract-' . $orderId . '.pdf',
+            ],
+            [
+                'url' => "/GetAroundMobility/public/Contracts/contract-{$orderId}.pdf",
+                'path' => __DIR__ . '/../../public/Contracts/contract-' . $orderId . '.pdf',
+            ],
+        ];
+        foreach ($contractCandidates as $candidate) {
+            if (file_exists($candidate['path']) && is_readable($candidate['path'])) {
+                $contractPdf = $candidate['url'];
+                break;
+            }
+        }
+
+        // Invoice PDF (support both root and public fallback directories)
+        $invoicePdf = null;
+        $invoiceCandidates = [
+            [
+                'url' => "/GetAroundMobility/Invoices/invoice-{$orderId}.pdf",
+                'path' => __DIR__ . '/../../Invoices/invoice-' . $orderId . '.pdf',
+            ],
+            [
+                'url' => "/GetAroundMobility/public/Invoices/invoice-{$orderId}.pdf",
+                'path' => __DIR__ . '/../../public/Invoices/invoice-' . $orderId . '.pdf',
+            ],
+        ];
+        foreach ($invoiceCandidates as $candidate) {
+            if (file_exists($candidate['path']) && is_readable($candidate['path'])) {
+                $invoicePdf = $candidate['url'];
+                break;
+            }
+        }
         return [
             'order' => $order,
             'items' => $items,
@@ -1125,6 +1446,17 @@ class OrderModel {
         if (!is_array($cart) || empty($cart)) {
             return ['error' => 'Empty cart'];
         }
+
+        // Normalize cart shape so metadata cart_json always includes qty.
+        $normalizedCart = [];
+        foreach ($cart as $item) {
+            $qty = max(1, intval($item['qty'] ?? $item['quantity'] ?? 1));
+            $normalizedCart[] = array_merge($item, [
+                'qty' => $qty,
+                'quantity' => $qty,
+            ]);
+        }
+        $cart = $normalizedCart;
 
         // Availability check
         $pickup_datetime = $post['pickup_datetime'] ?? '';
@@ -1265,6 +1597,17 @@ class OrderModel {
             return ['error' => 'Empty cart'];
         }
 
+        // Normalize cart shape for both Stripe metadata and order persistence.
+        $normalizedCart = [];
+        foreach ($cart as $item) {
+            $qty = max(1, intval($item['qty'] ?? $item['quantity'] ?? 1));
+            $normalizedCart[] = array_merge($item, [
+                'qty' => $qty,
+                'quantity' => $qty,
+            ]);
+        }
+        $cart = $normalizedCart;
+
         $pickup_datetime = $post['pickup_datetime'] ?? '';
         $return_datetime = $post['return_datetime'] ?? '';
         if (!$this->isCartAvailable($cart, $pickup_datetime, $return_datetime)) {
@@ -1287,9 +1630,7 @@ class OrderModel {
         foreach ($cart as $item) {
             $price = (float)($item['price'] ?? 0);
             $qty = max(1, intval($item['qty'] ?? $item['quantity'] ?? 1));
-            if ($price <= 0) {
-                continue;
-            }
+            if ($price <= 0) continue;
             $totalAmount += $price * $qty;
         }
 
@@ -1300,19 +1641,10 @@ class OrderModel {
         $tax = $totalAmount * 0.12;
         $totalAmountWithTax = $totalAmount + $tax;
 
-        $pickup_location_id = $post['pickup_location'] ?? '';
-        $pickup_location = '';
-        $pickup_location_address = '';
         $deliveryType = $post['delivery_type'] ?? 'preferred';
-        if ($deliveryType === 'pickup' && $pickup_location_id) {
-            $stmt = $this->db->prepare("SELECT name, address FROM pickup_locations WHERE id = ?");
-            $stmt->execute([$pickup_location_id]);
-            $pickup = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $pickup_location = $pickup['name'] ?? '';
-            $pickup_location_address = $pickup['address'] ?? '';
-            $pickup_location = trim($pickup_location . ($pickup_location_address ? ' - ' . $pickup_location_address : ''));
-        } else {
-            $pickup_location = htmlspecialchars(trim($post['pickup_location'] ?? ''));
+        $pickup_location = '';
+        if ($deliveryType === 'pickup' && !empty($post['pickup_location'])) {
+            $pickup_location = htmlspecialchars(trim($post['pickup_location']));
         }
 
         $metadata = [
@@ -1345,21 +1677,19 @@ class OrderModel {
 
         try {
             try {
-                $intent = \Stripe\PaymentIntent::create($intentParams, [
-                    'stripe_version' => '2023-10-16',
-                ]);
-            } catch (\Exception $inner) {
-                if (stripos($inner->getMessage(), 'unknown parameter: automatic_payment_methods') !== false) {
+                $intent = \Stripe\PaymentIntent::create($intentParams, ['stripe_version' => '2023-10-16']);
+            } catch (\Exception $e) {
+                if (stripos($e->getMessage(), 'unknown parameter: automatic_payment_methods') !== false) {
                     unset($intentParams['automatic_payment_methods']);
                     $intentParams['payment_method_types'] = ['card'];
                     $intent = \Stripe\PaymentIntent::create($intentParams);
                 } else {
-                    throw $inner;
+                    throw $e;
                 }
             }
-
             return ['clientSecret' => $intent->client_secret];
         } catch (\Exception $e) {
+            error_log('Stripe PaymentIntent error: ' . $e->getMessage());
             return ['error' => $e->getMessage()];
         }
     }

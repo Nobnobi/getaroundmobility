@@ -1,5 +1,5 @@
 
-<div class="flex flex-col md:flex-row flex-1 min-h-[500px] bg-white">
+<div class="flex flex-col md:flex-row flex-1 min-h-[500px] bg-white mt-32 md:mt-0">
     <!-- CONTACT PICTURE -->
     <div class="w-full md:w-1/2 flex items-center justify-center bg-gray-100 p-6 md:p-0 hidden md:flex">
         <img src="/img/login.svg" alt="Contact Illustration" class="w-3/4 max-w-xs md:max-w-full md:max-h-[1000px] object-contain mx-auto">
@@ -7,7 +7,7 @@
 
     <!-- Contact Form -->
     <div class="w-full md:w-1/2 flex items-center justify-center bg-white p-4 md:p-0">
-        <div class="w-full max-w-md p-4 md:p-8 bg-white rounded-lg shadow-lg mx-auto">
+        <div class="w-full max-w-md p-4 md:p-8 bg-white rounded-lg shadow-lg mx-auto mt-4 md:mt-0">
             <div class="text-center mb-6">
                 <img src="/img/Original logo.svg" alt="Your Logo" class="mx-auto max-h-16 h-12">
             </div>

@@ -82,34 +82,34 @@
 </footer>
 
   <!-- About Us Modal -->
-  <div id="aboutUsModal" class="fixed inset-0 z-50 flex items-center justify-center hidden bg-black/60 backdrop-blur-sm font-[Barlow]">
+  <div id="aboutUsModal" class="fixed inset-0 z-50 flex items-start md:items-center justify-center hidden bg-black/60 backdrop-blur-sm font-[Barlow] px-4 pb-4 md:p-6 overflow-y-auto">
 
-    <div class="bg-white rounded-3xl shadow-2xl max-w-3xl w-full relative overflow-hidden border border-[#0086C9]">
+    <div class="bg-white rounded-2xl md:rounded-3xl shadow-2xl max-w-[86vw] md:max-w-3xl w-full relative overflow-y-auto max-h-[72vh] md:max-h-[88vh] border border-[#0086C9] mt-28 md:mt-0">
 
       <!-- Close Button -->
-      <button id="closeAboutUsModal"
-              class="absolute top-4 right-5 text-white/80 hover:text-white text-3xl font-bold transition">
+            <button id="closeAboutUsModal"
+              class="absolute top-2 right-2 md:top-4 md:right-5 z-10 text-white/90 hover:text-white text-xl md:text-3xl font-bold transition bg-black/30 rounded-full w-8 h-8 md:w-10 md:h-10 leading-7 md:leading-9 text-center">
         &times;
       </button>
 
       <!-- Header -->
-      <div class="bg-gradient-to-r from-[#0086C9] to-[#062C41] p-8 text-center">
+      <div class="bg-gradient-to-r from-[#0086C9] to-[#062C41] p-3 md:p-8 text-center">
         <div class="mb-2 flex justify-center">
-          <img src="/img/Original logo.svg" alt="GetAroundMobility logo" class="w-24 md:w-32 drop-shadow-lg" />
+          <img src="/img/Original logo.svg" alt="GetAroundMobility logo" class="w-16 md:w-32 drop-shadow-lg" />
         </div>
-        <h2 class="text-3xl font-bold text-white font-[Barlow]">
+        <h2 class="text-lg md:text-3xl font-bold text-white font-[Barlow] leading-tight">
           About Get Around Mobility
         </h2>
-        <p class="mt-2 text-white/90 text-sm">
+        <p class="mt-1 text-white/90 text-xs md:text-sm">
           Your Partner in Mobility
         </p>
       </div>
 
       <!-- Content -->
-      <div class="p-8 space-y-6 text-gray-700">
+      <div class="p-3 md:p-8 space-y-3 md:space-y-6 text-gray-700">
 
         <!-- Intro -->
-        <p class="text-center text-base">
+        <p class="text-center text-[11px] md:text-base leading-relaxed">
           <span class="font-semibold text-[#0086C9]">Get Around Mobility</span> is a
           family-owned business proudly serving Las Vegas with top-quality mobility
           scooter rentals and sales. We are trusted by thousands of customers and
@@ -117,11 +117,11 @@
         </p>
 
         <!-- Features -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-5 text-xs md:text-base">
 
-          <div class="flex items-start gap-3">
-            <span class="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-[#00B4D8] to-[#0086C9] shadow text-white text-xl mt-1">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+          <div class="flex items-start gap-2">
+            <span class="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-[#00B4D8] to-[#0086C9] shadow text-white text-xl mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
@@ -131,9 +131,9 @@
             </p>
           </div>
 
-          <div class="flex items-start gap-3">
-            <span class="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-[#00B4D8] to-[#0086C9] shadow text-white text-xl mt-1">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+          <div class="flex items-start gap-2">
+            <span class="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-[#00B4D8] to-[#0086C9] shadow text-white text-xl mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
@@ -143,9 +143,9 @@
             </p>
           </div>
 
-          <div class="flex items-start gap-3">
-            <span class="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-[#00B4D8] to-[#0086C9] shadow text-white text-xl mt-1">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+          <div class="flex items-start gap-2">
+            <span class="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-[#00B4D8] to-[#0086C9] shadow text-white text-xl mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
@@ -155,9 +155,9 @@
             </p>
           </div>
 
-          <div class="flex items-start gap-3">
-            <span class="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-[#00B4D8] to-[#0086C9] shadow text-white text-xl mt-1">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+          <div class="flex items-start gap-2">
+            <span class="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-[#00B4D8] to-[#0086C9] shadow text-white text-xl mt-0.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </span>
@@ -169,20 +169,20 @@
         </div>
 
         <!-- Mission -->
-        <div class="bg-[#F3F9FC] rounded-2xl p-6 text-center">
-          <h3 class="text-lg font-semibold text-[#062C41] mb-2">
+        <div class="bg-[#F3F9FC] rounded-2xl p-3 md:p-6 text-center">
+          <h3 class="text-sm md:text-lg font-semibold text-[#062C41] mb-1.5 md:mb-2">
             Our Mission
           </h3>
-          <p>
+          <p class="text-xs md:text-base leading-relaxed">
             To make mobility easy, stress-free, and accessible—so you can enjoy
             your time in Las Vegas without limitations.
           </p>
         </div>
 
         <!-- Footer CTA -->
-        <div class="text-center pt-4">
+        <div class="text-center pt-1 md:pt-4">
           <span
-            class="inline-block bg-[#0086C9] text-white px-6 py-3 rounded-full font-semibold shadow-md">
+            class="inline-block bg-[#0086C9] text-white px-3 md:px-6 py-1.5 md:py-3 rounded-full text-xs md:text-base font-semibold shadow-md">
             Thank you for choosing Get Around Mobility!
           </span>
         </div>

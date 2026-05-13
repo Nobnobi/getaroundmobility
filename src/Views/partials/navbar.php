@@ -102,7 +102,7 @@ if ($displayFullName === '') {
         <a href="/" class="text-[#0086C9] font-bold">Home</a>
         <a href="/product-list" class="text-gray-700 hover:text-[#0086C9]">Products</a>
         <a href="/for-sale" class="text-gray-700 hover:text-[#0086C9]">For Sale</a>
-        <a href="#rentalForm" class="text-gray-700 hover:text-[#0086C9]">Rent Now</a>
+        <a href="/#rentalForm" class="text-gray-700 hover:text-[#0086C9]">Rent Now</a>
         <a href="/contact" class="text-gray-700 hover:text-[#0086C9]">Contact Us</a>
 
         <hr class="my-4">
@@ -131,7 +131,7 @@ if ($displayFullName === '') {
         <div class="flex space-x-1 sm:space-x-2 md:space-x-3 text-xs sm:text-sm md:text-base font-medium font-[Barlow]">
             <a href="/product-list" class="hover:text-[#0086C9] text-[#535862] text-xs sm:text-sm md:text-base px-1 sm:px-2 md:px-3 py-0.5 sm:py-1 transition-all">Products</a>
             <a href="/for-sale" class="hover:text-[#0086C9] text-[#535862] text-xs sm:text-sm md:text-base px-1 sm:px-2 md:px-3 py-0.5 sm:py-1 transition-all">For Sale</a>
-            <a href="#rentalForm" id="rentNowBtn" class="hover:text-[#0086C9] text-[#535862] text-xs sm:text-sm md:text-base px-1 sm:px-2 md:px-3 py-0.5 sm:py-1 transition-all">Rent Now</a>
+            <a href="/#rentalForm" id="rentNowBtn" class="hover:text-[#0086C9] text-[#535862] text-xs sm:text-sm md:text-base px-1 sm:px-2 md:px-3 py-0.5 sm:py-1 transition-all">Rent Now</a>
             <a href="/contact" class="hover:text-[#0086C9] text-[#535862] text-xs sm:text-sm md:text-base px-1 sm:px-2 md:px-3 py-0.5 sm:py-1 transition-all">Contact Us</a>
         </div>
     </div>
@@ -280,37 +280,37 @@ if ($displayFullName === '') {
 </div>
 
 <!-- Register Modal -->
-    <div id="registerModal" style="background: rgba(0,0,0,0.6);" class="fixed inset-0 hidden flex items-center justify-center z-50 backdrop-blur-sm">
-        <div id="registerModalContent" class="relative bg-white p-2 sm:p-3 md:p-6 rounded-lg shadow-xl border border-gray-200 w-full max-w-[95vw] sm:max-w-xs md:max-w-md mx-1">
+    <div id="registerModal" style="background: rgba(0,0,0,0.6);" class="fixed inset-0 hidden flex items-start justify-center z-50 backdrop-blur-sm px-3 pb-4 overflow-y-auto">
+        <div id="registerModalContent" class="relative bg-white p-3 sm:p-4 md:p-6 rounded-lg shadow-xl border border-gray-200 w-full max-w-[90vw] sm:max-w-xs md:max-w-md mx-1 mt-32 md:mt-0 max-h-[calc(100vh-8rem)] overflow-y-auto">
                 <button onclick="closeRegisterModal()" class="absolute top-2 right-2 sm:top-2 sm:right-2 text-gray-500 hover:text-black text-2xl cursor-pointer" style="right:0.5rem;top:0.5rem;">&times;</button>
-        <h2 class="text-xl md:text-2xl font-bold mb-3 md:mb-4 text-center font-[Barlow]">Sign Up</h2>
+        <h2 class="text-lg sm:text-xl md:text-2xl font-bold mb-3 md:mb-4 text-center font-[Barlow] pr-6">Sign Up</h2>
         <form method="post" class="font-sans" action="/register" id="registerForm">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-            <div class="mb-3 md:mb-4">
+            <div class="mb-2.5 md:mb-4">
                 <label for="reg_first_name" class="block mb-1 text-sm">First Name</label>
                 <input type="text" name="first_name" id="reg_first_name" class="w-full border rounded px-3 py-2 text-sm" required>
             </div>
-            <div class="mb-3 md:mb-4">
+            <div class="mb-2.5 md:mb-4">
                 <label for="reg_last_name" class="block mb-1 text-sm">Last Name</label>
                 <input type="text" name="last_name" id="reg_last_name" class="w-full border rounded px-3 py-2 text-sm" required>
             </div>
-            <div class="mb-3 md:mb-4">
+            <div class="mb-2.5 md:mb-4">
                 <label for="reg_email" class="block mb-1 text-sm">Email</label>
                 <input type="email" name="email" id="reg_email" class="w-full border rounded px-3 py-2 text-sm" required>
             </div>
-            <div class="mb-3 md:mb-4">
+            <div class="mb-2.5 md:mb-4">
                 <label for="reg_phone" class="block mb-1 text-sm">Phone</label>
                 <input type="tel" name="phone" id="reg_phone" class="w-full border rounded px-3 py-2 text-sm" required>
             </div>
-            <div class="mb-3 md:mb-4">
+            <div class="mb-2.5 md:mb-4">
                 <label for="reg_address" class="block mb-1 text-sm">Address</label>
                 <input type="text" name="address" id="reg_address" class="w-full border rounded px-3 py-2 text-sm" required>
             </div>
-            <div class="mb-3 md:mb-4">
+            <div class="mb-2.5 md:mb-4">
                 <label for="reg_password" class="block mb-1 text-sm">Password</label>
                 <input type="password" name="password" id="reg_password" class="w-full border rounded px-3 py-2 text-sm" required>
             </div>
-            <div class="mb-3 md:mb-4">
+            <div class="mb-2.5 md:mb-4">
                 <label for="reg_confirm_password" class="block mb-1 text-sm">Confirm Password</label>
                 <input type="password" name="confirm_password" id="reg_confirm_password" class="w-full border rounded px-3 py-2 text-sm" required>
             </div>

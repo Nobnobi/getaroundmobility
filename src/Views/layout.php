@@ -3,7 +3,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <link href="/css/output.css" rel="stylesheet">
+    <?php
+    $cssFilePath = dirname(__DIR__, 2) . '/public/css/output.css';
+    $cssVersion = is_file($cssFilePath) ? filemtime($cssFilePath) : time();
+    ?>
+    <link href="/css/output.css?v=<?= $cssVersion ?>" rel="stylesheet">
     <title>Get Around Mobility</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">

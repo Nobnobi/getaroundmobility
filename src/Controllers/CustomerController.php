@@ -16,6 +16,13 @@ class CustomerController extends Controller
             header('Location: /admin/login');
             exit;
         }
+
+        $role = strtolower($_SESSION['admin_role'] ?? '');
+        if (!in_array($role, ['admin', 'superadmin'], true)) {
+            header('Location: /admin/orders');
+            exit;
+        }
+
         $search = isset($_GET['search']) ? trim($_GET['search']) : '';
         $page = isset($_GET['page']) && is_numeric($_GET['page']) && $_GET['page'] > 0 ? (int)$_GET['page'] : 1;
         $perPage = 10;

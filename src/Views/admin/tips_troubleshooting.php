@@ -1,5 +1,11 @@
 <?php
 // admin/tips_troubleshooting.php
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+$role = strtolower($_SESSION['admin_role'] ?? '');
+$isStaff = ($role === 'staff');
 ?>
 <div class="container bg-gray-50 px-6 py-10">
     <div class="max-w-6xl mx-auto">
@@ -62,7 +68,11 @@
                     </div>
                 </div>
                 <div class="flex justify-end pt-2">
-                    <button type="submit" class="bg-[#0086C9] text-white px-8 py-3 rounded-lg font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md">Save Section</button>
+                    <?php if (!$isStaff): ?>
+                        <button type="submit" class="bg-[#0086C9] text-white px-8 py-3 rounded-lg font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md">Save Section</button>
+                    <?php else: ?>
+                        <span class="text-sm text-gray-500">Staff account: section is view only</span>
+                    <?php endif; ?>
                 </div>
             </form>
         </div>
@@ -94,7 +104,11 @@
                     <input type="number" name="sort_order" class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0086C9] focus:border-transparent transition" value="0">
                 </div>
                 <div class="flex justify-end pt-2">
-                    <button type="submit" class="bg-[#0086C9] text-white px-8 py-3 rounded-lg font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md">Add Article</button>
+                    <?php if (!$isStaff): ?>
+                        <button type="submit" class="bg-[#0086C9] text-white px-8 py-3 rounded-lg font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md">Add Article</button>
+                    <?php else: ?>
+                        <span class="text-sm text-gray-500">Staff account: article creation disabled</span>
+                    <?php endif; ?>
                 </div>
             </form>
         </div>
@@ -138,14 +152,18 @@
                                     </div>
                                 </div>
                                 <div class="flex justify-between items-center gap-3 pt-3 border-t border-gray-200">
-                                    <button
-                                        type="submit"
-                                        formaction="/admin/tips-troubleshooting/articles/delete"
-                                        formmethod="POST"
-                                        onclick="return confirm('Delete this article?');"
-                                        class="px-6 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 hover:cursor-pointer transition shadow-md"
-                                    >Delete</button>
-                                    <button type="submit" class="px-6 py-2 rounded-lg bg-[#0086C9] text-white font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md">Save Changes</button>
+                                    <?php if (!$isStaff): ?>
+                                        <button
+                                            type="submit"
+                                            formaction="/admin/tips-troubleshooting/articles/delete"
+                                            formmethod="POST"
+                                            onclick="return confirm('Delete this article?');"
+                                            class="px-6 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 hover:cursor-pointer transition shadow-md"
+                                        >Delete</button>
+                                        <button type="submit" class="px-6 py-2 rounded-lg bg-[#0086C9] text-white font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md">Save Changes</button>
+                                    <?php else: ?>
+                                        <span class="text-sm text-gray-500">Staff account: view only</span>
+                                    <?php endif; ?>
                                 </div>
                             </form>
                         </div>
@@ -164,9 +182,21 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const isStaff = <?= $isStaff ? 'true' : 'false' ?>;
     const input = document.getElementById('tipsImageInput');
     const browseBtn = document.getElementById('tipsImageBrowseBtn');
     const fileName = document.getElementById('tipsImageFileName');
+
+    if (isStaff) {
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+            });
+        });
+        document.querySelectorAll('input, textarea, select, button[type="submit"]').forEach(el => {
+            el.disabled = true;
+        });
+    }
 
     if (!input || !browseBtn || !fileName) {
         return;

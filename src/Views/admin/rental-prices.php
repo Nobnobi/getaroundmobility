@@ -7,6 +7,12 @@
 // $variations: array of all variations, grouped by product_id
 // $rentalPrices: array of all rental prices, grouped by product_id, variation_id, days
 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+$role = strtolower($_SESSION['admin_role'] ?? '');
+$isStaff = ($role === 'staff');
+
 ?>
 
 <div class="flex flex-1 items-center justify-center w-full">
@@ -75,16 +81,23 @@
         tabs += '</div>';
         html += tabs;
         html += `<div class="min-h-0">${tabContents}</div>`;
-        html += `<div class="mt-6 flex flex-wrap gap-2 items-center justify-end" id="rentalActionButtons" style="display:none;">
-                <button type="button" id="addBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 ml-4 cursor-pointer">Add Tier</button>
-                <button type="submit" class="bg-[#0086C9] text-white px-4 py-2 rounded hover:bg-[#006a9c] ml-2 cursor-pointer">Save</button>
-                <button type="button" id="cancelBtn" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 ml-2 cursor-pointer">Cancel</button>
-            </div>
-            <div class="mt-6 flex flex-wrap gap-2 items-center justify-end" id="editRentalBtnWrap">
-                <button type="button" id="editRentalBtn" class="bg-[#0086C9] text-white px-4 py-2 rounded hover:bg-[#006a9c] ml-2 cursor-pointer">Edit</button>
-                <button type="button" onclick="closeModal()" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 ml-2 cursor-pointer">Close</button>
-            </div>
-        </form>`;
+        if (!isStaff) {
+            html += `<div class="mt-6 flex flex-wrap gap-2 items-center justify-end" id="rentalActionButtons" style="display:none;">
+                    <button type="button" id="addBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 ml-4 cursor-pointer">Add Tier</button>
+                    <button type="submit" class="bg-[#0086C9] text-white px-4 py-2 rounded hover:bg-[#006a9c] ml-2 cursor-pointer">Save</button>
+                    <button type="button" id="cancelBtn" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 ml-2 cursor-pointer">Cancel</button>
+                </div>
+                <div class="mt-6 flex flex-wrap gap-2 items-center justify-end" id="editRentalBtnWrap">
+                    <button type="button" id="editRentalBtn" class="bg-[#0086C9] text-white px-4 py-2 rounded hover:bg-[#006a9c] ml-2 cursor-pointer">Edit</button>
+                    <button type="button" onclick="closeModal()" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 ml-2 cursor-pointer">Close</button>
+                </div>`;
+        } else {
+            html += `<div class="mt-6 flex flex-wrap gap-2 items-center justify-end" id="editRentalBtnWrap">
+                    <span class="text-sm text-gray-500 mr-2">Staff account: view only</span>
+                    <button type="button" onclick="closeModal()" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 ml-2 cursor-pointer">Close</button>
+                </div>`;
+        }
+        html += `</form>`;
         document.getElementById('modalContent').innerHTML = html;
 
         // Tab switching logic (styled like locations.php)
@@ -102,12 +115,15 @@
         });
 
         // Edit button functionality
-        document.getElementById('editRentalBtn').onclick = function() {
-            document.querySelectorAll('#rentalPriceForm input').forEach(e => e.disabled = false);
-            document.querySelectorAll('#rentalPriceForm .remove-row').forEach(e => e.disabled = false);
-            document.getElementById('rentalActionButtons').style.display = 'flex';
-            document.getElementById('editRentalBtnWrap').style.display = 'none';
-        };
+        const editRentalBtn = document.getElementById('editRentalBtn');
+        if (editRentalBtn) {
+            editRentalBtn.onclick = function() {
+                document.querySelectorAll('#rentalPriceForm input').forEach(e => e.disabled = false);
+                document.querySelectorAll('#rentalPriceForm .remove-row').forEach(e => e.disabled = false);
+                document.getElementById('rentalActionButtons').style.display = 'flex';
+                document.getElementById('editRentalBtnWrap').style.display = 'none';
+            };
+        }
         // Remove row handler
         document.querySelectorAll('.remove-row').forEach(btn => {
             btn.onclick = function() {
@@ -140,10 +156,15 @@
             };
         });
         // Cancel button functionality
-        document.getElementById('cancelBtn').onclick = function() {
-            closeModal();
-        };
+        const cancelBtn = document.getElementById('cancelBtn');
+        if (cancelBtn) {
+            cancelBtn.onclick = function() {
+                closeModal();
+            };
+        }
     }
+
+    const isStaff = <?= $isStaff ? 'true' : 'false' ?>;
 
     function renderVariationPriceTable(productId, variationId, variationName, rentalPrices) {
         // Get price rows for this variation

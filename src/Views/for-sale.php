@@ -1,9 +1,9 @@
 <!-- filepath: c:\xampp\htdocs\GetAroundMobility\src\Views\for-sale.php -->
 
 
-<div class="flex flex-col md:flex-row gap-6 pt-5 justify-center min-h-screen">
+<div class="flex flex-col md:flex-row gap-6 mt-32 md:mt-5 px-4 md:px-0 justify-center min-h-screen">
     <!-- Filters Sidebar -->
-    <form id="filterForm" action="" method="get">
+    <form id="filterForm" action="" method="get" class="w-full md:w-auto">
         <aside class="bg-white shadow rounded-lg p-4 space-y-6 w-full md:w-72 h-fit max-h-[600px] sticky top-28 flex-shrink-0">
             <h2 class="text-2xl font-semibold font-[Barlow]">Filter</h2>
             <!-- Equipment Type -->

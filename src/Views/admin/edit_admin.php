@@ -1,9 +1,5 @@
 <!-- filepath: c:\xampp\htdocs\GetAroundMobility\src\Views\admin\edit_admin.php -->
-<!DOCTYPE html>
-<html>
-<head><title>Edit Admin</title><link href="/css/output.css" rel="stylesheet"></head>
-<body class="bg-gray-100 min-h-screen flex">
-    <?php include __DIR__ . '/sidebar.php'; ?>
+
     <div class="flex-1 flex flex-col">
         <main class="flex-1 p-6">
             <div class="bg-white rounded shadow p-4 max-w-md mx-auto">
@@ -22,5 +18,3 @@
             </div>
         </main>
     </div>
-</body>
-</html>

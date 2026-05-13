@@ -54,6 +54,18 @@ class OrderController extends Controller
 
     private $paypalClient;
 
+    private function prepareJsonResponse()
+    {
+        ob_start();
+        @header('Content-Type: application/json; charset=utf-8');
+    }
+
+    private function openDebugLog($filename)
+    {
+        $path = __DIR__ . '/../../public/' . $filename;
+        return @fopen($path, 'a');
+    }
+
     public function __construct()
     {
         $PAYPAL_CLIENT_ID = getenv("PAYPAL_CLIENT_ID") ?: ($_ENV["PAYPAL_CLIENT_ID"] ?? '');
@@ -215,41 +227,102 @@ class OrderController extends Controller
     // STRIPE CHECKOUT SESSION CREATION
     public function createCheckoutSession()
     {
-        if (session_status() === PHP_SESSION_NONE) session_start();
-        $orderModel = new OrderModel();
-        $result = $orderModel->createStripeCheckoutSession($_POST, $_SESSION);
-        header('Content-Type: application/json');
-        if (isset($result['error'])) {
-            http_response_code(400);
+        // CRITICAL: Set headers BEFORE anything else can execute
+        ob_start();
+        @header('Content-Type: application/json; charset=utf-8');
+        
+        try {
+            if (session_status() === PHP_SESSION_NONE) session_start();
+            
+            $orderModel = new OrderModel();
+            $result = $orderModel->createStripeCheckoutSession($_POST, $_SESSION);
+            
+            // Clear any stray output and return JSON
+            ob_end_clean();
+            ob_start();
+            http_response_code(isset($result['error']) ? 400 : 200);
+            echo json_encode($result);
+            ob_end_flush();
+        } catch (\Throwable $e) {
+            // Capture and suppress any output
+            ob_end_clean();
+            ob_start();
+            http_response_code(500);
+            error_log('Checkout session exception: ' . $e->getMessage());
+            echo json_encode(['error' => 'Stripe checkout failed']);
+            ob_end_flush();
         }
-        echo json_encode($result);
         exit;
     }
 
     public function createPaymentIntent()
     {
-        if (session_status() === PHP_SESSION_NONE) session_start();
-        $orderModel = new OrderModel();
-        $result = $orderModel->createStripePaymentIntent($_POST, $_SESSION);
-        header('Content-Type: application/json');
-        if (isset($result['error'])) {
-            http_response_code(400);
+        // CRITICAL: Set headers BEFORE anything else can execute
+        ob_start();
+        @header('Content-Type: application/json; charset=utf-8');
+        
+        try {
+            if (session_status() === PHP_SESSION_NONE) session_start();
+            
+            $orderModel = new OrderModel();
+            $result = $orderModel->createStripePaymentIntent($_POST, $_SESSION);
+            
+            // Clear any stray output and return JSON
+            ob_end_clean();
+            ob_start();
+            http_response_code(isset($result['error']) ? 400 : 200);
+            echo json_encode($result);
+            ob_end_flush();
+        } catch (\Throwable $e) {
+            // Capture and suppress any output
+            ob_end_clean();
+            ob_start();
+            http_response_code(500);
+            error_log('Payment intent exception: ' . $e->getMessage());
+            echo json_encode(['error' => 'Payment initialization failed']);
+            ob_end_flush();
         }
-        echo json_encode($result);
         exit;
     }
 
     public function finalizeStripePayment()
     {
-        if (session_status() === PHP_SESSION_NONE) session_start();
-        $input = json_decode(file_get_contents('php://input'), true);
-        $paymentIntentId = $input['payment_intent_id'] ?? $_POST['payment_intent_id'] ?? null;
-        $result = $this->finalizeStripePaymentIntentById($paymentIntentId);
-        header('Content-Type: application/json');
-        if (isset($result['error'])) {
-            http_response_code(400);
+        // CRITICAL: Set headers BEFORE anything else can execute
+        ob_start();
+        @header('Content-Type: application/json; charset=utf-8');
+        
+        try {
+            if (session_status() === PHP_SESSION_NONE) session_start();
+            
+            // Get payment intent ID from JSON body or POST
+            $input = @json_decode(file_get_contents('php://input'), true) ?: [];
+            $paymentIntentId = $input['payment_intent_id'] ?? $_POST['payment_intent_id'] ?? null;
+            
+            if (!$paymentIntentId) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Payment intent ID missing']);
+                ob_end_flush();
+                exit;
+            }
+            
+            // Call the finalization logic
+            $result = $this->finalizeStripePaymentIntentById($paymentIntentId);
+            
+            // Clear any stray output and return JSON
+            ob_end_clean();
+            ob_start();
+            http_response_code(isset($result['error']) ? 400 : 200);
+            echo json_encode($result);
+            ob_end_flush();
+        } catch (\Throwable $e) {
+            // Capture and suppress any output
+            ob_end_clean();
+            ob_start();
+            http_response_code(500);
+            error_log('Finalize payment exception: ' . $e->getMessage());
+            echo json_encode(['error' => 'Payment processing failed']);
+            ob_end_flush();
         }
-        echo json_encode($result);
         exit;
     }
 
@@ -294,19 +367,20 @@ class OrderController extends Controller
             return ['error' => 'Missing or invalid customer email for Stripe confirmation.'];
         }
 
-        $totalAmount = (float)($meta['total_amount'] ?? 0);
-        $tax = $totalAmount * 0.12;
-        $totalAmountWithTax = $totalAmount + $tax;
+        // Normalize cart shape so downstream order logic always has qty.
+        $normalizedCart = [];
+        foreach ($cart as $item) {
+            $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
+            $normalizedCart[] = array_merge($item, [
+                'qty' => $qty,
+                'quantity' => $qty,
+            ]);
+        }
+        $cart = $normalizedCart;
 
-        $pdo = \App\Utils\Database::getInstance();
-        $stmt = $pdo->prepare("SELECT order_id FROM orders WHERE payment_method = 'card' AND guest_email = ? AND pickup_datetime <=> ? AND return_datetime <=> ? AND ABS(total_amount - ?) < 0.01 ORDER BY order_id DESC LIMIT 1");
-        $stmt->execute([
-            $guestEmail,
-            $meta['pickup_datetime'] ?? null,
-            $meta['return_datetime'] ?? null,
-            $totalAmountWithTax,
-        ]);
-        $orderId = $stmt->fetchColumn();
+        // Finalization is idempotent by payment intent id.
+        $intentOrderSessionKey = "stripe_order_by_intent_{$paymentIntentId}";
+        $orderId = $_SESSION[$intentOrderSessionKey] ?? null;
 
         $orderModel = new OrderModel();
         if (!$orderId) {
@@ -337,10 +411,12 @@ class OrderController extends Controller
             if (!$orderId) {
                 return ['error' => 'Could not store the Stripe order after payment.'];
             }
+            $_SESSION[$intentOrderSessionKey] = $orderId;
             $orderModel->markAsPaid($orderId);
-        } else {
-            $orderModel->ensureOrderDocumentsAndEmail($orderId, $cart);
         }
+
+        // Always ensure docs/email after finalize (safe to re-run).
+        $orderModel->ensureOrderDocumentsAndEmail($orderId, $cart);
 
         $token = $_SESSION["order_token_$orderId"] ?? null;
         if (!$token) {
@@ -858,16 +934,21 @@ class OrderController extends Controller
     // PayPal: Create order (called by app.js createOrder())
     public function createPaypalOrder() {
         if (session_status() === PHP_SESSION_NONE) session_start();
-        header('Content-Type: application/json');
+        $this->prepareJsonResponse();
 
         // Get cart from POST body
-        $myfile = fopen("paypal-create-order-logs.txt", "a") or die("Unable to open file!");
-        fwrite($myfile, "ENTERING CREATE PAYPAL ORDER FUNCTION\n");
-        fwrite($myfile, "POST PAYLOAD: \n" . file_get_contents('php://input') . "\n");
+        $payload = file_get_contents('php://input');
+        $myfile = $this->openDebugLog('paypal-create-order-logs.txt');
+        if (is_resource($myfile)) {
+            fwrite($myfile, "ENTERING CREATE PAYPAL ORDER FUNCTION\n");
+            fwrite($myfile, "POST PAYLOAD: \n" . $payload . "\n");
+        }
 
-        $input = json_decode(file_get_contents('php://input'), true);
+        $input = json_decode($payload, true);
         $cart = $input['cart'] ?? [];
-        fwrite($myfile, " CART DATA: \n" . print_r($cart, true) . "\n");
+        if (is_resource($myfile)) {
+            fwrite($myfile, " CART DATA: \n" . print_r($cart, true) . "\n");
+        }
 
         if (empty($cart)) {
             echo json_encode(['error' => 'Cart is empty']);
@@ -885,8 +966,10 @@ class OrderController extends Controller
             exit;
         }
 
-        fwrite($myfile, "DEBUG CART: " . print_r($cart, true) . "\n");
-        fwrite($myfile, "DEBUG FORM DATA: " . print_r($formData, true) . "\n");
+        if (is_resource($myfile)) {
+            fwrite($myfile, "DEBUG CART: " . print_r($cart, true) . "\n");
+            fwrite($myfile, "DEBUG FORM DATA: " . print_r($formData, true) . "\n");
+        }
         // --- END DEBUGGING ---
 
 
@@ -910,7 +993,9 @@ class OrderController extends Controller
                 'category' => 'PHYSICAL_GOODS'
             ];
         }
-        fwrite($myfile,"Items array: \n" . print_r($items, true) . "\n");
+        if (is_resource($myfile)) {
+            fwrite($myfile,"Items array: \n" . print_r($items, true) . "\n");
+        }
 
         // Use correct snake_case keys for PayPal API
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
@@ -959,7 +1044,9 @@ class OrderController extends Controller
         ];
 
         // Log for debugging
-        fwrite($myfile,"REQUEST ARRAY: \n" . print_r($requestArray, true) . "\n");
+        if (is_resource($myfile)) {
+            fwrite($myfile,"REQUEST ARRAY: \n" . print_r($requestArray, true) . "\n");
+        }
 
 
         // wrap body & headers as PayPal expects
@@ -974,8 +1061,10 @@ class OrderController extends Controller
             $response = $ordersController->createOrder($collect);
 
             $order = $response->getResult();
-            fwrite($myfile,"RESPONSE IS: \n" . print_r($response, true) . "\n");
-            fwrite($myfile,"ORDER IS: \n" . print_r($order, true) . "\n");
+            if (is_resource($myfile)) {
+                fwrite($myfile,"RESPONSE IS: \n" . print_r($response, true) . "\n");
+                fwrite($myfile,"ORDER IS: \n" . print_r($order, true) . "\n");
+            }
 
             // Safely extract ID
             $orderId = null;
@@ -987,12 +1076,17 @@ class OrderController extends Controller
                 $orderId = $order->id;
             }
 
-            fwrite($myfile,"ORDER ID is: " . print_r($orderId, true) . "\n");
-            fclose($myfile);
+            if (is_resource($myfile)) {
+                fwrite($myfile,"ORDER ID is: " . print_r($orderId, true) . "\n");
+                fclose($myfile);
+            }
             echo json_encode(['id' => $orderId]);
         } catch (\Exception $e) {
-             fwrite($myfile, "EXCEPTION: " . $e->getMessage() . "\n");
-             fclose($myfile);
+            http_response_code(500);
+            if (is_resource($myfile)) {
+                fwrite($myfile, "EXCEPTION: " . $e->getMessage() . "\n");
+                fclose($myfile);
+            }
             error_log('PayPal create order error: ' . $e->getMessage());
             echo json_encode(['error' => $e->getMessage()]);
         }
@@ -1002,24 +1096,29 @@ class OrderController extends Controller
 
     // PayPal: Capture payment (called by app.js onApprove())
     public function capturePaypalOrder($orderId){
-        $myfile = fopen("paypal-order-logs.txt", "a") or die("Unable to open file!");
-        fwrite($myfile, "ENTERING CAPTURE PAYPAL ORDER FUNCTION\n");
+        $this->prepareJsonResponse();
+        $myfile = $this->openDebugLog('paypal-order-logs.txt');
+        $log = function ($message) use ($myfile) {
+            if (is_resource($myfile)) {
+                fwrite($myfile, $message);
+            }
+        };
 
-    
-        fwrite($myfile, "ORDER ID: " . print_r($orderId, true) . "\n");
-
-        $payload = file_get_contents('php://input');
-        fwrite($myfile, "POST PAYLOAD: \n" . $payload . "\n");
-
-        
+        $log("ENTERING CAPTURE PAYPAL ORDER FUNCTION\n");
 
         if (session_status() === PHP_SESSION_NONE) session_start();
-        header('Content-Type: application/json');
+        $log("ORDER ID: " . print_r($orderId, true) . "\n");
+
+        $payload = file_get_contents('php://input');
+        $log("POST PAYLOAD: \n" . $payload . "\n");
 
         if (!$orderId) {
-            fwrite($myfile, "ERROR: Order ID missing\n");
-            fclose($myfile);
+            http_response_code(400);
+            $log("ERROR: Order ID missing\n");
             echo json_encode(['error' => 'Order ID missing']);
+            if (is_resource($myfile)) {
+                fclose($myfile);
+            }
             exit;
         }
 
@@ -1030,14 +1129,14 @@ class OrderController extends Controller
 
 
             if (method_exists($orderDetailsResponse, 'getStatusCode')) {
-                fwrite($myfile, "RESPONSE STATUS CODE: " . $orderDetailsResponse->getStatusCode() . "\n");
+                $log("RESPONSE STATUS CODE: " . $orderDetailsResponse->getStatusCode() . "\n");
             }
             if (method_exists($orderDetailsResponse, 'getBody')) {
-                fwrite($myfile, "RESPONSE BODY: " . $orderDetailsResponse->getBody() . "\n");
+                $log("RESPONSE BODY: " . $orderDetailsResponse->getBody() . "\n");
             }
 
-            fwrite($myfile, "ORDER DETAILS RAW: " . print_r($orderDetails, true) . "\n");
-            fwrite($myfile, "ORDER DETAILS RESPONSE: " . print_r($orderDetailsResponse, true) . "\n");
+            $log("ORDER DETAILS RAW: " . print_r($orderDetails, true) . "\n");
+            $log("ORDER DETAILS RESPONSE: " . print_r($orderDetailsResponse, true) . "\n");
 
             // Check status
             $status = null;
@@ -1046,21 +1145,19 @@ class OrderController extends Controller
             } elseif (is_object($orderDetails) && property_exists($orderDetails, 'status')) {
                 $status = $orderDetails->status;
             }
-            fwrite($myfile, "ORDER STATUS: " . $status . "\n");
+            $log("ORDER STATUS: " . $status . "\n");
 
             if ($status !== 'APPROVED') {
-                fwrite($myfile, "ERROR: Order status is not APPROVED. Current status: $status\n");
-                fclose($myfile);
                 throw new \Exception("Order status is not APPROVED. Current status: $status");
             }
 
             $response = $ordersController->captureOrder(['id' => $orderId]);
-            fwrite($myfile, "CAPTURE RESPONSE: " . print_r($response, true) . "\n");
+            $log("CAPTURE RESPONSE: " . print_r($response, true) . "\n");
             if (method_exists($response, 'getStatusCode')) {
-                fwrite($myfile, "CAPTURE RESPONSE STATUS CODE: " . $response->getStatusCode() . "\n");
+                $log("CAPTURE RESPONSE STATUS CODE: " . $response->getStatusCode() . "\n");
             }
             if (method_exists($response, 'getBody')) {
-                fwrite($myfile, "CAPTURE RESPONSE BODY: " . $response->getBody() . "\n");
+                $log("CAPTURE RESPONSE BODY: " . $response->getBody() . "\n");
             }
             $order = $response->getResult();
 
@@ -1069,11 +1166,9 @@ class OrderController extends Controller
                 $order = json_decode($order);
             }
 
-            fwrite($myfile, "CAPTURED ORDER RAW: " . print_r($order, true) . "\n");
+            $log("CAPTURED ORDER RAW: " . print_r($order, true) . "\n");
 
             if (!$order) {
-                fwrite($myfile, "ERROR: PayPal capture did not return a valid order object.\n");
-                fclose($myfile);
                 throw new \Exception('PayPal capture did not return a valid order object.');
             }
 
@@ -1083,15 +1178,11 @@ class OrderController extends Controller
             } elseif (isset($order->purchase_units)) {
                 $purchaseUnits = $order->purchase_units;
             } else {
-                fwrite($myfile, "ERROR: No purchase units found in PayPal order.\n");
-                fclose($myfile);
                 throw new \Exception('No purchase units found in PayPal order.');
             }
 
             // Defensive: check purchaseUnits array
             if (empty($purchaseUnits) || !isset($purchaseUnits[0])) {
-                fwrite($myfile, "ERROR: No purchase units found in PayPal order.\n");
-                fclose($myfile);
                 throw new \Exception('No purchase units found in PayPal order.');
             }
 
@@ -1102,7 +1193,7 @@ class OrderController extends Controller
                 $bodyArr = json_decode($body, true);
                 if (isset($bodyArr['purchase_units'][0]['description'])) {
                     $orderToken = $bodyArr['purchase_units'][0]['description'];
-                    fwrite($myfile, "ORDER TOKEN EXTRACTED FROM ORDER DETAILS RAW BODY: " . $orderToken . "\n");
+                    $log("ORDER TOKEN EXTRACTED FROM ORDER DETAILS RAW BODY: " . $orderToken . "\n");
                 }
             }
 
@@ -1117,29 +1208,28 @@ class OrderController extends Controller
                 }
             }
 
-            fwrite($myfile, "ORDER TOKEN: " . $orderToken . "\n");
+            $log("ORDER TOKEN: " . $orderToken . "\n");
 
 
             $metadata = $_SESSION['paypal_checkout'][$orderToken] ?? [];
-            fwrite($myfile, "ORDER METADATA FROM SESSION: " . print_r($metadata, true) . "\n");
+            $log("ORDER METADATA FROM SESSION: " . print_r($metadata, true) . "\n");
             $cart = $metadata['cart'] ?? [];
             $formData = $metadata['form_data'] ?? [];
             $userId = $metadata['user_id'] ?? null;
 
             if (!empty($cart)) {
-                fwrite($myfile, "CART IS NOT EMPTY. Proceeding to create DB order.\n");
+                $log("CART IS NOT EMPTY. Proceeding to create DB order.\n");
                 $this->createDbOrderFromPaypal($userId, $formData, $cart);
             } else {
-                fwrite($myfile, "CART IS EMPTY. No DB order will be created.\n");
+                $log("CART IS EMPTY. No DB order will be created.\n");
             }
 
-            fwrite($myfile, "CAPTURE SUCCESSFUL\n");
-            fclose($myfile);
+            $log("CAPTURE SUCCESSFUL\n");
 
             echo json_encode(method_exists($order, 'jsonSerialize') ? $order->jsonSerialize() : $order);
         } catch (\Exception $e) {
-            fwrite($myfile, "EXCEPTION: " . $e->getMessage() . "\n");
-            fclose($myfile);
+            http_response_code(500);
+            $log("EXCEPTION: " . $e->getMessage() . "\n");
             error_log("PayPal capture error: " . $e->getMessage());
             echo json_encode(['error' => $e->getMessage()]);
         }
@@ -1522,7 +1612,4 @@ class OrderController extends Controller
         exit;
     }
             
-    // private function getPDO() {
-    //     return new \PDO('mysql:host=localhost;dbname=getaround_db', 'getaroundmobility', 'itup420');
-    // }
 }

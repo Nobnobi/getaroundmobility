@@ -57,25 +57,63 @@ class AdminController extends Controller
         $orderModel = new OrderModel();
 
         $searchTerm = isset($_GET['order_id_search']) ? trim($_GET['order_id_search']) : '';
+        $statusFilter = isset($_GET['status']) ? trim($_GET['status']) : '';
+        $customerTypeFilter = isset($_GET['customer_type']) ? trim($_GET['customer_type']) : '';
+        $saleTypeFilter = isset($_GET['sale_type']) ? trim($_GET['sale_type']) : '';
+        $dateFromFilter = isset($_GET['date_from']) ? trim($_GET['date_from']) : '';
+        $dateToFilter = isset($_GET['date_to']) ? trim($_GET['date_to']) : '';
+        $sortBy = isset($_GET['sort_by']) ? trim($_GET['sort_by']) : 'order_id';
+        $sortDir = isset($_GET['sort_dir']) ? trim($_GET['sort_dir']) : 'desc';
         $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
         $perPage = 50;
-        $orders = [];
-        $totalOrders = 0;
 
-        if ($searchTerm !== '') {
-            // Search by Order ID (DB-level, paginated)
-            $orders = $orderModel->searchOrdersByOrderIdPaginated($searchTerm, $page, $perPage, $totalOrders);
+        $allowedStatuses = ['pending', 'approved', 'paid', 'completed', 'cancelled'];
+        if (!in_array(strtolower($statusFilter), $allowedStatuses, true)) {
+            $statusFilter = '';
+        }
+
+        $allowedCustomerTypes = ['user', 'guest'];
+        if (!in_array(strtolower($customerTypeFilter), $allowedCustomerTypes, true)) {
+            $customerTypeFilter = '';
+        }
+
+        $allowedSaleTypes = ['rental', 'sale'];
+        if (!in_array(strtolower($saleTypeFilter), $allowedSaleTypes, true)) {
+            $saleTypeFilter = '';
+        }
+
+        if ($dateFromFilter !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFromFilter)) {
+            $dateFromFilter = '';
+        }
+
+        if ($dateToFilter !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateToFilter)) {
+            $dateToFilter = '';
+        }
+
+        $allowedSortBy = ['order_id', 'sale_type', 'total_amount', 'status', 'order_date', 'pickup_datetime', 'return_datetime'];
+        if (!in_array($sortBy, $allowedSortBy, true)) {
+            $sortBy = 'order_id';
+        }
+
+        $sortDir = strtolower($sortDir) === 'asc' ? 'asc' : 'desc';
+
+        $filters = [
+            'order_id_search' => $searchTerm,
+            'status' => strtolower($statusFilter),
+            'customer_type' => strtolower($customerTypeFilter),
+            'sale_type' => strtolower($saleTypeFilter),
+            'date_from' => $dateFromFilter,
+            'date_to' => $dateToFilter,
+            'sort_by' => $sortBy,
+            'sort_dir' => $sortDir,
+        ];
+
+        $totalOrders = 0;
+        if (method_exists($orderModel, 'getOrdersFilteredPaginated')) {
+            $orders = $orderModel->getOrdersFilteredPaginated($filters, $page, $perPage, $totalOrders);
         } else {
-            // Normal pagination (fetch only current page from DB)
-            if (method_exists($orderModel, 'getOrdersPaginated') && method_exists($orderModel, 'getTotalOrdersCount')) {
-                $orders = $orderModel->getOrdersPaginated($page, $perPage);
-                $totalOrders = $orderModel->getTotalOrdersCount();
-            } else {
-                // fallback: fetch all orders and paginate in PHP
-                $orders = $orderModel->searchOrdersByOrderId('');
-                $totalOrders = count($orders);
-                $orders = array_slice($orders, ($page-1)*$perPage, $perPage);
-            }
+            $orders = $orderModel->getOrdersPaginated($page, $perPage);
+            $totalOrders = $orderModel->getTotalOrdersCount();
         }
 
         // Ensure each order has a display_name field for the view (first + last name logic)
@@ -101,14 +139,35 @@ class AdminController extends Controller
 
         $totalPages = max(1, ceil($totalOrders / $perPage));
 
+        // Get analytics data
+        $completedOrders = $orderModel->getCompletedOrdersCount();
+        $totalSales = $orderModel->getTotalSales();
+        $pendingOrders = $orderModel->getPendingOrdersCount();
+        $ordersByStatus = $orderModel->getOrdersByStatus();
+        $salesByDate = $orderModel->getSalesByDate(30);
+        $orderCountByDate = $orderModel->getOrderCountByDate(30);
+
         // Use renderAdmin to render the orders page with admin layout
         $this->renderAdmin('admin/orders', [
             'orders' => $orders,
             'searchTerm' => $searchTerm,
+            'statusFilter' => strtolower($statusFilter),
+            'customerTypeFilter' => strtolower($customerTypeFilter),
+            'saleTypeFilter' => strtolower($saleTypeFilter),
+            'dateFromFilter' => $dateFromFilter,
+            'dateToFilter' => $dateToFilter,
+            'sortBy' => $sortBy,
+            'sortDir' => $sortDir,
             'page' => $page,
             'perPage' => $perPage,
             'totalOrders' => $totalOrders,
-            'totalPages' => $totalPages
+            'totalPages' => $totalPages,
+            'completedOrders' => $completedOrders,
+            'totalSales' => $totalSales,
+            'pendingOrders' => $pendingOrders,
+            'ordersByStatus' => $ordersByStatus,
+            'salesByDate' => $salesByDate,
+            'orderCountByDate' => $orderCountByDate
         ]);
     }
 
@@ -653,7 +712,7 @@ class AdminController extends Controller
     }
 
     public function addTestimonial() {
-        $this->requireAdmin();
+        $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TestimonialsModel.php';
         $testimonialsModel = new \App\Models\TestimonialsModel();
         $error = '';
@@ -675,7 +734,7 @@ class AdminController extends Controller
     }
 
     public function editTestimonial() {
-        $this->requireAdmin();
+        $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TestimonialsModel.php';
         $testimonialsModel = new \App\Models\TestimonialsModel();
         $id = isset($_GET['id']) ? intval($_GET['id']) : null;
@@ -704,7 +763,7 @@ class AdminController extends Controller
     }
 
     public function deleteTestimonial() {
-        $this->requireAdmin();
+        $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TestimonialsModel.php';
         $testimonialsModel = new \App\Models\TestimonialsModel();
         $id = isset($_POST['id']) ? intval($_POST['id']) : null;
@@ -735,7 +794,7 @@ class AdminController extends Controller
     }
 
     public function saveTipsTroubleshootingSection() {
-        $this->requireAdmin();
+        $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $tipsModel = new TipsTroubleshootingModel();
@@ -773,7 +832,7 @@ class AdminController extends Controller
     }
 
     public function addTipsTroubleshootingArticle() {
-        $this->requireAdmin();
+        $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $tipsModel = new TipsTroubleshootingModel();
@@ -796,7 +855,7 @@ class AdminController extends Controller
     }
 
     public function updateTipsTroubleshootingArticle() {
-        $this->requireAdmin();
+        $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $tipsModel = new TipsTroubleshootingModel();
@@ -820,7 +879,7 @@ class AdminController extends Controller
     }
 
     public function deleteTipsTroubleshootingArticle() {
-        $this->requireAdmin();
+        $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $id = (int) ($_POST['id'] ?? 0);

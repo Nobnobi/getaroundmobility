@@ -1,7 +1,10 @@
 <?php
-$contractTemplateDebugFile = fopen(__DIR__ . '/../public/order-debug-log.txt', 'a');
-fwrite($contractTemplateDebugFile, date('Y-m-d H:i:s') . "\n[DEBUG] contract-template.php included and running\n");
-fclose($contractTemplateDebugFile);
+// Deployment-safe debug logging: never break PDF generation if file permissions differ.
+$contractTemplateDebugFile = @fopen(__DIR__ . '/../public/order-debug-log.txt', 'a');
+if (is_resource($contractTemplateDebugFile)) {
+    @fwrite($contractTemplateDebugFile, date('Y-m-d H:i:s') . "\n[DEBUG] contract-template.php included and running\n");
+    @fclose($contractTemplateDebugFile);
+}
 
 $customerName = $customerName ?? '';
 $pickupDate = $pickupDate ?? '';

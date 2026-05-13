@@ -112,35 +112,6 @@ $activeTab = $_GET['tab'] ?? '';
 </div>
 <?php if (!$isStaff): ?>
 <script>
-
-
-// Tab logic with localStorage persistence
-function showTab(tab) {
-    document.getElementById('tab-content-hotels').classList.add('hidden');
-    document.getElementById('tab-content-pickups').classList.add('hidden');
-    document.getElementById('tab-hotels').classList.remove('active');
-    document.getElementById('tab-pickups').classList.remove('active');
-    if(tab === 'hotels') {
-        document.getElementById('tab-content-hotels').classList.remove('hidden');
-        document.getElementById('tab-hotels').classList.add('active');
-    } else {
-        document.getElementById('tab-content-pickups').classList.remove('hidden');
-        document.getElementById('tab-pickups').classList.add('active');
-    }
-    // Store the active tab in localStorage
-    localStorage.setItem('adminLocationsActiveTab', tab);
-}
-
-// Attach tab button click handlers to persist tab
-document.getElementById('tab-hotels').onclick = function() { showTab('hotels'); };
-document.getElementById('tab-pickups').onclick = function() { showTab('pickups'); };
-
-// On page load, restore the last active tab from localStorage (default to hotels)
-document.addEventListener('DOMContentLoaded', function() {
-    var activeTab = localStorage.getItem('adminLocationsActiveTab') || 'hotels';
-    showTab(activeTab);
-});
-
 // --- Hotels CRUD ---
 const hotelsForm = document.getElementById('hotelsForm');
 const editHotelsBtn = document.getElementById('editHotelsBtn');
@@ -220,6 +191,48 @@ pickupsForm.querySelectorAll('.deletePickupBtn').forEach(btn => {
 cancelPickupsBtn.onclick = function() { window.location.reload(); };
 </script>
 <?php endif; ?>
+
+<script>
+function showTab(tab) {
+    document.getElementById('tab-content-hotels').classList.add('hidden');
+    document.getElementById('tab-content-pickups').classList.add('hidden');
+    document.getElementById('tab-hotels').classList.remove('active');
+    document.getElementById('tab-pickups').classList.remove('active');
+
+    if (tab === 'pickups') {
+        document.getElementById('tab-content-pickups').classList.remove('hidden');
+        document.getElementById('tab-pickups').classList.add('active');
+    } else {
+        document.getElementById('tab-content-hotels').classList.remove('hidden');
+        document.getElementById('tab-hotels').classList.add('active');
+        tab = 'hotels';
+    }
+
+    localStorage.setItem('adminLocationsActiveTab', tab);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const hotelsTabButton = document.getElementById('tab-hotels');
+    const pickupsTabButton = document.getElementById('tab-pickups');
+    const urlTab = <?= json_encode($activeTab === 'pickups' ? 'pickups' : '') ?>;
+    const storedTab = localStorage.getItem('adminLocationsActiveTab');
+    const initialTab = urlTab || storedTab || 'hotels';
+
+    if (hotelsTabButton) {
+        hotelsTabButton.addEventListener('click', function() {
+            showTab('hotels');
+        });
+    }
+
+    if (pickupsTabButton) {
+        pickupsTabButton.addEventListener('click', function() {
+            showTab('pickups');
+        });
+    }
+
+    showTab(initialTab);
+});
+</script>
 <style>
 .tab-btn.active {
     background: #fff;

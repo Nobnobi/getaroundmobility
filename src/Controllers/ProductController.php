@@ -4,6 +4,25 @@ use App\Controller;
 use App\Models\ProductModel;
 
 class ProductController extends Controller {
+    private function ensureAdminSession(): void {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        if (empty($_SESSION['admin_id'])) {
+            header('Location: /admin/login');
+            exit;
+        }
+    }
+
+    private function ensureManagePermission(string $redirect = '/admin/orders'): void {
+        $role = strtolower($_SESSION['admin_role'] ?? '');
+        if (!in_array($role, ['admin', 'superadmin'], true)) {
+            header('Location: ' . $redirect);
+            exit;
+        }
+    }
+    
     
     public function index() {
         if (session_status() === PHP_SESSION_NONE) {
@@ -121,9 +140,7 @@ class ProductController extends Controller {
 
     // ADMIN SIDE
     public function scootersForSale() {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->ensureAdminSession();
 
         // Only check CSRF for POST requests
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -157,6 +174,8 @@ class ProductController extends Controller {
     }
 
     public function addScooterForSale(){
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/scooters-for-sale');
 
         
         $productModel = new ProductModel();
@@ -191,13 +210,13 @@ class ProductController extends Controller {
     }
 
     public function saveScootersForSale(){
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/scooters-for-sale');
+
         // echo '<pre>';
         // print_r($_POST);
         // print_r($_SESSION['csrf_token']);
         // echo '</pre>';
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
 
         if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
             http_response_code(403);
@@ -255,6 +274,9 @@ class ProductController extends Controller {
     }
 
     public function updateScooterForSale(){
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/scooters-for-sale');
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['product_id'])) {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 http_response_code(403);
@@ -277,6 +299,9 @@ class ProductController extends Controller {
     }
 
     public function deleteScooterForSale(){
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/scooters-for-sale');
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['product_id'])) {
             $productModel = new ProductModel();
             $productModel->deleteProduct($_POST['product_id']);
@@ -417,5 +442,5 @@ class ProductController extends Controller {
         exit;
     }
 
-    // getPDO() removed for security and best practice
+    
 }

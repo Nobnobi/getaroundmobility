@@ -449,19 +449,18 @@
 </section>
 
 <!-- TIPS AND TROUBLE -->
-<section class="px-6 py-10 flex flex-col items-center justify-between gap-8 font-[Barlow]">
-    <div class="flex flex-col"></div>
-    <div class="flex flex-row">
+<section class="px-4 md:px-6 py-8 md:py-10 flex flex-col items-center font-[Barlow]">
+    <div class="w-full max-w-6xl flex flex-col lg:flex-row items-start gap-6 md:gap-10">
         <div class="w-full lg:w-1/2">
-            <h3 class="text-2xl font-semibold mb-2 text-center lg:text-left"><?= htmlspecialchars($tipsSection['heading'] ?? 'Tips & Troubleshooting') ?></h3>
-            <p class="text-sm mb-6 text-center lg:text-left">
+            <h3 class="text-xl md:text-2xl font-semibold mb-2 text-center lg:text-left\"><?= htmlspecialchars($tipsSection['heading'] ?? 'Tips & Troubleshooting') ?></h3>
+            <p class="text-sm mb-4 md:mb-6 text-center lg:text-left">
                 <?= htmlspecialchars($tipsSection['description'] ?? 'Treat candidates with a rich careers site and a wonderful application process.') ?>
             </p>
-            <div class="space-y-6 text-sm mt-20">
+            <div class="space-y-4 md:space-y-6 text-sm mt-4 md:mt-8">
                 <?php foreach (($tipsArticles ?? []) as $article): ?>
                     <div>
                         <h4 class="font-semibold"><?= htmlspecialchars($article['title']) ?></h4>
-                        <p class="text-gray-600 h-25 w-100 overflow-hidden"><?= htmlspecialchars($article['description']) ?></p>
+                        <p class="text-gray-600\"><?= htmlspecialchars($article['description']) ?></p>
                         <a href="<?= htmlspecialchars($article['link_url']) ?>" class="text-blue-600 inline-block mt-1" target="_blank" rel="noopener noreferrer">
                             <?= htmlspecialchars($article['link_label'] ?: 'Learn more') ?>
                         </a>
@@ -469,8 +468,12 @@
                 <?php endforeach; ?>
             </div>
         </div>
-        <div class="w-full lg:w-1/2 flex justify-center mt-32">
-            <img src="<?= htmlspecialchars($tipsSection['image_path'] ?? '/img/pwd1.svg') ?>" alt="<?= htmlspecialchars($tipsSection['image_alt'] ?? 'Woman in wheelchair') ?>">
+        <div class="w-full lg:w-1/2 flex justify-center mt-2 md:mt-10">
+            <img
+                src="<?= htmlspecialchars($tipsSection['image_path'] ?? '/img/pwd1.svg') ?>"
+                alt="<?= htmlspecialchars($tipsSection['image_alt'] ?? 'Woman in wheelchair') ?>"
+                class="w-full max-w-[240px] sm:max-w-[300px] md:max-w-[420px] h-auto"
+            >
         </div>
     </div>
 </section>
@@ -657,61 +660,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<script>
-// Debug: log all possible events for date fields
-document.addEventListener('DOMContentLoaded', function() {
-    const pickupInput = document.getElementById('pickupDatetime');
-    const returnInput = document.getElementById('returnDatetime');
 
-    console.log ("pumasok dito");
-    if (pickupInput) {
-        pickupInput.addEventListener('change', function() {
-            console.log('[pickupDatetime] change:', pickupInput.value);
-        });
-        pickupInput.addEventListener('input', function() {
-            console.log('[pickupDatetime] input:', pickupInput.value);
-        });
-        pickupInput.addEventListener('focus', function() {
-            console.log('[pickupDatetime] focus');
-        });
-        pickupInput.addEventListener('blur', function() {
-            console.log('[pickupDatetime] blur');
-        });
-    }
-    if (returnInput) {
-        returnInput.addEventListener('change', function() {
-            console.log('[returnDatetime] change:', returnInput.value);
-        });
-        returnInput.addEventListener('input', function() {
-            console.log('[returnDatetime] input:', returnInput.value);
-        });
-        returnInput.addEventListener('focus', function() {
-            console.log('[returnDatetime] focus');
-        });
-        returnInput.addEventListener('blur', function() {
-            console.log('[returnDatetime] blur');
-        });
-    }
-});
-</script>
-
-<script>
-// Minimal: log to console when date changes
-document.addEventListener('DOMContentLoaded', function() {
-    const pickupInput = document.getElementById('pickupDatetime');
-    const returnInput = document.getElementById('returnDatetime');
-    if (pickupInput) {
-        pickupInput.addEventListener('change', function() {
-            console.log('Pickup date changed:', pickupInput.value);
-        });
-    }
-    if (returnInput) {
-        returnInput.addEventListener('change', function() {
-            console.log('Return date changed:', returnInput.value);
-        });
-    }
-});
-</script>
 <style>
 .slide-in-left {
     animation: slideInLeftTestimonial 0.4s cubic-bezier(0.4,0,0.2,1);

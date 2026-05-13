@@ -403,6 +403,21 @@ function paginationUrl($page) {
         return isNaN(date) ? null : date;
     }
 
+    function showDateValidationAlertOnce(message) {
+        const now = Date.now();
+        if (!window.__dateValidationAlertState) {
+            window.__dateValidationAlertState = { message: '', at: 0 };
+        }
+
+        const last = window.__dateValidationAlertState;
+        if (last.message === message && (now - last.at) < 1200) {
+            return;
+        }
+
+        window.__dateValidationAlertState = { message: message, at: now };
+        alert(message);
+    }
+
     function getNearest15MinNow() {
         const now = new Date();
         now.setSeconds(0, 0);
@@ -437,6 +452,7 @@ function paginationUrl($page) {
         const pickupDate = parseDateValue(pickup);
         const returnDate = parseDateValue(ret);
         const now = getNearest15MinNow();
+        const minReturnDate = pickupDate ? new Date(pickupDate.getTime() + (30 * 60 * 1000)) : null;
 
         if (!pickupDate || !returnDate) {
             return { valid: false, message: 'Please select both Pickup and Return date/time.' };
@@ -448,6 +464,10 @@ function paginationUrl($page) {
 
         if (returnDate <= pickupDate) {
             return { valid: false, message: 'Return date/time must be after pickup date/time.' };
+        }
+
+        if (minReturnDate && returnDate < minReturnDate) {
+            return { valid: false, message: 'Return date/time must be at least 30 minutes after pickup date/time.' };
         }
 
         const days = Math.ceil((returnDate - pickupDate) / (1000 * 60 * 60 * 24));
@@ -593,7 +613,7 @@ function paginationUrl($page) {
             message.classList.remove('hidden');
             setTimeout(() => message.classList.add('hidden'), 3000);
         } else {
-            alert('Please select a date and time for Pickup and Return.');
+            showDateValidationAlertOnce('Please select a date and time for Pickup and Return.');
         }
 
         if (typeof emphasizeRentalForm === 'function') emphasizeRentalForm();
@@ -611,7 +631,7 @@ function paginationUrl($page) {
 
         const rentalValidation = validateRentalWindow(pickup, ret);
         if (!rentalValidation.valid) {
-            alert(rentalValidation.message);
+            showDateValidationAlertOnce(rentalValidation.message);
             clearRentalDatesForInvalidAttempt();
             if (typeof emphasizeRentalForm === 'function') emphasizeRentalForm();
             return;
@@ -715,6 +735,35 @@ function paginationUrl($page) {
                 return now;
             }
 
+            function formatTime24(date) {
+                const h = String(date.getHours()).padStart(2, '0');
+                const m = String(date.getMinutes()).padStart(2, '0');
+                return h + ':' + m;
+            }
+
+            function isSameCalendarDay(a, b) {
+                return a && b
+                    && a.getFullYear() === b.getFullYear()
+                    && a.getMonth() === b.getMonth()
+                    && a.getDate() === b.getDate();
+            }
+
+            function syncMobileReturnTimeBounds() {
+                const pickupDate = parseDateValue(pickupInput.value);
+                const returnDate = parseDateValue(returnInput.value);
+
+                if (!pickupDate || !returnPicker) return;
+
+                const minReturnDate = new Date(pickupDate.getTime() + (30 * 60 * 1000));
+
+                if (returnDate && isSameCalendarDay(pickupDate, returnDate)) {
+                    returnPicker.set('minTime', formatTime24(minReturnDate));
+                } else {
+                    returnPicker.set('minTime', '00:00');
+                }
+                returnPicker.set('maxTime', '23:59');
+            }
+
             // Remove defaultDate — we control it manually
             const pickupPicker = flatpickr(pickupInput, {
                 enableTime: true,
@@ -725,23 +774,32 @@ function paginationUrl($page) {
                 disableMobile: true,
                 onChange: function(selectedDates) {
                     if (selectedDates[0]) {
+                        const minReturnDate = new Date(selectedDates[0].getTime() + (30 * 60 * 1000));
                         const maxReturnDate = new Date(selectedDates[0]);
                         maxReturnDate.setDate(maxReturnDate.getDate() + 31);
-                        returnPicker.set('minDate', selectedDates[0]);
+                        returnPicker.set('minDate', minReturnDate);
                         returnPicker.set('maxDate', maxReturnDate);
-                        if (returnInput.value && new Date(returnInput.value) < selectedDates[0]) {
+                        syncMobileReturnTimeBounds();
+                        const currentReturn = parseDateValue(returnInput.value);
+                        if (currentReturn && currentReturn < minReturnDate) {
+                            const adjustedReturn = flatpickr.formatDate(minReturnDate, 'Y-m-d H:i');
+                            returnInput.value = adjustedReturn;
+                            returnPicker.setDate(adjustedReturn, false);
+                            localStorage.setItem('returnDatetime', adjustedReturn);
+                            if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
+                            if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
+                            window.dispatchEvent(new CustomEvent('rental-dates-updated', {
+                                detail: { pickup: pickupInput.value || '', return: adjustedReturn }
+                            }));
+                        } else if (currentReturn && currentReturn > maxReturnDate) {
                             returnInput.value = '';
                             returnPicker.clear();
                             localStorage.removeItem('returnDatetime');
-                            alert('Return date/time must be after pickup date/time. Please select your dates again.');
-                        } else if (returnInput.value && new Date(returnInput.value) > maxReturnDate) {
-                            pickupInput.value = '';
-                            returnInput.value = '';
-                            pickupPicker.clear();
-                            returnPicker.clear();
-                            localStorage.removeItem('pickupDatetime');
-                            localStorage.removeItem('returnDatetime');
-                            alert('Online booking is limited to 31 days. For rentals longer than 31 days, please call us.');
+                            if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
+                            if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
+                            window.dispatchEvent(new CustomEvent('rental-dates-updated', {
+                                detail: { pickup: pickupInput.value || '', return: '' }
+                            }));
                         }
                     }
                 }
@@ -754,30 +812,38 @@ function paginationUrl($page) {
                 time_24hr: true,
                 minuteIncrement: 15,
                 disableMobile: true,
+                onOpen: function() {
+                    syncMobileReturnTimeBounds();
+                },
                 onChange: function(selectedDates) {
                     if (selectedDates[0]) {
-                        if (pickupInput.value && new Date(pickupInput.value) >= selectedDates[0]) {
-                            pickupInput.value = '';
-                            returnInput.value = '';
-                            pickupPicker.clear();
-                            returnPicker.clear();
-                            localStorage.removeItem('pickupDatetime');
-                            localStorage.removeItem('returnDatetime');
-                            alert('Return date/time must be after pickup date/time. Please select your dates again.');
+                        syncMobileReturnTimeBounds();
+                        const pickupDate = parseDateValue(pickupInput.value);
+                        if (pickupDate && pickupDate >= selectedDates[0]) {
+                            const minReturnDate = new Date(pickupDate.getTime() + (30 * 60 * 1000));
+                            const adjustedReturn = flatpickr.formatDate(minReturnDate, 'Y-m-d H:i');
+                            returnInput.value = adjustedReturn;
+                            returnPicker.setDate(adjustedReturn, false);
+                            localStorage.setItem('returnDatetime', adjustedReturn);
+                            if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
+                            if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
+                            window.dispatchEvent(new CustomEvent('rental-dates-updated', {
+                                detail: { pickup: pickupInput.value || '', return: adjustedReturn }
+                            }));
                             return;
                         }
 
-                        if (pickupInput.value) {
-                            const pickupDate = new Date(pickupInput.value);
+                        if (pickupDate) {
                             const days = Math.ceil((selectedDates[0] - pickupDate) / (1000 * 60 * 60 * 24));
                             if (days > 31) {
-                                pickupInput.value = '';
                                 returnInput.value = '';
-                                pickupPicker.clear();
                                 returnPicker.clear();
-                                localStorage.removeItem('pickupDatetime');
                                 localStorage.removeItem('returnDatetime');
-                                alert('Online booking is limited to 31 days. For rentals longer than 31 days, please call us.');
+                                if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
+                                if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
+                                window.dispatchEvent(new CustomEvent('rental-dates-updated', {
+                                    detail: { pickup: pickupInput.value || '', return: '' }
+                                }));
                                 return;
                             }
                         }
@@ -801,7 +867,7 @@ function paginationUrl($page) {
             if (!savedReturn || savedReturn === 'null' || savedReturn === '') {
                 const baseDate = new Date(savedPickup || pickupInput.value);
                 const defaultReturn = new Date(baseDate);
-                defaultReturn.setDate(defaultReturn.getDate() + 1);
+                defaultReturn.setMinutes(defaultReturn.getMinutes() + 30);
                 const formatted = flatpickr.formatDate(defaultReturn, "Y-m-d H:i");
                 returnInput.value = formatted;
                 returnPicker.setDate(defaultReturn, false);
@@ -811,34 +877,84 @@ function paginationUrl($page) {
                 returnPicker.setDate(savedReturn, false);
             }
 
+            syncMobileReturnTimeBounds();
+
             // Validation on load
             const pickupVal = pickupInput.value;
             const returnVal = returnInput.value;
             if (pickupVal && returnVal) {
-                const pickupDate = new Date(pickupVal);
-                const returnDate = new Date(returnVal);
+                const pickupDate = parseDateValue(pickupVal);
+                const returnDate = parseDateValue(returnVal);
                 if (pickupDate > returnDate) {
                     returnInput.value = '';
                     returnPicker.clear();
                     localStorage.removeItem('returnDatetime');
                 } else if (returnDate < pickupDate) {
-                    pickupInput.value = '';
                     returnInput.value = '';
-                    pickupPicker.clear();
                     returnPicker.clear();
-                    localStorage.removeItem('pickupDatetime');
                     localStorage.removeItem('returnDatetime');
                 } else {
                     const diffDays = Math.ceil((returnDate - pickupDate) / (1000 * 60 * 60 * 24));
                     if (diffDays > 31) {
-                        pickupInput.value = '';
                         returnInput.value = '';
-                        pickupPicker.clear();
                         returnPicker.clear();
-                        localStorage.removeItem('pickupDatetime');
                         localStorage.removeItem('returnDatetime');
                     }
                 }
+            }
+
+            function syncMobileDateInputsFromStorage() {
+                const pickupStored = localStorage.getItem('pickupDatetime') || '';
+                const returnStored = localStorage.getItem('returnDatetime') || '';
+
+                pickupInput.value = pickupStored;
+                returnInput.value = returnStored;
+                if (pickupInput._flatpickr) pickupInput._flatpickr.setDate(pickupStored, false);
+                if (returnInput._flatpickr) returnInput._flatpickr.setDate(returnStored, false);
+            }
+
+            function notifyRentalDatesChanged() {
+                if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
+                if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
+                window.dispatchEvent(new CustomEvent('rental-dates-updated', {
+                    detail: {
+                        pickup: pickupInput.value || '',
+                        return: returnInput.value || ''
+                    }
+                }));
+            }
+
+            function submitMobileDateFormIfReady(form) {
+                if (!form) return;
+                const rentalCheck = validateRentalWindow(pickupInput.value, returnInput.value);
+                if (!rentalCheck.valid) return;
+                form.submit();
+            }
+
+            syncMobileDateInputsFromStorage();
+            window.addEventListener('rental-dates-updated', syncMobileDateInputsFromStorage);
+            window.addEventListener('storage', function(event) {
+                if (event.key === 'pickupDatetime' || event.key === 'returnDatetime') {
+                    syncMobileDateInputsFromStorage();
+                }
+            });
+
+            const mobileFilterForm = pickupInput.form;
+            if (mobileFilterForm && !mobileFilterForm.dataset.dateValidationBound) {
+                mobileFilterForm.dataset.dateValidationBound = '1';
+                mobileFilterForm.addEventListener('submit', function(e) {
+                    localStorage.setItem('pickupDatetime', pickupInput.value || '');
+                    localStorage.setItem('returnDatetime', returnInput.value || '');
+
+                    const rentalCheck = validateRentalWindow(pickupInput.value, returnInput.value);
+                    if (!rentalCheck.valid) {
+                        e.preventDefault();
+                        showDateValidationAlertOnce(rentalCheck.message);
+                        return;
+                    }
+
+                    notifyRentalDatesChanged();
+                });
             }
 
             // Attach cart date change modal logic to mobile date inputs
@@ -860,25 +976,22 @@ function paginationUrl($page) {
                                     saveCart([]);
                                     localStorage.setItem(key, newValue);
                                     if (picker) picker.setDate(newValue, false);
-                                    if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
-                                    if (input.form) {
-                                        input.form.submit();
-                                    } else {
-                                        location.reload();
-                                    }
+                                    notifyRentalDatesChanged();
                                 },
                                 function onCancel() {
                                     input.value = lastValue;
                                     if (picker) picker.setDate(lastValue, false);
-                                    if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
+                                    notifyRentalDatesChanged();
                                 }
                             );
                         }
                     } else {
                         localStorage.setItem(key, newValue);
                         if (picker) picker.setDate(newValue, false);
-                        if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
+                        notifyRentalDatesChanged();
                     }
+
+                    lastValue = newValue;
                 });
             }
             handleDateInputChangeWithCartCheck(pickupInput, 'pickupDatetime', pickupPicker);

@@ -26,6 +26,15 @@ class Router
     $uri = strtok($_SERVER['REQUEST_URI'], '?');
     $method =  $_SERVER['REQUEST_METHOD'];
 
+    // Normalize URI when app is hosted in a subdirectory (common on shared hosting).
+    $scriptDir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($scriptDir && $scriptDir !== '/' && strpos($uri, $scriptDir) === 0) {
+        $uri = substr($uri, strlen($scriptDir));
+        if ($uri === '' || $uri === false) {
+            $uri = '/';
+        }
+    }
+
     // Exact match
     if (array_key_exists($uri, $this->routes[$method])) {
         $controller = $this->routes[$method][$uri]['controller'];

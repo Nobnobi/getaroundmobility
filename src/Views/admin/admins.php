@@ -1,8 +1,7 @@
 <!-- filepath: c:\xampp\htdocs\GetAroundMobility\src\Views\admin\admins.php -->
 <?php
 
-$pdo = new PDO('mysql:host=localhost;dbname=getaround_db', 'getaroundmobility', 'itup420');
-$admins = $pdo->query("SELECT id, username, role, created_at FROM admins ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+$admins = $admins ?? [];
 
 $isSuperAdmin = (isset($_SESSION['admin_role']) && strtolower($_SESSION['admin_role']) === 'superadmin');
 $roleLabels = [

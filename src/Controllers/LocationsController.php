@@ -9,16 +9,41 @@ use App\Models\PickupLocationModel;
 class LocationsController extends Controller {
     private $partnerHotelModel;
     private $pickupLocationModel;
+
+    private function ensureAdminSession(): void {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        if (empty($_SESSION['admin_id'])) {
+            header('Location: /admin/login');
+            exit;
+        }
+    }
+
+    private function ensureManagePermission(): void {
+        $role = strtolower($_SESSION['admin_role'] ?? '');
+        if (!in_array($role, ['admin', 'superadmin'], true)) {
+            header('Location: /admin/locations');
+            exit;
+        }
+    }
+
     public function __construct() {
         $this->partnerHotelModel = new PartnerHotelModel();
         $this->pickupLocationModel = new PickupLocationModel();
     }
     public function index() {
+        $this->ensureAdminSession();
+
         $partnerHotels = $this->partnerHotelModel->getAll();
         $pickupLocations = $this->pickupLocationModel->getAll();
         $this->renderAdmin('admin/locations', compact('partnerHotels', 'pickupLocations'));
     }
     public function handlePost() {
+        $this->ensureAdminSession();
+        $this->ensureManagePermission();
+
         $tab = $_POST['tab'] ?? '';
         if ($tab === 'hotels') {
             // Update existing hotels
@@ -89,7 +114,8 @@ class LocationsController extends Controller {
                 }
             }
         }
-        header('Location: /admin/locations');
+        $redirectTab = $tab === 'pickups' ? 'pickups' : 'hotels';
+        header('Location: /admin/locations?tab=' . $redirectTab);
         exit;
     }
 }

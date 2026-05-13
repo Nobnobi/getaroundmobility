@@ -1,3 +1,11 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+$role = strtolower($_SESSION['admin_role'] ?? '');
+$isStaff = ($role === 'staff');
+?>
+
 <div class="flex flex-1 items-center justify-center w-full">
     <div class="bg-white rounded-2xl shadow-xl p-10 w-full max-w-5xl mx-auto border border-gray-200">
         <header class="mb-8 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
@@ -7,10 +15,12 @@
         <div class="bg-gray-50 rounded-xl shadow-inner p-6">
             <div class="flex flex-col md:flex-row md:items-center gap-4 mb-6">
                 <h2 class="text-xl font-bold text-gray-800">Scooters For Sale Table</h2>
-                <div class="flex gap-2">
-                    <button type="button" id="editBtn" class="bg-[#0086C9] text-white px-4 py-2 rounded-lg shadow hover:bg-[#006a9c] transition-colors cursor-pointer">Edit</button>
-                    <button type="button" id="addBtn" class="bg-green-500 text-white px-4 py-2 rounded-lg shadow hover:bg-green-600 transition-colors cursor-pointer" style="display:none;">Add Scooter</button>
-                </div>
+                <?php if (!$isStaff): ?>
+                    <div class="flex gap-2">
+                        <button type="button" id="editBtn" class="bg-[#0086C9] text-white px-4 py-2 rounded-lg shadow hover:bg-[#006a9c] transition-colors cursor-pointer">Edit</button>
+                        <button type="button" id="addBtn" class="bg-green-500 text-white px-4 py-2 rounded-lg shadow hover:bg-green-600 transition-colors cursor-pointer" style="display:none;">Add Scooter</button>
+                    </div>
+                <?php endif; ?>
             </div>
             <form method="post" action="/admin/scooters-for-sale/save" id="scooterSaleForm">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
@@ -63,22 +73,31 @@
                                     <input type="file" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-product-id="<?= $scooter['product_id'] ?>">
                                 </td>
                                 <td class="py-2 px-4 border-b border-gray-200">
-                                    <button type="button" class="deleteBtn bg-red-500 text-white px-3 py-1 rounded-lg shadow hover:bg-red-600 text-xs transition-colors" data-id="<?= htmlspecialchars($scooter['product_id']) ?>" style="display:none;">Delete</button>
+                                    <?php if (!$isStaff): ?>
+                                        <button type="button" class="deleteBtn bg-red-500 text-white px-3 py-1 rounded-lg shadow hover:bg-red-600 text-xs transition-colors" data-id="<?= htmlspecialchars($scooter['product_id']) ?>" style="display:none;">Delete</button>
+                                    <?php else: ?>
+                                        <span class="text-gray-400 text-xs">View only</span>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>
-                <div class="mt-6 flex gap-3 justify-end" id="actionButtons" style="display:none;">
-                    <button type="submit" id="saveBtn" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold shadow hover:bg-blue-700 transition-colors">Save</button>
-                    <button type="button" id="cancelBtn" class="bg-gray-400 text-white px-6 py-2 rounded-lg font-semibold shadow hover:bg-gray-500 transition-colors">Cancel</button>
-                </div>
+                <?php if (!$isStaff): ?>
+                    <div class="mt-6 flex gap-3 justify-end" id="actionButtons" style="display:none;">
+                        <button type="submit" id="saveBtn" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold shadow hover:bg-blue-700 transition-colors">Save</button>
+                        <button type="button" id="cancelBtn" class="bg-gray-400 text-white px-6 py-2 rounded-lg font-semibold shadow hover:bg-gray-500 transition-colors">Cancel</button>
+                    </div>
+                <?php endif; ?>
             </form>
         </div>
     </div>
 </div>
 <script>
+    const isStaff = <?= $isStaff ? 'true' : 'false' ?>;
+
+    if (!isStaff) {
     // Enable edit mode
     document.getElementById('editBtn').onclick = function() {
         document.querySelectorAll('input[type="text"], input[type="number"], select, input[type="checkbox"]').forEach(e => e.disabled = false);
@@ -139,6 +158,7 @@
     document.getElementById('cancelBtn').onclick = function() {
         window.location.reload();
     };
+    }
 
     function initSaleImagePickers(container) {
         const browseBtns = container.querySelectorAll('.sale-image-browse-btn');

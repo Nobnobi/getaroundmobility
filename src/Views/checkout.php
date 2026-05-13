@@ -609,6 +609,13 @@ let stripeElements = null;
 let stripePaymentElement = null;
 let stripeInitializing = false;
 
+function appUrl(path) {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    const match = window.location.pathname.match(/^(.*)\/checkout(?:\/.*)?$/);
+    const basePath = match ? match[1] : '';
+    return `${basePath}${cleanPath}`;
+}
+
 async function initializeStripePaymentElement(form) {
     if (!stripeClient) {
         throw new Error('Stripe publishable key is not configured.');
@@ -620,7 +627,7 @@ async function initializeStripePaymentElement(form) {
         const formData = new FormData(form);
         formData.append('cart', localStorage.getItem('cart') || '[]');
 
-        const response = await fetch('/create-payment-intent', {
+        const response = await fetch(appUrl('/create-payment-intent'), {
             method: 'POST',
             body: formData
         });
@@ -654,6 +661,29 @@ function clearStripeError() {
     if (!stripeError) return;
     stripeError.textContent = '';
     stripeError.classList.add('hidden');
+}
+
+function resolveConfirmationDelivery(order) {
+    const rawType = String(order?.delivery_type || '').toLowerCase();
+    const hasPickup = Boolean(order?.pickup_location_name || order?.pickup_location);
+    const hasHotel = Boolean(order?.hotel_name || order?.hotel_id);
+
+    let type = rawType;
+    if (type !== 'hotel' && type !== 'pickup') {
+        type = hasPickup ? 'pickup' : 'hotel';
+    }
+
+    const selectedHotelOption = document.querySelector('select[name="hotel_id"] option:checked');
+    const selectedHotelName = (selectedHotelOption && selectedHotelOption.value)
+        ? selectedHotelOption.textContent.trim()
+        : '';
+
+    return {
+        type,
+        deliveryLabel: type === 'pickup' ? 'Pickup at Store' : 'Deliver to Partner Hotel',
+        hotelName: order?.hotel_name || selectedHotelName || 'Selected Hotel',
+        pickupName: order?.pickup_location_name || order?.pickup_location || 'Selected Store'
+    };
 }
 
 document.getElementById('checkoutForm').addEventListener('submit', async function(e) {
@@ -709,7 +739,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
             const result = await stripeClient.confirmPayment({
                 elements: stripeElements,
                 confirmParams: {
-                    return_url: `${window.location.origin}/stripe-return`
+                    return_url: `${window.location.origin}${appUrl('/stripe-return')}`
                 },
                 redirect: 'if_required'
             });
@@ -719,7 +749,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
             }
 
             if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
-                const finalizeResponse = await fetch('/stripe-finalize-payment', {
+                const finalizeResponse = await fetch(appUrl('/stripe-finalize-payment'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ payment_intent_id: result.paymentIntent.id })
@@ -728,7 +758,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
                 if (!finalizeResponse.ok || !finalizeData || finalizeData.error) {
                     throw new Error(finalizeData?.error || 'Payment succeeded, but order finalization failed.');
                 }
-                window.location.href = finalizeData.redirectUrl || '/stripe-return';
+                window.location.href = finalizeData.redirectUrl || appUrl('/stripe-return');
                 return;
             }
         } catch (err) {
@@ -861,19 +891,17 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
                     ? new Date(o.pickup_datetime).toLocaleString() : '—';
                 document.getElementById('confReturn').textContent = o.return_datetime 
                     ? new Date(o.return_datetime).toLocaleString() : '—';
-                let deliveryLabel = 'Deliver to Preferred Address';
+                const deliveryInfo = resolveConfirmationDelivery(o);
                 document.getElementById('confHotelRow').style.display = 'none';
                 document.getElementById('confPickupLocationRow').style.display = 'none';
-                if (o.delivery_type === 'hotel') {
-                    deliveryLabel = 'Deliver to Partner Hotel';
+                if (deliveryInfo.type === 'hotel') {
                     document.getElementById('confHotelRow').style.display = 'flex';
-                    document.getElementById('confHotelName').textContent = o.hotel_name || 'Selected Hotel';
-                } else if (o.delivery_type === 'pickup') {
-                    deliveryLabel = 'Pickup at Store';
+                    document.getElementById('confHotelName').textContent = deliveryInfo.hotelName;
+                } else if (deliveryInfo.type === 'pickup') {
                     document.getElementById('confPickupLocationRow').style.display = 'flex';
-                    document.getElementById('confPickupLocation').textContent = o.pickup_location_name || 'Selected Store';
+                    document.getElementById('confPickupLocation').textContent = deliveryInfo.pickupName;
                 }
-                document.getElementById('confDeliveryType').textContent = deliveryLabel;
+                document.getElementById('confDeliveryType').textContent = deliveryInfo.deliveryLabel;
                 document.getElementById('confAddress1').textContent = o.address1 || '—';
                 document.getElementById('confAddress2').textContent = o.address2 || '—';
                 document.getElementById('confState').textContent = o.state || '—';
@@ -1029,7 +1057,7 @@ function renderPayPalButton() {
             const formData = new FormData(form);
 
             // Save form data to session before creating PayPal order
-            const saveFormResponse = await fetch('/save-checkout-form', {
+            const saveFormResponse = await fetch(appUrl('/save-checkout-form'), {
                 method: 'POST',
                 body: formData,
                 credentials: 'same-origin'
@@ -1042,7 +1070,7 @@ function renderPayPalButton() {
             
             // Create PayPal order
             try {
-                const response = await fetch('/api/orders', {
+                const response = await fetch(appUrl('/api/orders'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1060,7 +1088,13 @@ function renderPayPalButton() {
                     })
                 });
 
-                const orderData = await response.json();
+                const orderText = await response.text();
+                let orderData = null;
+                try {
+                    orderData = orderText ? JSON.parse(orderText) : null;
+                } catch (e) {
+                    throw new Error(`Invalid create-order response: ${orderText.slice(0, 120) || 'empty body'}`);
+                }
                 if (orderData.id) return orderData.id;
                 
                 throw new Error(orderData.error || 'Could not create order');
@@ -1072,11 +1106,21 @@ function renderPayPalButton() {
         
     async onApprove(data, actions) {
         try {
-            const response = await fetch(`/api/orders/${data.orderID}/capture`, { method: 'POST' });
-            const result = await response.json();
+            const response = await fetch(appUrl(`/api/orders/${data.orderID}/capture`), { method: 'POST' });
+            const resultText = await response.text();
+            let result = null;
+            try {
+                result = resultText ? JSON.parse(resultText) : null;
+            } catch (e) {
+                throw new Error(`Invalid capture response: ${resultText.slice(0, 120) || 'empty body'}`);
+            }
+
+            if (!response.ok || (result && result.error)) {
+                throw new Error(result?.error || 'PayPal capture failed.');
+            }
             
             if (result.status === 'COMPLETED' || result.status === 'APPROVED') {
-                window.location.href = '/paypal-return'; // This triggers our new secure redirect
+                window.location.href = appUrl('/paypal-return'); // This triggers our new secure redirect
             }
         } catch (err) {
             alert('Payment failed: ' + err.message);
@@ -1276,21 +1320,19 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('confReturn').textContent = o.return_datetime 
                 ? new Date(o.return_datetime).toLocaleString() : '—';
 
-            let deliveryLabel = 'Deliver to Preferred Address';
+            const deliveryInfo = resolveConfirmationDelivery(o);
             document.getElementById('confHotelRow').style.display = 'none';
             document.getElementById('confPickupLocationRow').style.display = 'none';
 
-            if (o.delivery_type === 'hotel') {
-                deliveryLabel = 'Deliver to Partner Hotel';
+            if (deliveryInfo.type === 'hotel') {
                 document.getElementById('confHotelRow').style.display = 'flex';
-                document.getElementById('confHotelName').textContent = o.hotel_name || 'Selected Hotel';
-            } else if (o.delivery_type === 'pickup') {
-                deliveryLabel = 'Pickup at Store';
+                document.getElementById('confHotelName').textContent = deliveryInfo.hotelName;
+            } else if (deliveryInfo.type === 'pickup') {
                 document.getElementById('confPickupLocationRow').style.display = 'flex';
-                document.getElementById('confPickupLocation').textContent = o.pickup_location_name || 'Selected Store';
+                document.getElementById('confPickupLocation').textContent = deliveryInfo.pickupName;
             }
 
-            document.getElementById('confDeliveryType').textContent = deliveryLabel;
+            document.getElementById('confDeliveryType').textContent = deliveryInfo.deliveryLabel;
             document.getElementById('confAddress1').textContent = o.address1 || '—';
             document.getElementById('confAddress2').textContent = o.address2 || '—';
             document.getElementById('confState').textContent = o.state || '—';
