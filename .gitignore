@@ -6,6 +6,9 @@
 # Dependencies
 vendor/
 node_modules/
+Invoices/
+Contracts/
+*.zip
 
 docusign_private.key
 
