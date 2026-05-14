@@ -18,17 +18,22 @@ class ReservationModel {
      * @param int $perPage
      * @return array [reservations, totalReservations, totalPages]
      */
-    public function getReservations($status = null, $page = 1, $perPage = 30)
+    public function getReservations($status = null, $page = 1, $perPage = 30, $search = '')
     {
-        $where = '';
+        $whereClauses = [];
         $params = [];
         if ($status === 'pending') {
-            // Show both pending and paid
-            $where = "WHERE status IN ('pending', 'paid')";
+            $whereClauses[] = "status IN ('pending', 'paid')";
         } elseif ($status === 'completed') {
-            $where = 'WHERE status = :status';
+            $whereClauses[] = 'status = :status';
             $params[':status'] = $status;
         }
+        if ($search !== '') {
+            $whereClauses[] = "(order_id LIKE :search OR reservation_id LIKE :search)";
+            $params[':search'] = '%' . $search . '%';
+        }
+        $where = count($whereClauses) ? 'WHERE ' . implode(' AND ', $whereClauses) : '';
+
         $countSql = "SELECT COUNT(*) FROM reservations $where";
         $countStmt = $this->db->prepare($countSql);
         foreach ($params as $k => $v) {

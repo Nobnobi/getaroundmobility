@@ -6,7 +6,7 @@
                 <div class="flex items-center gap-2">
                     <label for="status" class="font-semibold text-blue-900 text-lg">Show:</label>
                     <div class="relative">
-                        <select name="status" id="status" onchange="this.form.submit()"
+                        <select name="status" id="status"
                             class="appearance-none border-2 border-blue-300 rounded-xl px-4 py-2 pr-10 bg-white text-blue-900 font-semibold shadow focus:outline-none focus:ring-2 focus:ring-blue-400 transition cursor-pointer">
                             <option value="pending" <?= (!isset($_GET['status']) || $_GET['status'] === 'pending') ? 'selected' : '' ?>>Pending & Paid</option>
                             <option value="completed" <?= (isset($_GET['status']) && $_GET['status'] === 'completed') ? 'selected' : '' ?>>Completed</option>
@@ -18,6 +18,12 @@
                             </svg>
                         </span>
                     </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label for="search" class="font-semibold text-blue-900 text-lg">Search:</label>
+                    <input type="text" name="search" id="search" value="<?= htmlspecialchars($_GET['search'] ?? '') ?>" placeholder="Order ID, Reservation ID"
+                        class="border-2 border-blue-300 rounded-xl px-4 py-2 bg-white text-blue-900 font-semibold shadow focus:outline-none focus:ring-2 focus:ring-blue-400 transition w-56" />
+                    <button type="submit" class="ml-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold shadow hover:bg-blue-700 transition">Search</button>
                 </div>
                 <?php if (isset($totalPages) && $totalPages > 1): ?>
                 <?php
@@ -31,10 +37,11 @@
                 $pillClass = 'px-4 py-2 rounded-lg border transition font-semibold mx-0.5';
                 $page = $page ?? 1;
                 $statusParam = isset($_GET['status']) ? '&status=' . urlencode($_GET['status']) : '';
+                $searchParam = isset($_GET['search']) && $_GET['search'] !== '' ? '&search=' . urlencode($_GET['search']) : '';
                 ?>
                 <div class="flex gap-2 justify-center items-center select-none">
                     <?php if ($page > 1): ?>
-                        <a href="?page=<?= $page - 1 ?><?= $statusParam ?>" class="<?= $arrowClass ?> <?= $pillClass ?> mr-2">&laquo;</a>
+                        <a href="?page=<?= $page - 1 ?><?= $statusParam . $searchParam ?>" class="<?= $arrowClass ?> <?= $pillClass ?> mr-2">&laquo;</a>
                     <?php endif; ?>
                     <?php
                     for ($i = 1; $i <= $totalPages; $i++) {
@@ -48,14 +55,14 @@
                                 $dots = false;
                             }
                             $isActive = ($i == $page);
-                            echo '<a href="?page=' . $i . $statusParam . '" class="' . ($isActive ? $activeClass : $inactiveClass) . ' ' . $pillClass . '">' . $i . '</a>';
+                            echo '<a href="?page=' . $i . $statusParam . $searchParam . '" class="' . ($isActive ? $activeClass : $inactiveClass) . ' ' . $pillClass . '">' . $i . '</a>';
                         } else {
                             $dots = true;
                         }
                     }
                     ?>
                     <?php if ($page < $totalPages): ?>
-                        <a href="?page=<?= $page + 1 ?><?= $statusParam ?>" class="<?= $arrowClass ?> <?= $pillClass ?> ml-2">&raquo;</a>
+                        <a href="?page=<?= $page + 1 ?><?= $statusParam . $searchParam ?>" class="<?= $arrowClass ?> <?= $pillClass ?> ml-2">&raquo;</a>
                     <?php endif; ?>
                 </div>
                 <?php endif; ?>

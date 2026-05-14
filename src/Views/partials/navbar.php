@@ -1125,6 +1125,7 @@ function addForSaleToCart(product, qty) {
             price: product.price,
             image_url: product.image_url,
             qty: qty,
+            scooter_count: stock,
             type: 'for-sale',
             sale_type: 'sale',
             category: product.category_name

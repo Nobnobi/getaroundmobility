@@ -65,7 +65,7 @@ class AdminController extends Controller
         $sortBy = isset($_GET['sort_by']) ? trim($_GET['sort_by']) : 'order_id';
         $sortDir = isset($_GET['sort_dir']) ? trim($_GET['sort_dir']) : 'desc';
         $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-        $perPage = 50;
+        $perPage = 25;
 
         $allowedStatuses = ['pending', 'approved', 'paid', 'completed', 'cancelled'];
         if (!in_array(strtolower($statusFilter), $allowedStatuses, true)) {
@@ -686,17 +686,19 @@ class AdminController extends Controller
         $this->requireAdmin();
         $perPage = 30;
         $page = isset($_GET['page']) && is_numeric($_GET['page']) && $_GET['page'] > 0 ? (int)$_GET['page'] : 1;
-            $status = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : 'pending';
-            if ($status === 'paid') $status = 'pending'; // treat 'paid' as 'pending' for filter logic
+        $status = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : 'pending';
+        if ($status === 'paid') $status = 'pending'; // treat 'paid' as 'pending' for filter logic
+        $search = isset($_GET['search']) ? trim($_GET['search']) : '';
         $reservationModel = new ReservationModel();
-        $result = $reservationModel->getReservations($status, $page, $perPage);
+        $result = $reservationModel->getReservations($status, $page, $perPage, $search);
         $this->renderAdmin('admin/reservations', [
             'reservations' => $result['reservations'],
             'totalReservations' => $result['totalReservations'],
             'totalPages' => $result['totalPages'],
             'page' => $page,
             'perPage' => $perPage,
-                'status' => $status
+            'status' => $status,
+            'search' => $search
         ]);
     }
 

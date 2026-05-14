@@ -44,8 +44,41 @@ $isGuest = empty($_SESSION['user_id']);
     
 
 <script>   
-    
-    
+    function getCartComposition(cart) {
+        let hasSale = false;
+        let hasRental = false;
+
+        (cart || []).forEach(item => {
+            const saleType = String(item.sale_type || '').toLowerCase();
+            const itemType = String(item.type || '').toLowerCase();
+            const isSale = saleType === 'sale' || itemType === 'for-sale';
+
+            if (isSale) {
+                hasSale = true;
+            } else {
+                hasRental = true;
+            }
+        });
+
+        return { hasSale, hasRental };
+    }
+
+    function getCheckoutButtonText(cart) {
+        const { hasSale, hasRental } = getCartComposition(cart);
+        if (hasSale && hasRental) return 'Buy and Rent now';
+        if (hasSale) return 'Buy now';
+        return 'Rent now';
+    }
+
+    function getItemMaxStock(item) {
+        const raw = item.scooter_count ?? item.available_scooter_count ?? item.stock;
+        const parsed = parseInt(raw, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+            return parseInt(item.qty, 10) || 1;
+        }
+        return parsed;
+    }
+
     function renderCartPage() {
         const cart = loadCart();
         const itemsContainer = document.getElementById('cartPageItems');
@@ -66,6 +99,9 @@ $isGuest = empty($_SESSION['user_id']);
         cart.forEach((item, idx) => {
             const lineTotal = item.price * item.qty;
             subtotal += lineTotal;
+            const maxStock = getItemMaxStock(item);
+            const canDecrement = item.qty > 1;
+            const canIncrement = item.qty < maxStock;
             // Extract variation from name if present (format: Product - Variation)
             let name = item.name;
             let variation = '';
@@ -89,9 +125,7 @@ $isGuest = empty($_SESSION['user_id']);
                 </div>
                 <div class="flex flex-row items-center gap-2">
                     <div class="flex items-center gap-1">
-                        
-
-                        <!-- QUANTITY -->
+                        <button type="button" class="qty-decrement px-2 py-1 rounded border border-gray-300 text-gray-700 font-bold ${canDecrement ? 'hover:bg-gray-100 cursor-pointer' : 'opacity-50 cursor-not-allowed'}" data-idx="${idx}" ${canDecrement ? '' : 'disabled'}>-</button>
                         <input
                             type="text"
                             readonly
@@ -99,8 +133,7 @@ $isGuest = empty($_SESSION['user_id']);
                             class="w-12 h-8 text-center 
                                 focus:outline-none focus:ring-2 focus:ring-blue-500
                                 bg-white text-gray-900 font-medium">
-
-                       
+                        <button type="button" class="qty-increment px-2 py-1 rounded border border-gray-300 text-gray-700 font-bold ${canIncrement ? 'hover:bg-gray-100 cursor-pointer' : 'opacity-50 cursor-not-allowed'}" data-idx="${idx}" ${canIncrement ? '' : 'disabled'}>+</button>
                     </div>
                     <!-- DELETE BUTTON -->
                     <button class="remove-cart-page-item cursor-pointer ml-2" data-idx="${idx}" title="Remove">
@@ -127,14 +160,29 @@ $isGuest = empty($_SESSION['user_id']);
             });
         });
 
+        document.querySelectorAll('.qty-decrement').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const idx = parseInt(this.dataset.idx, 10);
+                updateQty(idx, -1);
+            });
+        });
+
+        document.querySelectorAll('.qty-increment').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const idx = parseInt(this.dataset.idx, 10);
+                updateQty(idx, 1);
+            });
+        });
+
         // Calculate summary (right column)
         const tax = subtotal * 0.12; // Example: 12% tax
         const total = subtotal + tax;
+        const ctaText = getCheckoutButtonText(cart);
 
         summaryContainer.innerHTML = `
             <h2 class="text-lg font-semibold mb-4">Order Summary</h2>
             <div class="flex justify-between mb-2">
-                <span>Rental subtotal</span>
+                <span>Order subtotal</span>
                 <span>$${subtotal.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
@@ -150,7 +198,7 @@ $isGuest = empty($_SESSION['user_id']);
                 <span>$${total.toFixed(2)}</span>
             </div>
             <button type="button" class="bg-[#0086C9] text-white w-full py-3 cursor-pointer rounded-lg hover:bg-blue-600 rent-now-btn">
-                Rent now
+                ${ctaText}
             </button>
         `;
         updateCartCountBadge();
@@ -161,9 +209,10 @@ $isGuest = empty($_SESSION['user_id']);
         let cart = loadCart();
         const item = cart[idx];
         if (!item) return;
+        const maxStock = getItemMaxStock(item);
 
         // Only allow increment if under stock limit
-        if (delta > 0 && item.qty >= item.scooter_count) {
+        if (delta > 0 && item.qty >= maxStock) {
             alert('You cannot add more than the available stock for this product.');
             return;
         }
@@ -184,19 +233,24 @@ $isGuest = empty($_SESSION['user_id']);
         document.addEventListener('click', function(e) {
             const rentNowBtn = e.target.closest('.rent-now-btn');
             if (rentNowBtn) {
-                // Date validation
-                const pickup = document.getElementById('pickupDatetime')?.value;
-                const ret = document.getElementById('returnDatetime')?.value;
-                if (!pickup || !ret) {
-                    const msg = document.getElementById('formMessage');
-                    if (msg) {
-                        msg.classList.remove('hidden');
-                        setTimeout(() => msg.classList.add('hidden'), 3000);
-                    } else {
-                        alert('Please select both Pickup/Delivery and Return date & time before proceeding.');
+                const cart = loadCart();
+                const { hasRental } = getCartComposition(cart);
+
+                // Date validation only required when cart has rental items
+                if (hasRental) {
+                    const pickup = document.getElementById('pickupDatetime')?.value;
+                    const ret = document.getElementById('returnDatetime')?.value;
+                    if (!pickup || !ret) {
+                        const msg = document.getElementById('formMessage');
+                        if (msg) {
+                            msg.classList.remove('hidden');
+                            setTimeout(() => msg.classList.add('hidden'), 3000);
+                        } else {
+                            alert('Please select both Pickup/Delivery and Return date & time before proceeding.');
+                        }
+                        if (typeof emphasizeRentalForm === 'function') emphasizeRentalForm();
+                        return; // Prevent proceeding
                     }
-                    if (typeof emphasizeRentalForm === 'function') emphasizeRentalForm();
-                    return; // Prevent proceeding
                 }
 
                 <?php if ($isGuest): ?>
