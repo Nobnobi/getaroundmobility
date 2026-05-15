@@ -1,0 +1,18 @@
+Options -Indexes
+
+RewriteEngine On
+
+# -----------------------------
+# FORCE HTTPS
+# -----------------------------
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://new.getaroundmobility.com%{REQUEST_URI} [L,R=301]
+
+# -----------------------------
+# CLEAN URL ROUTING
+# -----------------------------
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+RewriteRule ^ index.php [QSA,L]

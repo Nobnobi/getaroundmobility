@@ -4,12 +4,14 @@ namespace App;
 
 class Router
 {
-    protected $routes = [];
+    protected array $routes = [];
 
     private function addRoute($route, $controller, $action, $method)
     {
-
-        $this->routes[$method][$route] = ['controller' => $controller, 'action' => $action];
+        $this->routes[$method][$route] = [
+            'controller' => $controller,
+            'action' => $action
+        ];
     }
 
     public function get($route, $controller, $action)
@@ -22,37 +24,95 @@ class Router
         $this->addRoute($route, $controller, $action, "POST");
     }
 
-    public function dispatch(){
-    $uri = strtok($_SERVER['REQUEST_URI'], '?');
-    $method =  $_SERVER['REQUEST_METHOD'];
+    private function getCleanUri(): string
+    {
+        $uri = $_SERVER['REQUEST_URI'] ?? '/';
 
-    // Normalize URI when app is hosted in a subdirectory (common on shared hosting).
-    $scriptDir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($scriptDir && $scriptDir !== '/' && strpos($uri, $scriptDir) === 0) {
-        $uri = substr($uri, strlen($scriptDir));
-        if ($uri === '' || $uri === false) {
-            $uri = '/';
+        // remove query string
+        $uri = parse_url($uri, PHP_URL_PATH);
+
+        // remove index.php anywhere in path
+        $uri = str_replace('/index.php', '', $uri);
+
+        // normalize slashes
+        $uri = preg_replace('#/+#', '/', $uri);
+
+        // remove trailing slash
+        if ($uri !== '/') {
+            $uri = rtrim($uri, '/');
         }
+
+        return $uri ?: '/';
     }
+    
+    public function dispatch()
+{
+    try {
+        $uri = $this->getCleanUri();
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-    // Exact match
-    if (array_key_exists($uri, $this->routes[$method])) {
-        $controller = $this->routes[$method][$uri]['controller'];
-        $action = $this->routes[$method][$uri]['action'];
+        $routes = $this->routes[$method] ?? [];
 
-        $controller = new $controller();
-        $controller->$action();
-        return;
+        if (isset($routes[$uri])) {
+            $controller = $routes[$uri]['controller'];
+            $action = $routes[$uri]['action'];
+
+            $instance = new $controller();
+            $instance->$action();
+            return;
+        }
+
+        http_response_code(404);
+        echo "404 Not Found";
+    } catch (\Throwable $e) {
+        http_response_code(500);
+        echo "<pre>";
+        echo $e->getMessage() . "\n";
+        echo $e->getFile() . ":" . $e->getLine();
+        echo "</pre>";
+        exit;
     }
-
-    // Pattern match for /api/orders/{orderId}/capture
-    if ($method === 'POST' && preg_match('#^/api/orders/([^/]+)/capture$#', $uri, $matches)) {
-        $orderId = $matches[1];
-        $controller = new \App\Controllers\OrderController();
-        $controller->capturePaypalOrder($orderId);
-        return;
-    }
-
-    throw new \Exception("No route found for URI: $uri");
 }
+
+    // public function dispatch()
+    // {
+    //     $uri = $this->getCleanUri();
+    //     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+    //     $routes = $this->routes[$method] ?? [];
+
+    //     // 1. Exact match
+    //     if (isset($routes[$uri])) {
+    //         $controller = $routes[$uri]['controller'];
+    //         $action = $routes[$uri]['action'];
+
+    //         $instance = new $controller();
+    //         $instance->$action();
+    //         return;
+    //     }
+
+    //     // 2. Pattern match (safe dynamic route)
+    //     foreach ($routes as $route => $data) {
+    //         $pattern = preg_replace('#\{[^/]+\}#', '([^/]+)', $route);
+
+    //         if (preg_match('#^' . $pattern . '$#', $uri, $matches)) {
+
+    //             array_shift($matches);
+
+    //             $controller = $data['controller'];
+    //             $action = $data['action'];
+
+    //             $instance = new $controller();
+
+    //             // pass params if needed
+    //             $instance->$action(...$matches);
+
+    //             return;
+    //         }
+    //     }
+
+    //     // 3. 404 fallback (NO EXCEPTION = safer in production)
+    //     http_response_code(404);
+    //     echo "404 Not Found";
+    // }
 }

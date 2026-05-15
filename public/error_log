@@ -1,0 +1,366 @@
+[15-May-2026 03:25:38 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:25:42 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:26:54 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:30:24 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:32:41 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:32:50 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(47): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:37:30 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:42:25 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:42:29 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:42:44 America/Chicago] PHP Fatal error:  Uncaught Exception: No route found for URI: /favicon.ico in /home2/getaroun/new.getaroundmobility.com/src/Router.php:56
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#1 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#2 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Router.php on line 56
+[15-May-2026 03:44:31 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(41): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:47:19 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(42): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(42): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:48:25 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(42): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(42): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:48:33 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(42): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(42): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:49:41 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(43): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(43): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:49:41 America/Chicago] PHP Fatal error:  Uncaught Exception: No route found for URI: /favicon.ico in /home2/getaroun/new.getaroundmobility.com/src/Router.php:56
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#1 /home2/getaroun/new.getaroundmobility.com/public/index.php(43): require('/home2/getaroun...')
+#2 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Router.php on line 56
+[15-May-2026 03:50:14 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(44): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(44): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:52:04 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(44): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(44): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 03:53:28 America/Chicago] PHP Parse error:  Unclosed '{' on line 18 in /home2/getaroun/new.getaroundmobility.com/public/index.php on line 44
+[15-May-2026 03:54:12 America/Chicago] PHP Parse error:  Unclosed '{' on line 18 in /home2/getaroun/new.getaroundmobility.com/public/index.php on line 44
+[15-May-2026 03:54:53 America/Chicago] PHP Parse error:  Unclosed '{' on line 18 in /home2/getaroun/new.getaroundmobility.com/public/index.php on line 44
+[15-May-2026 03:54:54 America/Chicago] PHP Parse error:  Unclosed '{' on line 18 in /home2/getaroun/new.getaroundmobility.com/public/index.php on line 44
+[15-May-2026 03:54:55 America/Chicago] PHP Parse error:  Unclosed '{' on line 18 in /home2/getaroun/new.getaroundmobility.com/public/index.php on line 44
+[15-May-2026 03:57:31 America/Chicago] PHP Parse error:  Unclosed '{' on line 18 in /home2/getaroun/new.getaroundmobility.com/public/index.php on line 44
+[15-May-2026 03:57:32 America/Chicago] PHP Parse error:  Unclosed '{' on line 18 in /home2/getaroun/new.getaroundmobility.com/public/index.php on line 44
+[15-May-2026 04:02:12 America/Chicago] PHP Parse error:  Unclosed '{' on line 18 in /home2/getaroun/new.getaroundmobility.com/public/index.php on line 44
+[15-May-2026 04:04:07 America/Chicago] PHP Fatal error:  Uncaught PDOException: PDO::__construct(): php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(40): require('/home2/getaroun...')
+#6 {main}
+
+Next PDOException: SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for sql102.infinityfree.com failed: Name or service not known in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php:25
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php(25): PDO->__construct('mysql:host=sql1...', 'if0_41865182', Object(SensitiveParameterValue), Array)
+#1 /home2/getaroun/new.getaroundmobility.com/src/Models/ProductModel.php(28): App\Utils\Database::getInstance()
+#2 /home2/getaroun/new.getaroundmobility.com/src/Controllers/HomeController.php(22): App\Models\ProductModel->__construct()
+#3 /home2/getaroun/new.getaroundmobility.com/src/Router.php(43): App\Controllers\HomeController->__construct()
+#4 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#5 /home2/getaroun/new.getaroundmobility.com/public/index.php(40): require('/home2/getaroun...')
+#6 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Utils/Database.php on line 25
+[15-May-2026 04:05:12 America/Chicago] PHP Fatal error:  Uncaught Exception: No route found for URI: /favicon.ico in /home2/getaroun/new.getaroundmobility.com/src/Router.php:56
+Stack trace:
+#0 /home2/getaroun/new.getaroundmobility.com/src/Routes/index.php(155): App\Router->dispatch()
+#1 /home2/getaroun/new.getaroundmobility.com/public/index.php(40): require('/home2/getaroun...')
+#2 {main}
+  thrown in /home2/getaroun/new.getaroundmobility.com/src/Router.php on line 56
