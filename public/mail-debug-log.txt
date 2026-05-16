@@ -200,3 +200,9 @@ ErrorInfo: Invalid address:  (to):
 2026-05-09 16:35:25 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Models/../../Contracts/contract-622.pdf
 2026-05-09 16:35:25 [DEBUG] Attachment added: C:\xampp\htdocs\GetAroundMobility\src\Models/../../Invoices/invoice-622.pdf
 2026-05-09 16:35:29 [DEBUG] Email sent successfully to test@user.com
+2026-05-15 09:08:23 [DEBUG] sendBookingConfirmation called. To: vrey.josharu@gmail.com, Name: Vreyene Guariño
+2026-05-15 09:08:23 [DEBUG] SMTP config: host=smtp.gmail.com, username=vrey.josharu@gmail.com, port=587, fromEmail=vrey.josharu@gmail.com, fromName=Get Around Mobility
+2026-05-15 09:08:23 [DEBUG] SMTP password is set (masked)
+2026-05-15 09:08:23 [DEBUG] Attachment added: /home2/getaroun/new.getaroundmobility.com/src/Models/../../Contracts/contract-617.pdf
+2026-05-15 09:08:23 [DEBUG] Attachment added: /home2/getaroun/new.getaroundmobility.com/src/Models/../../Invoices/invoice-617.pdf
+2026-05-15 09:08:27 [DEBUG] Email sent successfully to vrey.josharu@gmail.com
