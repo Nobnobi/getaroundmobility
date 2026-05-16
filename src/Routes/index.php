@@ -122,6 +122,8 @@ $router->post('/admin/categories/save', CategoryController::class, 'save');
 
 $router->get('/admin/rental-prices', RentalPriceController::class, 'index');
 $router->post('/admin/rental-prices/save', RentalPriceController::class, 'save');
+$router->get('/admin/scooters-for-sale', ProductController::class, 'scootersForSale');
+$router->post('/admin/scooters-for-sale/save', ProductController::class, 'saveScootersForSale');
 
 /*
 |--------------------------------------------------------------------------
