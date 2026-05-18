@@ -280,7 +280,7 @@ if ($displayFullName === '') {
 </div>
 
 <!-- Register Modal -->
-    <div id="registerModal" style="background: rgba(0,0,0,0.6);" class="fixed inset-0 hidden flex items-start justify-center z-50 backdrop-blur-sm px-3 pb-4 overflow-y-auto">
+    <div id="registerModal" style="background: rgba(0,0,0,0.6);" class="fixed inset-0 hidden flex items-start md:items-center justify-center z-50 backdrop-blur-sm px-3 pb-4 overflow-y-auto">
         <div id="registerModalContent" class="relative bg-white p-3 sm:p-4 md:p-6 rounded-lg shadow-xl border border-gray-200 w-full max-w-[90vw] sm:max-w-xs md:max-w-md mx-1 mt-32 md:mt-0 max-h-[calc(100vh-8rem)] overflow-y-auto">
                 <button onclick="closeRegisterModal()" class="absolute top-2 right-2 sm:top-2 sm:right-2 text-gray-500 hover:text-black text-2xl cursor-pointer" style="right:0.5rem;top:0.5rem;">&times;</button>
         <h2 class="text-lg sm:text-xl md:text-2xl font-bold mb-3 md:mb-4 text-center font-[Barlow] pr-6">Sign Up</h2>

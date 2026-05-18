@@ -799,11 +799,17 @@ class AdminController extends Controller
         $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
+        if ($this->isPostBodyTooLarge()) {
+            $_SESSION['tips_troubleshooting_error'] = 'The selected images are too large for one upload. Please use smaller files or fewer images.';
+            header('Location: /admin/tips-troubleshooting');
+            exit;
+        }
+
         $tipsModel = new TipsTroubleshootingModel();
         $heading = trim($_POST['heading'] ?? '');
         $description = trim($_POST['description'] ?? '');
         $imageAlt = trim($_POST['image_alt'] ?? '');
-        $currentImagePath = trim($_POST['current_image_path'] ?? '/img/pwd1.svg');
+        $currentImagePathsRaw = $_POST['current_image_paths'] ?? '[]';
 
         if ($heading === '' || $description === '') {
             $_SESSION['tips_troubleshooting_error'] = 'Heading and description are required.';
@@ -815,11 +821,22 @@ class AdminController extends Controller
             $imageAlt = 'Tips and troubleshooting image';
         }
 
-        $imagePath = $currentImagePath !== '' ? $currentImagePath : '/img/pwd1.svg';
+        $currentImagePaths = json_decode($currentImagePathsRaw, true);
+        if (!is_array($currentImagePaths)) {
+            $currentImagePaths = ['/img/pwd1.svg'];
+        }
 
-        if (!empty($_FILES['image']['name'])) {
+        $imagePaths = array_values(array_filter(array_map('trim', $currentImagePaths), static function ($path) {
+            return $path !== '';
+        }));
+        if (empty($imagePaths)) {
+            $imagePaths = ['/img/pwd1.svg'];
+        }
+        $imagePaths = array_slice($imagePaths, 0, 5);
+
+        if (!empty($_FILES['images']['name'])) {
             try {
-                $imagePath = $this->storeTipsTroubleshootingImage($_FILES['image']);
+                $imagePaths = $this->storeTipsTroubleshootingImages($_FILES['images']);
             } catch (\RuntimeException $exception) {
                 $_SESSION['tips_troubleshooting_error'] = $exception->getMessage();
                 header('Location: /admin/tips-troubleshooting');
@@ -827,7 +844,7 @@ class AdminController extends Controller
             }
         }
 
-        $tipsModel->updateSection($heading, $description, $imagePath, $imageAlt);
+        $tipsModel->updateSection($heading, $description, $imagePaths, $imageAlt);
         $_SESSION['tips_troubleshooting_success'] = 'Tips section updated.';
         header('Location: /admin/tips-troubleshooting');
         exit;
@@ -895,30 +912,95 @@ class AdminController extends Controller
         exit;
     }
 
-    private function storeTipsTroubleshootingImage(array $imageFile) {
-        if (($imageFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            throw new \RuntimeException('Image upload failed.');
-        }
-
-        $extension = strtolower(pathinfo($imageFile['name'], PATHINFO_EXTENSION));
-        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
-        if (!in_array($extension, $allowedExtensions, true)) {
-            throw new \RuntimeException('Please upload a JPG, PNG, WEBP, or SVG image.');
-        }
-
+    private function storeTipsTroubleshootingImages(array $imageFiles) {
         $uploadDir = dirname(__DIR__, 2) . '/public/img/uploads';
         if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
             throw new \RuntimeException('Unable to create the image upload folder.');
         }
 
-        $fileName = 'tips-troubleshooting-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
-        $destination = $uploadDir . '/' . $fileName;
+        $names = $imageFiles['name'] ?? [];
+        $tmpNames = $imageFiles['tmp_name'] ?? [];
+        $errors = $imageFiles['error'] ?? [];
 
-        if (!move_uploaded_file($imageFile['tmp_name'], $destination)) {
-            throw new \RuntimeException('Unable to save the uploaded image.');
+        if (!is_array($names)) {
+            $names = [$names];
+            $tmpNames = [is_array($tmpNames) ? ($tmpNames[0] ?? '') : $tmpNames];
+            $errors = [is_array($errors) ? ($errors[0] ?? UPLOAD_ERR_NO_FILE) : $errors];
         }
 
-        return '/img/uploads/' . $fileName;
+        $uploadedPaths = [];
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
+
+        foreach ($names as $index => $originalName) {
+            $errorCode = $errors[$index] ?? UPLOAD_ERR_NO_FILE;
+            if ($errorCode === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            if ($errorCode !== UPLOAD_ERR_OK) {
+                throw new \RuntimeException('Image upload failed.');
+            }
+
+            if (count($uploadedPaths) >= 5) {
+                throw new \RuntimeException('You can upload up to 5 images only.');
+            }
+
+            $extension = strtolower(pathinfo((string) $originalName, PATHINFO_EXTENSION));
+            if (!in_array($extension, $allowedExtensions, true)) {
+                throw new \RuntimeException('Please upload JPG, PNG, WEBP, or SVG images only.');
+            }
+
+            $fileName = 'tips-troubleshooting-' . time() . '-' . $index . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
+            $destination = $uploadDir . '/' . $fileName;
+            $tmpFile = $tmpNames[$index] ?? '';
+
+            if (!is_string($tmpFile) || $tmpFile === '' || !move_uploaded_file($tmpFile, $destination)) {
+                throw new \RuntimeException('Unable to save one of the uploaded images.');
+            }
+
+            $uploadedPaths[] = '/img/uploads/' . $fileName;
+        }
+
+        if (empty($uploadedPaths)) {
+            throw new \RuntimeException('Please select at least one valid image.');
+        }
+
+        return $uploadedPaths;
+    }
+
+    private function isPostBodyTooLarge() {
+        $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($contentLength <= 0) {
+            return false;
+        }
+
+        $maxPostSize = $this->parseIniSize(ini_get('post_max_size'));
+        if ($maxPostSize <= 0) {
+            return false;
+        }
+
+        return $contentLength > $maxPostSize && empty($_POST) && empty($_FILES);
+    }
+
+    private function parseIniSize($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return 0;
+        }
+
+        $unit = strtolower(substr($value, -1));
+        $number = (float) $value;
+
+        switch ($unit) {
+            case 'g':
+                $number *= 1024;
+            case 'm':
+                $number *= 1024;
+            case 'k':
+                $number *= 1024;
+                break;
+        }
+
+        return (int) round($number);
     }
 
     

@@ -2,6 +2,12 @@ Options -Indexes
 
 RewriteEngine On
 
+<IfModule mod_php.c>
+php_value upload_max_filesize 64M
+php_value post_max_size 128M
+php_value max_file_uploads 10
+</IfModule>
+
 # -----------------------------
 # CLEAN HTTPS (only if SSL is ready)
 # -----------------------------

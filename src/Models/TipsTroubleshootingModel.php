@@ -93,7 +93,16 @@ class TipsTroubleshootingModel {
 
     public function getSection() {
         $stmt = $this->db->query("SELECT * FROM tips_troubleshooting_section WHERE id = 1 LIMIT 1");
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $section = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$section) {
+            return null;
+        }
+
+        $imagePaths = $this->normalizeImagePaths($section['image_path'] ?? '');
+        $section['image_paths'] = $imagePaths;
+        $section['image_path'] = $imagePaths[0] ?? '/img/pwd1.svg';
+
+        return $section;
     }
 
     public function getArticles() {
@@ -103,14 +112,44 @@ class TipsTroubleshootingModel {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function updateSection($heading, $description, $imagePath, $imageAlt) {
+    public function updateSection($heading, $description, array $imagePaths, $imageAlt) {
+        $encodedImagePaths = json_encode($this->normalizeImagePaths($imagePaths), JSON_UNESCAPED_SLASHES);
+        if ($encodedImagePaths === false) {
+            $encodedImagePaths = json_encode(['/img/pwd1.svg'], JSON_UNESCAPED_SLASHES);
+        }
+
         $stmt = $this->db->prepare(
             "UPDATE tips_troubleshooting_section
              SET heading = ?, description = ?, image_path = ?, image_alt = ?
              WHERE id = 1"
         );
 
-        return $stmt->execute([$heading, $description, $imagePath, $imageAlt]);
+        return $stmt->execute([$heading, $description, $encodedImagePaths, $imageAlt]);
+    }
+
+    private function normalizeImagePaths($imagePathValue) {
+        $paths = [];
+
+        if (is_array($imagePathValue)) {
+            $paths = $imagePathValue;
+        } elseif (is_string($imagePathValue) && $imagePathValue !== '') {
+            $decoded = json_decode($imagePathValue, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $paths = $decoded;
+            } else {
+                $paths = [$imagePathValue];
+            }
+        }
+
+        $paths = array_values(array_filter(array_map('trim', $paths), static function ($path) {
+            return $path !== '';
+        }));
+
+        if (empty($paths)) {
+            return ['/img/pwd1.svg'];
+        }
+
+        return array_slice($paths, 0, 5);
     }
 
     public function addArticle($title, $description, $linkUrl, $linkLabel, $sortOrder) {

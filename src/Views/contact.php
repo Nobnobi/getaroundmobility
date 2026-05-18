@@ -2,7 +2,7 @@
 <div class="flex flex-col md:flex-row flex-1 min-h-[500px] bg-white mt-32 md:mt-0">
     <!-- CONTACT PICTURE -->
     <div class="w-full md:w-1/2 flex items-center justify-center bg-gray-100 p-6 md:p-0 hidden md:flex">
-        <img src="/img/login.svg" alt="Contact Illustration" class="w-3/4 max-w-xs md:max-w-full md:max-h-[1000px] object-contain mx-auto">
+        <img src="/img/contact-us.JPG" alt="Contact Illustration" class="w-3/4 max-w-xs md:max-w-full md:max-h-[1000px] object-contain mx-auto">
     </div>
 
     <!-- Contact Form -->

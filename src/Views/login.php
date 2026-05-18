@@ -45,6 +45,6 @@
 
         <!-- LOGIN PICTURE -->
         <div class="w-full md:w-1/2 items-center justify-center bg-gray-100 p-6 md:p-0 hidden md:flex">
-            <img src="/img/login.svg" alt="Login Illustration" class="w-3/4 max-w-xs md:max-w-full md:max-h-[1000px] object-contain mx-auto">
+            <img src="/img/login1.JPG" alt="Login Illustration" class="w-3/4 max-w-xs md:max-w-full md:max-h-[1000px] object-contain mx-auto">
         </div>
     </div>
