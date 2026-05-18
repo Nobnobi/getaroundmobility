@@ -782,17 +782,76 @@ class AdminController extends Controller
 
         $tipsModel = new TipsTroubleshootingModel();
         $section = $tipsModel->getSection();
-        $articles = $tipsModel->getArticles();
+
+        $perPage = 3;
+        $page = max(1, (int) ($_GET['page'] ?? 1));
+        $totalArticles = $tipsModel->countArticles();
+        $totalPages = (int) ceil($totalArticles / $perPage);
+        if ($page > $totalPages && $totalPages > 0) {
+            $page = $totalPages;
+        }
+        $articles = $tipsModel->getArticlesPaginated($page, $perPage);
+        $allArticles = $tipsModel->getArticles();
+
         $success = $_SESSION['tips_troubleshooting_success'] ?? '';
         $error = $_SESSION['tips_troubleshooting_error'] ?? '';
         unset($_SESSION['tips_troubleshooting_success'], $_SESSION['tips_troubleshooting_error']);
 
         $this->renderAdmin('admin/tips_troubleshooting', [
-            'section' => $section,
-            'articles' => $articles,
-            'success' => $success,
-            'error' => $error
+            'section'      => $section,
+            'articles'     => $articles,
+            'allArticles'  => $allArticles,
+            'page'         => $page,
+            'totalPages'   => $totalPages,
+            'success'      => $success,
+            'error'        => $error
         ]);
+    }
+
+    public function toggleFeaturedTipsArticle() {
+        $this->requireAdmin(['admin', 'superadmin']);
+        require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
+
+        $tipsModel = new TipsTroubleshootingModel();
+
+        // Handle display-order save (array of article ids in desired order)
+        if (isset($_POST['featured_order']) && is_array($_POST['featured_order'])) {
+            $orderedIds = array_map('intval', $_POST['featured_order']);
+            $orderedIds = array_filter($orderedIds, static fn($id) => $id > 0);
+            $tipsModel->updateFeaturedOrder(array_values($orderedIds));
+            $_SESSION['tips_troubleshooting_success'] = 'Featured article order saved.';
+            $page = max(1, (int) ($_POST['page'] ?? 1));
+            header('Location: /admin/tips-troubleshooting?page=' . $page);
+            exit;
+        }
+
+        $id = (int) ($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            header('Location: /admin/tips-troubleshooting');
+            exit;
+        }
+
+        $featured = (int) ($_POST['is_featured'] ?? 0);
+        $article = $tipsModel->getArticleById($id);
+        if (!$article) {
+            $_SESSION['tips_troubleshooting_error'] = 'Article not found.';
+            $page = max(1, (int) ($_POST['page'] ?? 1));
+            header('Location: /admin/tips-troubleshooting?page=' . $page);
+            exit;
+        }
+
+        if ($featured === 1 && empty($article['is_featured']) && $tipsModel->countFeaturedArticles() >= 6) {
+            $_SESSION['tips_troubleshooting_error'] = 'You can only feature up to 6 articles.';
+            $page = max(1, (int) ($_POST['page'] ?? 1));
+            header('Location: /admin/tips-troubleshooting?page=' . $page);
+            exit;
+        }
+
+        $tipsModel->toggleFeatured($id, $featured === 1);
+        $_SESSION['tips_troubleshooting_success'] = 'Article updated.';
+        $page = max(1, (int) ($_POST['page'] ?? 1));
+        header('Location: /admin/tips-troubleshooting?page=' . $page);
+        exit;
     }
 
     public function saveTipsTroubleshootingSection() {
@@ -857,17 +916,25 @@ class AdminController extends Controller
         $tipsModel = new TipsTroubleshootingModel();
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
-        $linkUrl = trim($_POST['link_url'] ?? '');
-        $linkLabel = trim($_POST['link_label'] ?? 'Learn more');
-        $sortOrder = (int) ($_POST['sort_order'] ?? 0);
 
-        if ($title === '' || $description === '' || $linkUrl === '') {
-            $_SESSION['tips_troubleshooting_error'] = 'Article title, description, and link are required.';
+        if ($title === '' || $description === '') {
+            $_SESSION['tips_troubleshooting_error'] = 'Article title and description are required.';
             header('Location: /admin/tips-troubleshooting');
             exit;
         }
 
-        $tipsModel->addArticle($title, $description, $linkUrl, $linkLabel !== '' ? $linkLabel : 'Learn more', $sortOrder);
+        $imagePath = null;
+        if (isset($_FILES['article_image']) && (int)($_FILES['article_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            try {
+                $imagePath = $this->storeTipsTroubleshootingArticleImage($_FILES['article_image']);
+            } catch (\RuntimeException $exception) {
+                $_SESSION['tips_troubleshooting_error'] = $exception->getMessage();
+                header('Location: /admin/tips-troubleshooting');
+                exit;
+            }
+        }
+
+        $tipsModel->addArticle($title, $description, $imagePath);
         $_SESSION['tips_troubleshooting_success'] = 'Article added.';
         header('Location: /admin/tips-troubleshooting');
         exit;
@@ -881,19 +948,29 @@ class AdminController extends Controller
         $id = (int) ($_POST['id'] ?? 0);
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
-        $linkUrl = trim($_POST['link_url'] ?? '');
-        $linkLabel = trim($_POST['link_label'] ?? 'Learn more');
-        $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+        $currentImagePath = trim($_POST['current_image_path'] ?? '');
+        $page = max(1, (int) ($_POST['page'] ?? 1));
 
-        if ($id <= 0 || $title === '' || $description === '' || $linkUrl === '') {
+        if ($id <= 0 || $title === '' || $description === '') {
             $_SESSION['tips_troubleshooting_error'] = 'Invalid article update request.';
-            header('Location: /admin/tips-troubleshooting');
+            header('Location: /admin/tips-troubleshooting?page=' . $page);
             exit;
         }
 
-        $tipsModel->updateArticle($id, $title, $description, $linkUrl, $linkLabel !== '' ? $linkLabel : 'Learn more', $sortOrder);
+        $imagePath = $currentImagePath !== '' ? $currentImagePath : null;
+        if (isset($_FILES['article_image']) && (int)($_FILES['article_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            try {
+                $imagePath = $this->storeTipsTroubleshootingArticleImage($_FILES['article_image']);
+            } catch (\RuntimeException $exception) {
+                $_SESSION['tips_troubleshooting_error'] = $exception->getMessage();
+                header('Location: /admin/tips-troubleshooting?page=' . $page);
+                exit;
+            }
+        }
+
+        $tipsModel->updateArticle($id, $title, $description, $imagePath);
         $_SESSION['tips_troubleshooting_success'] = 'Article updated.';
-        header('Location: /admin/tips-troubleshooting');
+        header('Location: /admin/tips-troubleshooting?page=' . $page);
         exit;
     }
 
@@ -902,13 +979,14 @@ class AdminController extends Controller
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $id = (int) ($_POST['id'] ?? 0);
+        $page = max(1, (int) ($_POST['page'] ?? 1));
         if ($id > 0) {
             $tipsModel = new TipsTroubleshootingModel();
             $tipsModel->deleteArticle($id);
             $_SESSION['tips_troubleshooting_success'] = 'Article deleted.';
         }
 
-        header('Location: /admin/tips-troubleshooting');
+        header('Location: /admin/tips-troubleshooting?page=' . $page);
         exit;
     }
 
@@ -965,6 +1043,41 @@ class AdminController extends Controller
         }
 
         return $uploadedPaths;
+    }
+
+    private function storeTipsTroubleshootingArticleImage(array $imageFile) {
+        $errorCode = (int) ($imageFile['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($errorCode === UPLOAD_ERR_NO_FILE) {
+            return null;
+        }
+        if ($errorCode !== UPLOAD_ERR_OK) {
+            throw new \RuntimeException('Article image upload failed.');
+        }
+
+        $uploadDir = dirname(__DIR__, 2) . '/public/img/uploads';
+        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
+            throw new \RuntimeException('Unable to create the image upload folder.');
+        }
+
+        $originalName = (string) ($imageFile['name'] ?? '');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
+        if (!in_array($extension, $allowedExtensions, true)) {
+            throw new \RuntimeException('Please upload JPG, PNG, WEBP, or SVG images only.');
+        }
+
+        $tmpFile = (string) ($imageFile['tmp_name'] ?? '');
+        if ($tmpFile === '') {
+            throw new \RuntimeException('Invalid uploaded article image.');
+        }
+
+        $fileName = 'tips-article-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
+        $destination = $uploadDir . '/' . $fileName;
+        if (!move_uploaded_file($tmpFile, $destination)) {
+            throw new \RuntimeException('Unable to save the article image.');
+        }
+
+        return '/img/uploads/' . $fileName;
     }
 
     private function isPostBodyTooLarge() {

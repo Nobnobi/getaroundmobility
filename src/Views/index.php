@@ -451,31 +451,52 @@
 <!-- TIPS AND TROUBLE -->
 <section class="px-4 md:px-6 py-8 md:py-10 flex flex-col items-center font-[Barlow]">
     <?php
+    if (!function_exists('formatTipsHomePreview')) {
+        function formatTipsHomePreview(?string $raw): string
+        {
+            if ($raw === null || trim($raw) === '') {
+                return '';
+            }
+
+            $text = str_replace(["\r\n", "\r"], "\n", $raw);
+            $text = preg_replace('/\*header size\*/i', '', $text);
+            $text = preg_replace('/\*bold\*(.*?)\*end of bold\*/i', '$1', $text);
+            $text = preg_replace('/\*bullet\*/i', '', $text);
+            $text = preg_replace('/\*link\*(.*?)\|(https?:\/\/[^\s]+)\*end of link\*/i', '$1', $text);
+            $text = preg_replace('/\*link\*(.*?)\*end of link\*/i', '$1', $text);
+            $text = preg_replace('/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/i', '$1', $text);
+            $text = preg_replace('/\*\*(.*?)\*\*/', '$1', $text);
+            $text = preg_replace('/\s+/', ' ', $text);
+
+            return trim($text);
+        }
+    }
+
     $tipsImagePaths = $tipsSection['image_paths'] ?? [];
     if (empty($tipsImagePaths)) {
         $tipsImagePaths = [$tipsSection['image_path'] ?? '/img/pwd1.svg'];
     }
     $tipsImagePaths = array_slice(array_values($tipsImagePaths), 0, 5);
     ?>
-    <div class="w-full max-w-6xl flex flex-col lg:flex-row items-start gap-6 md:gap-10">
+    <div class="w-full max-w-6xl flex flex-col lg:flex-row items-start lg:items-center gap-6 md:gap-10">
         <div class="w-full lg:w-1/2">
-            <h3 class="text-xl md:text-2xl font-semibold mb-2 text-center lg:text-left\"><?= htmlspecialchars($tipsSection['heading'] ?? 'Tips & Troubleshooting') ?></h3>
+            <h3 class="text-xl md:text-2xl font-semibold mb-2 text-center lg:text-left"><?= htmlspecialchars($tipsSection['heading'] ?? 'Tips & Troubleshooting') ?></h3>
             <p class="text-sm mb-4 md:mb-6 text-center lg:text-left">
                 <?= htmlspecialchars($tipsSection['description'] ?? 'Treat candidates with a rich careers site and a wonderful application process.') ?>
             </p>
             <div class="space-y-4 md:space-y-6 text-sm mt-4 md:mt-8">
-                <?php foreach (($tipsArticles ?? []) as $article): ?>
-                    <div>
+                <?php foreach (array_slice($tipsArticles ?? [], 0, 3) as $article): ?>
+                    <div class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
                         <h4 class="font-semibold"><?= htmlspecialchars($article['title']) ?></h4>
-                        <p class="text-gray-600\"><?= htmlspecialchars($article['description']) ?></p>
-                        <a href="<?= htmlspecialchars($article['link_url']) ?>" class="text-blue-600 inline-block mt-1" target="_blank" rel="noopener noreferrer">
-                            <?= htmlspecialchars($article['link_label'] ?: 'Learn more') ?>
+                        <p class="mt-1 line-clamp-3 text-gray-600"><?= htmlspecialchars(formatTipsHomePreview($article['description'] ?? '')) ?></p>
+                        <a href="/tips-troubleshooting?article=<?= (int) $article['id'] ?>" class="text-blue-600 inline-block mt-2 font-semibold hover:underline">
+                            Read article
                         </a>
                     </div>
                 <?php endforeach; ?>
             </div>
         </div>
-        <div class="w-full lg:w-1/2 flex justify-center mt-2 md:mt-10">
+        <div class="w-full lg:w-1/2 flex justify-center items-center mt-2 md:mt-4 lg:mt-0">
             <div class="relative w-full max-w-[900px] h-[240px] sm:h-[300px] md:h-[400px]" id="tipsCarousel" data-total="<?= count($tipsImagePaths) ?>">
                 <?php foreach ($tipsImagePaths as $idx => $tipsImagePath): ?>
                     <img

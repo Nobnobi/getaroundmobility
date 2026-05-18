@@ -8,7 +8,7 @@
     $cssVersion = is_file($cssFilePath) ? filemtime($cssFilePath) : time();
     ?>
     <link href="/css/output.css?v=<?= $cssVersion ?>" rel="stylesheet">
-    <title>Get Around Mobility</title>
+    <title><?= htmlspecialchars($pageTitle ?? 'Get Around Mobility') ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link href="/img/Original logo.svg" rel="icon" type="image/x-icon">

@@ -25,6 +25,7 @@ $router->get('/search', HomeController::class, 'search');
 $router->get('/cart', HomeController::class, 'cart');
 $router->get('/checkout', HomeController::class, 'checkout');
 $router->get('/contact', HomeController::class, 'contact');
+$router->get('/tips-troubleshooting', HomeController::class, 'tipsTroubleshooting');
 
 $router->get('/for-sale', ProductController::class, 'forSale');
 
@@ -178,6 +179,8 @@ $router->post('/admin/tips-troubleshooting/section', AdminController::class, 'sa
 $router->post('/admin/tips-troubleshooting/articles/add', AdminController::class, 'addTipsTroubleshootingArticle');
 $router->post('/admin/tips-troubleshooting/articles/update', AdminController::class, 'updateTipsTroubleshootingArticle');
 $router->post('/admin/tips-troubleshooting/articles/delete', AdminController::class, 'deleteTipsTroubleshootingArticle');
+$router->post('/admin/tips-troubleshooting/articles/toggle-featured', AdminController::class, 'toggleFeaturedTipsArticle');
+$router->post('/admin/tips-troubleshooting/articles/featured-order', AdminController::class, 'toggleFeaturedTipsArticle');
 
 /*
 |--------------------------------------------------------------------------

@@ -45,7 +45,8 @@ class HomeController extends Controller
         $testimonials = $testimonialsModel->getAllTestimonials();
         $tipsModel = new TipsTroubleshootingModel();
         $tipsSection = $tipsModel->getSection();
-        $tipsArticles = $tipsModel->getArticles();
+        $tipsHomeFeatured = $tipsModel->getFeaturedArticles();
+        $tipsArticles = !empty($tipsHomeFeatured) ? $tipsHomeFeatured : $tipsModel->getArticles();
         // Collect all product and variation IDs for rental price lookup
         $productIds = [];
         foreach ($featuredProducts as $item) {
@@ -58,6 +59,53 @@ class HomeController extends Controller
             'testimonials' => $testimonials,
             'tipsSection' => $tipsSection,
             'tipsArticles' => $tipsArticles
+        ]);
+    }
+
+    public function tipsTroubleshooting()
+    {
+        $tipsModel = new TipsTroubleshootingModel();
+        $tipsSection = $tipsModel->getSection();
+        $isViewingAll = strtolower((string) ($_GET['view'] ?? '')) === 'all';
+        $selectedArticleId = (int) ($_GET['article'] ?? 0);
+        $perPage = 15;
+        $currentPage = max(1, (int) ($_GET['page'] ?? 1));
+
+        if ($isViewingAll && $selectedArticleId > 0 && empty($_GET['page'])) {
+            $currentPage = $tipsModel->getPublicArticlePage($selectedArticleId, $perPage);
+        }
+
+        if ($isViewingAll) {
+            $totalArticles = $tipsModel->countArticles();
+            $totalPages = max(1, (int) ceil($totalArticles / $perPage));
+            if ($currentPage > $totalPages) {
+                $currentPage = $totalPages;
+            }
+            $tipsArticles = $tipsModel->getAllArticlesForPublic($currentPage, $perPage);
+        } else {
+            $featured = $tipsModel->getFeaturedArticles(6);
+            $tipsArticles = !empty($featured) ? $featured : $tipsModel->getAllArticlesForPublic(1, 6);
+            $totalPages = 1;
+            $currentPage = 1;
+        }
+
+        $selectedArticleId = (int) ($_GET['article'] ?? 0);
+        $selectedArticle = $selectedArticleId > 0
+            ? $tipsModel->getArticleById($selectedArticleId)
+            : null;
+
+        if (!$selectedArticle && !empty($tipsArticles)) {
+            $selectedArticle = $tipsArticles[0];
+        }
+
+        $this->render('tips-troubleshooting', [
+            'tipsSection' => $tipsSection,
+            'tipsArticles' => $tipsArticles,
+            'selectedArticle' => $selectedArticle,
+            'isViewingAllArticles' => $isViewingAll,
+            'currentArticlesPage' => $currentPage,
+            'articlesTotalPages' => $totalPages,
+            'pageTitle' => 'Tips & Troubleshooting'
         ]);
     }
 

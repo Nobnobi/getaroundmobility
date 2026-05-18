@@ -33,7 +33,7 @@
         </div>
 
         <!-- Resources -->
-        <div class="min-w-[120px]">
+        <!-- <div class="min-w-[120px]">
           <h5 class="font-semibold mb-2">Resources</h5>
           <ul class="space-y-1 text-gray-400">
             <li>Blog</li>
@@ -43,7 +43,7 @@
             <li>Tutorials</li>
             <li>Support</li>
           </ul>
-        </div>
+        </div> -->
 
         <!-- Legal -->
         <!-- <div class="min-w-[120px]">
