@@ -24,46 +24,58 @@
             <li>
               <button id="aboutUsBtn" class="hover:underline focus:outline-none text-gray-400 hover:text-white transition cursor-pointer">About us</button>
             </li>
-
-            <a href="https://secure.na1.echosign.com/public/esignWidget?wid=CBFCIBAA3AAABLblqZhBqgEFJParzEEdkJ7giZu81tbwW-7vwXDXC64cX8wdf-XwNUF8kFmcy97TQ73CCMd4*" class="cursor-pointer hover:underline focus:outline-none text-gray-400 hover:text-white transition" target="_blank" rel="noopener noreferrer">
-              <li>Contract</li>
-            </a>
+            <li>
+              <a href="https://secure.na1.echosign.com/public/esignWidget?wid=CBFCIBAA3AAABLblqZhBqgEFJParzEEdkJ7giZu81tbwW-7vwXDXC64cX8wdf-XwNUF8kFmcy97TQ73CCMd4*" class="cursor-pointer hover:underline focus:outline-none text-gray-400 hover:text-white transition" target="_blank" rel="noopener noreferrer">Contract</a>
+            </li>
             
           </ul>
         </div>
 
-        <!-- Resources -->
-        <!-- <div class="min-w-[120px]">
-          <h5 class="font-semibold mb-2">Resources</h5>
+        <!-- Quick Links -->
+        <div class="min-w-[120px]">
+          <h5 class="font-semibold mb-2">Quick Links</h5>
           <ul class="space-y-1 text-gray-400">
-            <li>Blog</li>
-            <li>Newsletter</li>
-            <li>Events</li>
-            <li>Help centre</li>
-            <li>Tutorials</li>
-            <li>Support</li>
+            <li><a href="/" class="hover:underline hover:text-white transition">Home</a></li>
+            <li><a href="/product-list" class="hover:underline hover:text-white transition">Rentals</a></li>
+            <li><a href="/for-sale" class="hover:underline hover:text-white transition">For Sale</a></li>
+            <li><a href="/tips-troubleshooting" class="hover:underline hover:text-white transition">Tips &amp; Troubleshooting</a></li>
+            <li><a href="/contact" class="hover:underline hover:text-white transition">Contact Us</a></li>
           </ul>
-        </div> -->
+        </div>
 
-        <!-- Legal -->
-        <!-- <div class="min-w-[120px]">
-          <h5 class="font-semibold mb-2">Legal</h5>
+        <!-- Account -->
+        <div class="min-w-[120px]">
+          <h5 class="font-semibold mb-2">Account</h5>
           <ul class="space-y-1 text-gray-400">
-            <li>Terms</li>
-            <li>Privacy</li>
-            <li>Cookies</li>
-            <li>Licenses</li>
-            <li>Settings</li>
-            <li>Contract</li>
+            <li><a href="/login" class="hover:underline hover:text-white transition">Login</a></li>
+            <li><a href="/register" class="hover:underline hover:text-white transition">Register</a></li>
+            <li><a href="/profile" class="hover:underline hover:text-white transition">Profile</a></li>
+            <li><a href="/cart" class="hover:underline hover:text-white transition">Cart</a></li>
+            <li><a href="/checkout" class="hover:underline hover:text-white transition">Checkout</a></li>
           </ul>
-        </div> -->
+        </div>
+
+        <!-- Support -->
+        <div class="min-w-[120px]">
+          <h5 class="font-semibold mb-2">Support</h5>
+          <ul class="space-y-1 text-gray-400">
+            <li><a href="/forgot-password" class="hover:underline hover:text-white transition">Forgot Password</a></li>
+            <li><a href="/contact" class="hover:underline hover:text-white transition">Send a Message</a></li>
+          </ul>
+        </div>
 
       </div>
     </div>
 
+    <div class="mt-8 border-t border-gray-700/60 pt-4">
+      <p class="text-xs md:text-sm text-gray-400">
+        Family-owned since 2012 • Top-rated in Las Vegas • Authorized dealer of Pride Mobility, Golden Technology, and Drive products.
+      </p>
+    </div>
+
     <!-- LOWER PART -->
     <div class="mt-10 border-t border-gray-700 pt-4 text-sm text-gray-400 flex flex-col md:flex-row justify-between items-center">
-      <p>© 2077 Get Around Mobility. All rights reserved.</p>
+      <p>© <?= date('Y') ?> Get Around Mobility. All rights reserved.</p>
       <div class="flex gap-4 mt-2 md:mt-0">
         <!-- Replace with actual icons or SVG -->
         <a href="#" aria-label="Twitter" class="hover:text-white">

@@ -53,8 +53,8 @@ $isStaff = ($role === 'staff');
         </div>
 
         <!-- Modal -->
-        <div id="modalBg" class="fixed inset-0 flex items-center justify-center z-50 hidden" style="background: rgba(30,41,59,0.75);">
-            <div class="bg-white rounded-2xl shadow-2xl p-0 w-full max-w-3xl border border-gray-200">
+        <div id="modalBg" class="fixed inset-0 flex items-center justify-center z-50 hidden p-4" style="background: rgba(30,41,59,0.75);">
+            <div class="bg-white rounded-2xl shadow-2xl p-0 w-full max-w-5xl border border-gray-200 max-h-[92vh] flex flex-col overflow-hidden">
                 <div class="flex justify-between items-center px-6 pt-6 pb-3 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-blue-100 rounded-t-2xl">
                     <h3 class="text-2xl font-bold text-blue-900 flex items-center gap-2" id="modalTitle">
                         <svg class="w-7 h-7 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -62,7 +62,7 @@ $isStaff = ($role === 'staff');
                     </h3>
                     <button onclick="closeModal()" class="text-gray-400 hover:text-red-500 text-3xl font-bold transition-colors duration-150">&times;</button>
                 </div>
-                <div id="modalContent" class="p-6 bg-white rounded-b-2xl"></div>
+                <div id="modalContent" class="p-6 bg-white rounded-b-2xl overflow-y-auto"></div>
             </div>
         </div>
     </div>
@@ -119,11 +119,12 @@ $isStaff = ($role === 'staff');
                     const pageData = filteredData.slice(start, end);
                         // Remove duplicate declaration: 'html' is already declared at the top of the function
                     // Remove duplicate variation filter dropdown
-                    html += `<form method="post" action="/admin/scooters/save" id="modalForm">
+                    html += `<form method="post" action="/admin/scooters/save" id="modalForm" class="flex flex-col gap-4">
                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                             <input type="hidden" name="product_id" value="${productId}">
                             <input type="hidden" name="deleted_ids" id="deleted_ids" value="">
-                            <table class="min-w-full bg-white rounded-xl shadow text-sm border border-gray-200 overflow-hidden">
+                            <div class="max-h-[52vh] overflow-auto rounded-xl border border-gray-200">
+                            <table class="min-w-full bg-white shadow text-sm overflow-hidden">
                                 <thead class="bg-blue-100 text-blue-900">
                                     <tr>
                                         <th class="py-2 px-2 border-b w-16 font-semibold">ID</th>
@@ -177,7 +178,8 @@ $isStaff = ($role === 'staff');
                     });
 
                         html += `</tbody></table>
-                        <div class="mt-6 flex flex-wrap gap-2 items-center justify-end">`;
+                            </div>
+                        <div class="flex flex-wrap gap-2 items-center justify-end">`;
 
                     // Pagination controls (show only if more than one page)
                     if (filteredData.length > pageSize) {
@@ -270,42 +272,58 @@ $isStaff = ($role === 'staff');
                             };
                         });
 
-                        // Add new row
+                        // Add new row(s)
                         document.getElementById('addBtn').onclick = function() {
-                            const table = document.querySelector('#modalForm tbody');
-                            const row = table.insertRow(-1);
-                            let variationSelect = `<select name="variation_id[new][]" class="border rounded px-1 py-1 w-full text-xs">`;
-                            if (allVariations.length > 0) {
-                                allVariations.forEach(v => {
-                                    variationSelect += `<option value="${v.variation_id}">${v.variation_name}</option>`;
-                                });
-                            } else {
-                                variationSelect += `<option value="">None</option>`;
+                            const qtyInput = prompt('How many would you like to add?', '1');
+                            if (qtyInput === null) {
+                                return;
                             }
-                            variationSelect += `</select>`;
-                            row.innerHTML = `
-                                <td class="py-1 px-2 border-b">New</td>
-                                <td class="py-1 px-2 border-b">
-                                    <select name="status[new][]" class="border rounded px-1 py-1 w-full text-xs">
-                                        <option value="available">Available</option>
-                                        <option value="maintenance">Maintenance</option>
-                                    </select>
-                                    <input type="hidden" name="product_id[new][]" value="${productId}">
-                                </td>
-                                <td class="py-1 px-2 border-b">${variationSelect}</td>
-                                <td class="py-1 px-2 border-b">
-                                    <input type="text" name="barcode[new][]" class="border rounded px-1 py-1 w-full text-xs bg-gray-100 cursor-not-allowed" readonly tabindex="-1">
-                                </td>
-                                <td class="py-1 px-2 border-b">
-                                    <span class="text-gray-400 text-xs">No barcode</span>
-                                </td>
-                                <td class="py-1 px-2 border-b">
-                                    <button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs">Delete</button>
-                                </td>
-                            `;
-                            row.querySelector('.deleteBtn').onclick = function() {
-                                row.remove();
-                            };
+
+                            const quantity = parseInt(qtyInput, 10);
+                            if (Number.isNaN(quantity) || quantity < 1 || quantity > 100) {
+                                alert('Please enter a whole number between 1 and 100.');
+                                return;
+                            }
+
+                            const table = document.querySelector('#modalForm tbody');
+
+                            for (let i = 0; i < quantity; i++) {
+                                const row = table.insertRow(-1);
+                                let variationSelect = `<select name="variation_id[new][]" class="border rounded px-1 py-1 w-full text-xs">`;
+                                if (allVariations.length > 0) {
+                                    allVariations.forEach(v => {
+                                        variationSelect += `<option value="${v.variation_id}">${v.variation_name}</option>`;
+                                    });
+                                } else {
+                                    variationSelect += `<option value="">None</option>`;
+                                }
+                                variationSelect += `</select>`;
+
+                                row.innerHTML = `
+                                    <td class="py-1 px-2 border-b">New</td>
+                                    <td class="py-1 px-2 border-b">
+                                        <select name="status[new][]" class="border rounded px-1 py-1 w-full text-xs">
+                                            <option value="available">Available</option>
+                                            <option value="maintenance">Maintenance</option>
+                                        </select>
+                                        <input type="hidden" name="product_id[new][]" value="${productId}">
+                                    </td>
+                                    <td class="py-1 px-2 border-b">${variationSelect}</td>
+                                    <td class="py-1 px-2 border-b">
+                                        <input type="text" name="barcode[new][]" class="border rounded px-1 py-1 w-full text-xs bg-gray-100 cursor-not-allowed" readonly tabindex="-1">
+                                    </td>
+                                    <td class="py-1 px-2 border-b">
+                                        <span class="text-gray-400 text-xs">No barcode</span>
+                                    </td>
+                                    <td class="py-1 px-2 border-b">
+                                        <button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs">Delete</button>
+                                    </td>
+                                `;
+
+                                row.querySelector('.deleteBtn').onclick = function() {
+                                    row.remove();
+                                };
+                            }
                         };
 
                         // Always enable all selects before submitting the form

@@ -472,51 +472,41 @@
         }
     }
 
-    $tipsImagePaths = $tipsSection['image_paths'] ?? [];
-    if (empty($tipsImagePaths)) {
-        $tipsImagePaths = [$tipsSection['image_path'] ?? '/img/pwd1.svg'];
-    }
-    $tipsImagePaths = array_slice(array_values($tipsImagePaths), 0, 5);
     ?>
-    <div class="w-full max-w-6xl flex flex-col lg:flex-row items-start lg:items-center gap-6 md:gap-10">
-        <div class="w-full lg:w-1/2">
-            <h3 class="text-xl md:text-2xl font-semibold mb-2 text-center lg:text-left"><?= htmlspecialchars($tipsSection['heading'] ?? 'Tips & Troubleshooting') ?></h3>
-            <p class="text-sm mb-4 md:mb-6 text-center lg:text-left">
+    <div class="w-full max-w-6xl">
+        <div class="text-center mb-8">
+            <h3 class="text-2xl md:text-3xl font-semibold mb-2"><?= htmlspecialchars($tipsSection['heading'] ?? 'Tips & Troubleshooting') ?></h3>
+            <p class="text-sm md:text-base text-gray-600 max-w-2xl mx-auto">
                 <?= htmlspecialchars($tipsSection['description'] ?? 'Treat candidates with a rich careers site and a wonderful application process.') ?>
             </p>
-            <div class="space-y-4 md:space-y-6 text-sm mt-4 md:mt-8">
-                <?php foreach (array_slice($tipsArticles ?? [], 0, 3) as $article): ?>
-                    <div class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-                        <h4 class="font-semibold"><?= htmlspecialchars($article['title']) ?></h4>
-                        <p class="mt-1 line-clamp-3 text-gray-600"><?= htmlspecialchars(formatTipsHomePreview($article['description'] ?? '')) ?></p>
-                        <a href="/tips-troubleshooting?article=<?= (int) $article['id'] ?>" class="text-blue-600 inline-block mt-2 font-semibold hover:underline">
-                            Read article
-                        </a>
-                    </div>
-                <?php endforeach; ?>
-            </div>
         </div>
-        <div class="w-full lg:w-1/2 flex justify-center items-center mt-2 md:mt-4 lg:mt-0">
-            <div class="relative w-full max-w-[900px] h-[240px] sm:h-[300px] md:h-[400px]" id="tipsCarousel" data-total="<?= count($tipsImagePaths) ?>">
-                <?php foreach ($tipsImagePaths as $idx => $tipsImagePath): ?>
-                    <img
-                        src="<?= htmlspecialchars($tipsImagePath) ?>"
-                        alt="<?= htmlspecialchars($tipsSection['image_alt'] ?? 'Woman in wheelchair') ?>"
-                        class="rounded-lg tips-slide w-full h-full object-cover transition-all duration-700 ease-in-out <?= $idx === 0 ? 'opacity-100 translate-x-0 z-10 relative' : 'opacity-0 translate-x-8 absolute inset-0 pointer-events-none z-0' ?>"
-                        data-slide-index="<?= $idx ?>"
-                    >
-                <?php endforeach; ?>
 
-                <?php if (count($tipsImagePaths) > 1): ?>
-                    <button type="button" id="tipsPrev" class="absolute left-1 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-[#0086C9] rounded-full w-8 h-8 shadow flex items-center justify-center">&#10094;</button>
-                    <button type="button" id="tipsNext" class="absolute right-1 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white text-[#0086C9] rounded-full w-8 h-8 shadow flex items-center justify-center">&#10095;</button>
-                    <div class="absolute -bottom-6 left-1/2 -translate-x-1/2 flex gap-2" id="tipsDots">
-                        <?php foreach ($tipsImagePaths as $idx => $_): ?>
-                            <button type="button" class="tips-dot w-2.5 h-2.5 rounded-full <?= $idx === 0 ? 'bg-[#0086C9]' : 'bg-gray-300' ?>" data-dot-index="<?= $idx ?>"></button>
-                        <?php endforeach; ?>
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <?php foreach (array_slice($tipsArticles ?? [], 0, 3) as $article): ?>
+                <?php
+                $thumb = trim((string) ($article['image_path'] ?? ''));
+                $preview = formatTipsHomePreview($article['description'] ?? '');
+                if (mb_strlen($preview) > 120) {
+                    $preview = rtrim(mb_substr($preview, 0, 120)) . '...';
+                }
+                ?>
+                <a href="/tips-troubleshooting?article=<?= (int) $article['id'] ?>" class="group relative block h-72 overflow-hidden rounded-2xl shadow-md transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
+                    <?php if ($thumb !== ''): ?>
+                        <img src="<?= htmlspecialchars($thumb) ?>" alt="<?= htmlspecialchars($article['title']) ?>" class="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105">
+                    <?php else: ?>
+                        <div class="absolute inset-0 bg-gradient-to-br from-[#0d3954] to-[#062B41]"></div>
+                    <?php endif; ?>
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/75 via-black/35 to-transparent"></div>
+                    <div class="relative flex h-full flex-col justify-end p-5 text-white">
+                        <h4 class="line-clamp-2 min-h-[3.5rem] text-lg font-bold leading-tight drop-shadow-sm"><?= htmlspecialchars($article['title']) ?></h4>
+                        <p class="mt-2 line-clamp-2 min-h-[3.25rem] text-base text-white/90 drop-shadow-sm"><?= htmlspecialchars($preview) ?></p>
+                        <span class="mt-3 inline-flex items-center gap-2 text-lg font-semibold text-white">
+                            Learn more
+                            <span aria-hidden="true">&rarr;</span>
+                        </span>
                     </div>
-                <?php endif; ?>
-            </div>
+                </a>
+            <?php endforeach; ?>
         </div>
     </div>
 </section>
@@ -702,81 +692,6 @@ document.addEventListener('DOMContentLoaded', function() {
     showTestimonials();
 });
 </script>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const carousel = document.getElementById('tipsCarousel');
-    if (!carousel) return;
-
-    const slides = Array.from(carousel.querySelectorAll('.tips-slide'));
-    const dots = Array.from(document.querySelectorAll('#tipsDots .tips-dot'));
-    const prevBtn = document.getElementById('tipsPrev');
-    const nextBtn = document.getElementById('tipsNext');
-    if (slides.length <= 1) return;
-
-    let current = 0;
-    let timer = null;
-
-    function renderSlide(index) {
-        slides.forEach((slide, i) => {
-            if (i === index) {
-                slide.classList.remove('opacity-0', 'translate-x-8', 'z-0', 'absolute', 'inset-0', 'pointer-events-none');
-                slide.classList.add('opacity-100', 'translate-x-0', 'z-10', 'relative');
-            } else {
-                slide.classList.remove('opacity-100', 'translate-x-0', 'z-10', 'relative');
-                slide.classList.add('opacity-0', 'translate-x-8', 'z-0', 'absolute', 'inset-0', 'pointer-events-none');
-            }
-        });
-
-        dots.forEach((dot, i) => {
-            dot.classList.toggle('bg-[#0086C9]', i === index);
-            dot.classList.toggle('bg-gray-300', i !== index);
-        });
-
-        current = index;
-    }
-
-    function nextSlide() {
-        renderSlide((current + 1) % slides.length);
-    }
-
-    function prevSlide() {
-        renderSlide((current - 1 + slides.length) % slides.length);
-    }
-
-    function restartTimer() {
-        if (timer) clearInterval(timer);
-        timer = setInterval(nextSlide, 4000);
-    }
-
-    if (nextBtn) {
-        nextBtn.addEventListener('click', function() {
-            nextSlide();
-            restartTimer();
-        });
-    }
-
-    if (prevBtn) {
-        prevBtn.addEventListener('click', function() {
-            prevSlide();
-            restartTimer();
-        });
-    }
-
-    dots.forEach((dot) => {
-        dot.addEventListener('click', function() {
-            const index = parseInt(dot.getAttribute('data-dot-index'), 10);
-            if (!Number.isNaN(index)) {
-                renderSlide(index);
-                restartTimer();
-            }
-        });
-    });
-
-    restartTimer();
-});
-</script>
-
 
 <style>
 .slide-in-left {

@@ -858,17 +858,9 @@ class AdminController extends Controller
         $this->requireAdmin(['admin', 'superadmin']);
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
-        if ($this->isPostBodyTooLarge()) {
-            $_SESSION['tips_troubleshooting_error'] = 'The selected images are too large for one upload. Please use smaller files or fewer images.';
-            header('Location: /admin/tips-troubleshooting');
-            exit;
-        }
-
         $tipsModel = new TipsTroubleshootingModel();
         $heading = trim($_POST['heading'] ?? '');
         $description = trim($_POST['description'] ?? '');
-        $imageAlt = trim($_POST['image_alt'] ?? '');
-        $currentImagePathsRaw = $_POST['current_image_paths'] ?? '[]';
 
         if ($heading === '' || $description === '') {
             $_SESSION['tips_troubleshooting_error'] = 'Heading and description are required.';
@@ -876,34 +868,7 @@ class AdminController extends Controller
             exit;
         }
 
-        if ($imageAlt === '') {
-            $imageAlt = 'Tips and troubleshooting image';
-        }
-
-        $currentImagePaths = json_decode($currentImagePathsRaw, true);
-        if (!is_array($currentImagePaths)) {
-            $currentImagePaths = ['/img/pwd1.svg'];
-        }
-
-        $imagePaths = array_values(array_filter(array_map('trim', $currentImagePaths), static function ($path) {
-            return $path !== '';
-        }));
-        if (empty($imagePaths)) {
-            $imagePaths = ['/img/pwd1.svg'];
-        }
-        $imagePaths = array_slice($imagePaths, 0, 5);
-
-        if (!empty($_FILES['images']['name'])) {
-            try {
-                $imagePaths = $this->storeTipsTroubleshootingImages($_FILES['images']);
-            } catch (\RuntimeException $exception) {
-                $_SESSION['tips_troubleshooting_error'] = $exception->getMessage();
-                header('Location: /admin/tips-troubleshooting');
-                exit;
-            }
-        }
-
-        $tipsModel->updateSection($heading, $description, $imagePaths, $imageAlt);
+        $tipsModel->updateSection($heading, $description);
         $_SESSION['tips_troubleshooting_success'] = 'Tips section updated.';
         header('Location: /admin/tips-troubleshooting');
         exit;
@@ -988,61 +953,6 @@ class AdminController extends Controller
 
         header('Location: /admin/tips-troubleshooting?page=' . $page);
         exit;
-    }
-
-    private function storeTipsTroubleshootingImages(array $imageFiles) {
-        $uploadDir = dirname(__DIR__, 2) . '/public/img/uploads';
-        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
-            throw new \RuntimeException('Unable to create the image upload folder.');
-        }
-
-        $names = $imageFiles['name'] ?? [];
-        $tmpNames = $imageFiles['tmp_name'] ?? [];
-        $errors = $imageFiles['error'] ?? [];
-
-        if (!is_array($names)) {
-            $names = [$names];
-            $tmpNames = [is_array($tmpNames) ? ($tmpNames[0] ?? '') : $tmpNames];
-            $errors = [is_array($errors) ? ($errors[0] ?? UPLOAD_ERR_NO_FILE) : $errors];
-        }
-
-        $uploadedPaths = [];
-        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
-
-        foreach ($names as $index => $originalName) {
-            $errorCode = $errors[$index] ?? UPLOAD_ERR_NO_FILE;
-            if ($errorCode === UPLOAD_ERR_NO_FILE) {
-                continue;
-            }
-            if ($errorCode !== UPLOAD_ERR_OK) {
-                throw new \RuntimeException('Image upload failed.');
-            }
-
-            if (count($uploadedPaths) >= 5) {
-                throw new \RuntimeException('You can upload up to 5 images only.');
-            }
-
-            $extension = strtolower(pathinfo((string) $originalName, PATHINFO_EXTENSION));
-            if (!in_array($extension, $allowedExtensions, true)) {
-                throw new \RuntimeException('Please upload JPG, PNG, WEBP, or SVG images only.');
-            }
-
-            $fileName = 'tips-troubleshooting-' . time() . '-' . $index . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
-            $destination = $uploadDir . '/' . $fileName;
-            $tmpFile = $tmpNames[$index] ?? '';
-
-            if (!is_string($tmpFile) || $tmpFile === '' || !move_uploaded_file($tmpFile, $destination)) {
-                throw new \RuntimeException('Unable to save one of the uploaded images.');
-            }
-
-            $uploadedPaths[] = '/img/uploads/' . $fileName;
-        }
-
-        if (empty($uploadedPaths)) {
-            throw new \RuntimeException('Please select at least one valid image.');
-        }
-
-        return $uploadedPaths;
     }
 
     private function storeTipsTroubleshootingArticleImage(array $imageFile) {

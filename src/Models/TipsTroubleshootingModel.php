@@ -219,19 +219,14 @@ class TipsTroubleshootingModel {
         return $article ?: null;
     }
 
-    public function updateSection($heading, $description, array $imagePaths, $imageAlt) {
-        $encodedImagePaths = json_encode($this->normalizeImagePaths($imagePaths), JSON_UNESCAPED_SLASHES);
-        if ($encodedImagePaths === false) {
-            $encodedImagePaths = json_encode(['/img/pwd1.svg'], JSON_UNESCAPED_SLASHES);
-        }
-
+    public function updateSection($heading, $description) {
         $stmt = $this->db->prepare(
             "UPDATE tips_troubleshooting_section
-             SET heading = ?, description = ?, image_path = ?, image_alt = ?
+             SET heading = ?, description = ?
              WHERE id = 1"
         );
 
-        return $stmt->execute([$heading, $description, $encodedImagePaths, $imageAlt]);
+        return $stmt->execute([$heading, $description]);
     }
 
     private function normalizeImagePaths($imagePathValue) {

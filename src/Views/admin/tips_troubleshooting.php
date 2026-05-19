@@ -38,15 +38,6 @@ $isStaff = ($role === 'staff');
                 <h2 class="text-2xl font-bold text-[#062B41]">Section Content</h2>
             </div>
             <form action="/admin/tips-troubleshooting/section" method="POST" enctype="multipart/form-data" class="space-y-6">
-                <?php
-                $sectionImagePaths = $section['image_paths'] ?? [];
-                if (empty($sectionImagePaths)) {
-                    $fallbackImage = $section['image_path'] ?? '/img/pwd1.svg';
-                    $sectionImagePaths = [$fallbackImage];
-                }
-                $sectionImagePaths = array_slice(array_values($sectionImagePaths), 0, 5);
-                ?>
-                <input type="hidden" name="current_image_paths" value="<?= htmlspecialchars(json_encode($sectionImagePaths), ENT_QUOTES, 'UTF-8') ?>">
                 <div>
                     <label class="block text-sm font-semibold text-[#062B41] mb-2">Heading</label>
                     <input type="text" name="heading" class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0086C9] focus:border-transparent transition" value="<?= htmlspecialchars($section['heading'] ?? '') ?>" required>
@@ -54,31 +45,6 @@ $isStaff = ($role === 'staff');
                 <div>
                     <label class="block text-sm font-semibold text-[#062B41] mb-2">Description</label>
                     <textarea name="description" rows="5" class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0086C9] focus:border-transparent transition" required><?= htmlspecialchars($section['description'] ?? '') ?></textarea>
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-[#062B41] mb-2">Image Alt Text</label>
-                    <input type="text" name="image_alt" class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0086C9] focus:border-transparent transition" value="<?= htmlspecialchars($section['image_alt'] ?? '') ?>">
-                </div>
-                <div class="bg-gray-50 rounded-lg p-5 border border-gray-200">
-                    <label class="block text-sm font-semibold text-[#062B41] mb-4">Upload New Images (up to 3)</label>
-                    <input type="file" id="tipsImageInput" name="images[]" accept=".jpg,.jpeg,.png,.webp,.svg" class="sr-only" multiple>
-                    <div class="flex items-center gap-3">
-                        <button type="button" id="tipsImageBrowseBtn" class="px-6 py-2 rounded-lg bg-[#0086C9] text-white font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md">
-                            Choose Images
-                        </button>
-                        <span id="tipsImageFileName" class="text-sm text-gray-600">No files chosen.</span>
-                    </div>
-                    <p class="mt-2 text-xs text-gray-500">Selecting new files replaces the current slideshow images.</p>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-5 border border-gray-200">
-                    <p class="block text-sm font-semibold text-[#062B41] mb-4">Current Images</p>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                        <?php foreach ($sectionImagePaths as $path): ?>
-                            <div class="border-2 border-gray-300 rounded-lg p-2 bg-white flex items-center justify-center min-h-[90px]">
-                                <img src="<?= htmlspecialchars($path) ?>" alt="<?= htmlspecialchars($section['image_alt'] ?? '') ?>" class="max-h-24 w-auto object-contain">
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
                 </div>
                 <div class="flex justify-end pt-2">
                     <?php if (!$isStaff): ?>
@@ -307,12 +273,7 @@ $isStaff = ($role === 'staff');
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const isStaff = <?= $isStaff ? 'true' : 'false' ?>;
-    const input = document.getElementById('tipsImageInput');
-    const browseBtn = document.getElementById('tipsImageBrowseBtn');
-    const fileName = document.getElementById('tipsImageFileName');
-    const maxFiles = 5;
     const maxFileSize = 64 * 1024 * 1024;
-    const maxTotalSize = 120 * 1024 * 1024;
 
     if (isStaff) {
         document.querySelectorAll('form').forEach(form => {
@@ -324,46 +285,6 @@ document.addEventListener('DOMContentLoaded', function() {
             el.disabled = true;
         });
     }
-
-    if (!input || !browseBtn || !fileName) {
-        return;
-    }
-
-    browseBtn.addEventListener('click', function() {
-        input.click();
-    });
-
-    input.addEventListener('change', function() {
-        if (input.files && input.files.length > 0) {
-            if (input.files.length > maxFiles) {
-                fileName.textContent = 'Please select at most 5 files.';
-                input.value = '';
-                return;
-            }
-
-            const files = Array.from(input.files);
-            const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-            const oversizedFile = files.find(file => file.size > maxFileSize);
-
-            if (oversizedFile) {
-                fileName.textContent = oversizedFile.name + ' is too large. Each image must be 64 MB or less.';
-                input.value = '';
-                return;
-            }
-
-            if (totalSize > maxTotalSize) {
-                fileName.textContent = 'Selected files are too large together. Keep the total under 120 MB.';
-                input.value = '';
-                return;
-            }
-
-            const names = files.map(file => file.name);
-            fileName.textContent = names.join(', ');
-            return;
-        }
-
-        fileName.textContent = 'No files chosen.';
-    });
 
     document.querySelectorAll('.js-article-image-browse').forEach(function(button) {
         button.addEventListener('click', function() {
