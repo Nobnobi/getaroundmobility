@@ -4,6 +4,29 @@ use App\Controller;
 use App\Models\ProductModel;
 
 class ProductController extends Controller {
+    private function normalizeShortDescription(?string $value): string
+    {
+        $text = trim((string) $value);
+        if ($text === '') {
+            return '';
+        }
+
+        $parts = preg_split('/\r\n|\r|\n|\|\|/', $text) ?: [];
+        $clean = [];
+        foreach ($parts as $part) {
+            $line = trim($part);
+            if ($line === '') {
+                continue;
+            }
+            $clean[] = $line;
+            if (count($clean) >= 2) {
+                break;
+            }
+        }
+
+        return implode("\n", $clean);
+    }
+
     private function ensureAdminSession(): void {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -93,6 +116,7 @@ class ProductController extends Controller {
                         'product_category_id' => intval($_POST['product_category_id'][$id] ?? 0),
                         'price' => filter_var($_POST['price'][$id] ?? 0, FILTER_VALIDATE_FLOAT),
                         'description' => htmlspecialchars(trim($_POST['description'][$id] ?? '')),
+                        'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'][$id] ?? '')),
                         'image_url' => htmlspecialchars(trim($_POST['image_url'][$id] ?? '')),
                     ];
                     $saleType = $saleTypeMap[$id] ?? '';
@@ -115,6 +139,7 @@ class ProductController extends Controller {
                         'product_category_id' => intval($_POST['product_category_id']['new'][$i] ?? 0),
                         'price' => filter_var($_POST['price']['new'][$i] ?? 0, FILTER_VALIDATE_FLOAT),
                         'description' => !empty($_POST['description']['new'][$i]) ? htmlspecialchars(trim($_POST['description']['new'][$i])) : 'No description',
+                        'short_description' => !empty($_POST['short_description']['new'][$i]) ? htmlspecialchars($this->normalizeShortDescription($_POST['short_description']['new'][$i])) : '',
                         'image_url' => !empty($_POST['image_url']['new'][$i]) ? htmlspecialchars(trim($_POST['image_url']['new'][$i])) : 'No image',
                     ];
                     $productModel->addProduct($data);
@@ -191,6 +216,7 @@ class ProductController extends Controller {
                 'price' => filter_var($_POST['price'] ?? 0, FILTER_VALIDATE_FLOAT),
                 'stock_quantity' => intval($_POST['stock_quantity'] ?? 0),
                 'description' => htmlspecialchars(trim($_POST['description'] ?? '')),
+                'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'] ?? '')),
                 'image_url' => htmlspecialchars(trim($_POST['image_url'] ?? '')),
                 'is_available' => isset($_POST['is_available']) ? 1 : 0
             ];
@@ -243,6 +269,7 @@ class ProductController extends Controller {
                     'price' => filter_var($_POST['price'][$id] ?? 0, FILTER_VALIDATE_FLOAT),
                     'stock_quantity' => intval($_POST['stock_quantity'][$id] ?? 0),
                     'description' => htmlspecialchars(trim($_POST['description'][$id] ?? '')),
+                    'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'][$id] ?? '')),
                     'image_url' => htmlspecialchars(trim($_POST['image_url'][$id] ?? '')),
                     'is_available' => isset($_POST['is_available'][$id]) ? 1 : 0
                 ];
@@ -261,6 +288,7 @@ class ProductController extends Controller {
                         'price' => filter_var($_POST['price']['new'][$i] ?? 0, FILTER_VALIDATE_FLOAT),
                         'stock_quantity' => intval($_POST['stock_quantity']['new'][$i] ?? 0),
                         'description' => htmlspecialchars(trim($_POST['description']['new'][$i] ?? '')),
+                        'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description']['new'][$i] ?? '')),
                         'image_url' => htmlspecialchars(trim($_POST['image_url']['new'][$i] ?? '')),
                         'is_available' => isset($_POST['is_available']['new'][$i]) ? 1 : 0
                     ];
@@ -288,6 +316,7 @@ class ProductController extends Controller {
                 'price' => filter_var($_POST['price'] ?? 0, FILTER_VALIDATE_FLOAT),
                 'stock_quantity' => intval($_POST['stock_quantity'] ?? 0),
                 'description' => htmlspecialchars(trim($_POST['description'] ?? '')),
+                'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'] ?? '')),
                 'image_url' => htmlspecialchars(trim($_POST['image_url'] ?? '')),
                 'is_available' => isset($_POST['is_available']) ? 1 : 0
             ];

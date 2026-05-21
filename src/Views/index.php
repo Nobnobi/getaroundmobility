@@ -2,7 +2,7 @@
 <!-- Cart Date Change Modal -->
 
 <!-- HERO SECTION -->
-<section class="relative h-screen bg-cover bg-center bg-[url(/img/new-las-vegas-hero-section.png)]">
+<section class="relative h-screen bg-cover bg-center bg-[url(/img/new-las-vegas-hero-section.png)] mt-16">
     <div class="relative z-10 h-full flex px-6 items-center justify-center">
         <div class="max-w-screen-xl mx-auto text-white text-center">
             <h1 class="text-5xl md:text-6xl font-bold leading-tight mb-4 font-[Barlow]">Your partner in Mobility</h1>
@@ -203,6 +203,12 @@
         <div class="text-center mb-10">
             <h2 class="text-3xl md:text-4xl font-bold mb-3 font-[Barlow]">Instant Mobility</h2>
             <p class="text-gray-600 text-lg">Choose a scooter today and rent it immediately — no cart, no waiting.</p>
+            <div class="mt-4">
+                <a href="/product-list" class="inline-flex items-center gap-2 rounded-full border border-[#0086C9] px-4 py-2 text-sm font-semibold text-[#0086C9] transition hover:bg-[#0086C9] hover:text-white">
+                    See all available products
+                    <span aria-hidden="true">&rarr;</span>
+                </a>
+            </div>
             <div id="instantMobilityTimeInfo" class="mt-4 text-sm md:text-base font-medium text-gray-700 inline-block">
                 Rent a scooter for <span class="text-[#0086C9]" id="instantMobilityDate"></span> at <span class="text-[#0086C9]" id="instantMobilityTime"></span>
             </div>
@@ -250,6 +256,32 @@
                 <h3 class="font-semibold text-xs sm:text-sm md:text-lg text-gray-900 line-clamp-2 font-[Barlow] mb-1">
                     <?= htmlspecialchars($item['product_name']); ?>
                 </h3>
+                <?php
+                $noteParts = preg_split('/\r\n|\r|\n|\|\|/', (string) ($item['short_description'] ?? '')) ?: [];
+                $notes = [];
+                foreach ($noteParts as $part) {
+                    $line = trim($part);
+                    if ($line === '') {
+                        continue;
+                    }
+                    $notes[] = $line;
+                    if (count($notes) >= 2) {
+                        break;
+                    }
+                }
+                ?>
+                <div class="mb-2 min-h-[4.25rem] space-y-1.5 text-center flex flex-col items-center">
+                    <?php if (!empty($notes)): ?>
+                        <?php foreach ($notes as $note): ?>
+                            <div class="grid grid-cols-[20px_minmax(0,1fr)] sm:grid-cols-[24px_minmax(0,1fr)] items-start gap-2 w-full max-w-[18rem] text-left text-sm font-semibold text-[#0086C9] sm:text-base">
+                                <img src="/img/check-circle-blue.svg" alt="check" class="w-5 h-5 sm:w-6 sm:h-6 mt-0.5 justify-self-center">
+                                <span class="leading-snug"><?= htmlspecialchars($note); ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <div class="text-base font-semibold text-[#0086C9] sm:text-lg text-center"></div>
+                    <?php endif; ?>
+                </div>
 
                 <div style="min-height:2.25rem;display:flex;align-items:center;justify-content:center;">
                 <?php if (!empty($item['featured_variation_name'])): ?>

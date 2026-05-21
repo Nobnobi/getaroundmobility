@@ -112,8 +112,13 @@ class OrderController extends Controller
 
             // Validate required fields (including explicit delivery destination selection)
             $deliveryType = $_POST['delivery_type'] ?? 'preferred';
-            if (empty($_POST['first_name']) || empty($_POST['last_name']) || empty($_POST['phone']) || empty($_POST['email']) || empty($_POST['payment']) || empty($cart)) {
+            if (empty($_POST['first_name']) || empty($_POST['last_name']) || empty($_POST['phone']) || empty($_POST['email']) || empty($_POST['payment']) || empty($_POST['client_weight_option']) || empty($cart)) {
                 echo "Missing required checkout fields.";
+                exit;
+            }
+
+            if (($_POST['client_weight_option'] ?? '') === 'other' && empty($_POST['client_weight_lbs'])) {
+                echo "Please provide the customer's exact weight in lbs.";
                 exit;
             }
 
@@ -541,6 +546,9 @@ class OrderController extends Controller
             $notes = htmlspecialchars(trim($meta->notes ?? ''));
             $saleType = htmlspecialchars(trim($meta->sale_type ?? 'rental'));
             $totalAmount = (float)($meta->total_amount ?? 0);
+            $clientWeightOption = htmlspecialchars(trim($meta->client_weight_option ?? ''));
+            $clientWeightLbsRaw = $meta->client_weight_lbs ?? null;
+            $clientWeightLbs = is_numeric($clientWeightLbsRaw) ? (int) $clientWeightLbsRaw : null;
             $loggedInUserId = $meta->logged_in_user_id ?? null;
 
             // --- CUSTOMER LOGIC START ---
@@ -574,8 +582,7 @@ class OrderController extends Controller
             foreach ($cart as $item) {
                 $totalAmount += $item['qty'] * $item['price'];
             }
-            $tax = $totalAmount * 0.12;
-            $totalAmountWithTax = $totalAmount + $tax;
+            $totalAmountWithTax = $totalAmount;
 
             
             if (isset($myfile) && is_resource($myfile)) {
@@ -601,7 +608,7 @@ class OrderController extends Controller
                 $guestEmail,
                 $pickup_datetime ?: null,
                 $return_datetime ?: null,
-                $totalAmountWithTax,
+                $totalAmount,
             ]);
             $existingOrderId = $existingOrderCheck->fetchColumn();
             if ($existingOrderId) {
@@ -617,9 +624,9 @@ class OrderController extends Controller
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, total_amount, status, order_date, customer_type, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, total_amount, status, order_date, customer_type, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', :total_amount, 'paid', NOW(), :customer_type, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', :total_amount, 'paid', NOW(), :customer_type, :sale_type
                     )"
                 );
                 $params = [
@@ -628,6 +635,8 @@ class OrderController extends Controller
                     ':guest_last_name' => $last_name,
                     ':guest_email' => $guestEmail,
                     ':guest_phone' => $guestPhone,
+                    ':client_weight_option' => $clientWeightOption !== '' ? $clientWeightOption : null,
+                    ':client_weight_lbs' => $clientWeightLbs,
                     ':address1' => $address1,
                     ':address2' => $address2,
                     ':state' => $state,
@@ -636,7 +645,7 @@ class OrderController extends Controller
                     ':return_datetime' => $return_datetime,
                     ':pickup_location' => $pickupLocation,
                     ':notes' => $notes,
-                    ':total_amount' => $totalAmountWithTax,
+                    ':total_amount' => $totalAmount,
                     ':customer_type' => $loggedInUserId ? 'user' : 'guest',
                     ':sale_type' => $saleType,
                 ];
@@ -792,7 +801,7 @@ class OrderController extends Controller
                 $itemsTable .= '</tbody></table>';
                 $pickupDate = $pickup_datetime ?? '';
                 $returnDate = $return_datetime ?? '';
-                $totalAmountWithTax = $subtotal + ($subtotal * 0.12);
+                $totalAmountWithTax = $subtotal;
                 ob_start();
                 include __DIR__ . '/../../Contracts/contract-template.php';
                 $html = ob_get_clean();
@@ -1255,6 +1264,9 @@ class OrderController extends Controller
         $guestName = htmlspecialchars(trim($formData['name'] ?? ''));
         $guestEmail = filter_var(trim($formData['email'] ?? ''), FILTER_VALIDATE_EMAIL);
         $guestPhone = preg_replace('/\D/', '', $formData['phone'] ?? '');
+        $clientWeightOption = htmlspecialchars(trim($formData['client_weight_option'] ?? ''));
+        $clientWeightLbsRaw = $formData['client_weight_lbs'] ?? null;
+        $clientWeightLbs = (is_numeric($clientWeightLbsRaw) && (int)$clientWeightLbsRaw > 0) ? (int)$clientWeightLbsRaw : null;
         $notes = htmlspecialchars(trim($formData['notes'] ?? ''));
 
         $deliveryType = $formData['delivery_type'] ?? 'preferred';
@@ -1329,8 +1341,7 @@ class OrderController extends Controller
         foreach ($cart as $item) {
             $totalAmount += ($item['quantity'] ?? 1) * ($item['price'] ?? 0);
         }
-        $tax = $totalAmount * 0.12;
-        $totalAmountWithTax = $totalAmount + $tax;
+        $totalAmountWithTax = $totalAmount;
 
         // Insert order
         // Extract first and last name from formData (PayPal checkout)
@@ -1338,11 +1349,11 @@ class OrderController extends Controller
         $last_name = $formData['last_name'] ?? '';
         $stmt = $pdo->prepare(
             "INSERT INTO orders (
-                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, total_amount, order_date, status, address1, address2, state, zip, pickup_location, notes, payment_method, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, order_date, status, address1, address2, state, zip, pickup_location, notes, payment_method, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
-            $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone,
+            $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs,
             $totalAmountWithTax, date('Y-m-d H:i:s'), 'paid',
             $address1, $address2, $state, $zip, $pickupLocation, $notes,
             'paypal', $customerType, $formData['sale_type'] ?? 'rental',
@@ -1474,7 +1485,7 @@ class OrderController extends Controller
         $itemsTable .= '</tbody></table>';
         $pickupDate = $pickup_datetime ?? '';
         $returnDate = $return_datetime ?? '';
-        $totalAmountWithTax = $subtotal + ($subtotal * 0.12);
+        $totalAmountWithTax = $subtotal;
 
         ob_start();
         include __DIR__ . '/../../Contracts/contract-template.php';

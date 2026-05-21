@@ -99,6 +99,19 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     required <?= $user ? 'readonly' : '' ?>
                                     placeholder="e.g. john@email.com">
                             </div>
+                            <div class="mb-4 flex flex-col md:flex-row md:items-start gap-2">
+                                <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40 md:pt-2">Client Weight</label>
+                                <div class="w-full max-w-md">
+                                    <select name="client_weight_option" id="clientWeightOption" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]" required>
+                                        <option value="">Select weight range</option>
+                                        <option value="under_100">Under 100 lbs</option>
+                                        <option value="over_500">Over 500 lbs</option>
+                                        <option value="other">Other (enter exact weight)</option>
+                                    </select>
+                                    <input type="number" name="client_weight_lbs" id="clientWeightOther" min="1" step="1" placeholder="Enter weight in lbs" class="mt-2 hidden w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]">
+                                    <p id="clientWeightWarning" class="mt-1 hidden text-xs text-amber-700">Warning: custom weight should be between 101 lbs and 499 lbs.</p>
+                                </div>
+                            </div>
                             <?php if (!$user): ?>
                             <div class="flex justify-end">
                                 <button type="button" id="clearContactBtn" class="mt-2 px-4 py-2 bg-white text-gray-700 rounded cursor-pointer hover:bg-gray-300 text-sm border font-[Barlow] border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] transition-colors duration-200">
@@ -480,6 +493,55 @@ if (file_exists(__DIR__ . '/../../.env')) {
         return true;
     }
 
+    function setupClientWeightFields() {
+        const optionEl = document.getElementById('clientWeightOption');
+        const otherEl = document.getElementById('clientWeightOther');
+        const warningEl = document.getElementById('clientWeightWarning');
+        if (!optionEl || !otherEl || !warningEl) return;
+
+        function syncFields() {
+            const isOther = optionEl.value === 'other';
+            otherEl.classList.toggle('hidden', !isOther);
+            otherEl.required = isOther;
+            if (!isOther) {
+                otherEl.value = '';
+                warningEl.classList.add('hidden');
+            }
+        }
+
+        optionEl.addEventListener('change', syncFields);
+        otherEl.addEventListener('input', function() {
+            const val = parseInt(otherEl.value || '0', 10);
+            const outOfExpectedRange = Number.isFinite(val) && (val < 101 || val > 499);
+            warningEl.classList.toggle('hidden', !outOfExpectedRange);
+        });
+
+        syncFields();
+    }
+
+    function validateClientWeightSelection() {
+        const optionEl = document.getElementById('clientWeightOption');
+        const otherEl = document.getElementById('clientWeightOther');
+        if (!optionEl || !otherEl) return true;
+
+        if (optionEl.value !== 'other') {
+            return true;
+        }
+
+        const val = parseInt(otherEl.value || '0', 10);
+        if (!Number.isFinite(val) || val <= 0) {
+            alert('Please enter a valid weight in lbs.');
+            otherEl.focus();
+            return false;
+        }
+
+        if (val < 101 || val > 499) {
+            return window.confirm('Warning: the entered weight is outside 101-499 lbs. Do you want to continue?');
+        }
+
+        return true;
+    }
+
     function loadCart() {
         const keysToTry = ['cart', 'getaround_cart', 'cart_items'];
         for (const key of keysToTry) {
@@ -543,16 +605,17 @@ if (file_exists(__DIR__ . '/../../.env')) {
             </li>`;
         });
         itemsHtml += '</ul>';
-        const tax = subtotal * 0.12;
-        const total = subtotal + tax;
+        const total = subtotal;
+        const pretaxSubtotal = total / 1.08375;
+        const tax = total - pretaxSubtotal;
         summaryContainer.innerHTML = `
             ${itemsHtml}
             <div class="flex justify-between mb-2">
                 <span>Rental subtotal</span>
-                <span>$${subtotal.toFixed(2)}</span>
+                <span>$${pretaxSubtotal.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
-                <span>Tax included</span>
+                <span>Included NV sales tax</span>
                 <span>$${tax.toFixed(2)}</span>
             </div>
             <div class="flex justify-between font-bold text-lg mb-6">
@@ -602,6 +665,7 @@ window.addEventListener('storage', function(e) {
 // call on load
 document.addEventListener('DOMContentLoaded', renderCheckoutSummary);
 document.addEventListener('DOMContentLoaded', renderSelectedDatesSummary);
+document.addEventListener('DOMContentLoaded', setupClientWeightFields);
 
 const stripePk = "<?= $_ENV['STRIPE_PUBLISHABLE'] ?>";
 const stripeClient = stripePk ? Stripe(stripePk) : null;
@@ -706,6 +770,10 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
     }
 
     if (!validateDeliverySelection()) {
+        return;
+    }
+
+    if (!validateClientWeightSelection()) {
         return;
     }
 
@@ -1129,43 +1197,7 @@ function renderPayPalButton() {
     }).render('#paypal-button-container');
 }
 
-// PHONE VALIDATION — FORCED TO RUN AND WORK
-document.addEventListener('DOMContentLoaded', function () {
-    console.log('%cPHONE VALIDATION SCRIPT IS LOADED AND RUNNING', 'color: lime; font-size: 16px; font-weight: bold;');
 
-    const phoneInput = document.querySelector('input[name="phone"]');
-    const phoneWarning = document.getElementById('phoneWarning');
-
-    if (!phoneInput) {
-        console.error('Phone input not found!');
-        return;
-    }
-
-    // Clean input as user types
-    phoneInput.addEventListener('input', function(e) {
-        const original = this.value;
-        const cleaned = original.replace(/\D/g, ''); // remove all non-digits
-
-        if (original !== cleaned) {
-            this.value = cleaned;
-            console.log('Auto-cleaned phone input:', original, '→', cleaned);
-        }
-
-        // Show/hide warning
-        if (cleaned === '' || /^\d+$/.test(cleaned)) {
-            phoneWarning.classList.add('hidden');
-        } else {
-            phoneWarning.classList.remove('hidden');
-        }
-    });
-
-    // Also handle paste
-    phoneInput.addEventListener('paste', function(e) {
-        setTimeout(() => {
-            this.value = this.value.replace(/\D/g, '');
-        }, 10);
-    });
-});
 
 document.addEventListener('DOMContentLoaded', function() {
     const hotelRadio = document.getElementById('deliveryHotel');

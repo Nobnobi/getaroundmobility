@@ -47,6 +47,7 @@
                             price: <?= $item['price'] ?>,
                             image_url: '<?= htmlspecialchars($item['image_url'], ENT_QUOTES) ?>',
                             category: '<?= htmlspecialchars($item['category_name'] ?? '', ENT_QUOTES) ?>',
+                            short_description: '<?= htmlspecialchars($item['short_description'] ?? '', ENT_QUOTES) ?>',
                             description: '<?= htmlspecialchars($item['description'] ?? '', ENT_QUOTES) ?>',
                             total_stock: <?= isset($item['total_stock']) ? (int)$item['total_stock'] : 0 ?>
                         })"
@@ -58,6 +59,32 @@
                             <?php endif; ?>
                         </div>
                         <h3 class="font-semibold text-lg"><?= htmlspecialchars($item['product_name']); ?></h3>
+                        <?php
+                        $noteParts = preg_split('/\r\n|\r|\n|\|\|/', (string) ($item['short_description'] ?? '')) ?: [];
+                        $notes = [];
+                        foreach ($noteParts as $part) {
+                            $line = trim($part);
+                            if ($line === '') {
+                                continue;
+                            }
+                            $notes[] = $line;
+                            if (count($notes) >= 2) {
+                                break;
+                            }
+                        }
+                        ?>
+                        <div class="mb-2 min-h-[4.25rem] space-y-1.5 text-center flex flex-col items-center">
+                            <?php if (!empty($notes)): ?>
+                                <?php foreach ($notes as $note): ?>
+                                    <div class="grid grid-cols-[20px_minmax(0,1fr)] sm:grid-cols-[24px_minmax(0,1fr)] items-start gap-2 w-full max-w-[18rem] text-left text-sm font-semibold text-[#0086C9] sm:text-base">
+                                        <img src="/img/check-circle-blue.svg" alt="check" class="w-5 h-5 sm:w-6 sm:h-6 mt-0.5 justify-self-center">
+                                        <span class="leading-snug"><?= htmlspecialchars($note); ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <div class="text-base font-semibold text-[#0086C9] sm:text-lg text-center"></div>
+                            <?php endif; ?>
+                        </div>
 
                         <!-- Variations Table -->
                         <?php if (!empty($item['variations'])): ?>

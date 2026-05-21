@@ -9,12 +9,13 @@ use PDO;
 class ProductModel{
         // Update a general product (no sale_type change)
         public function updateProduct($product_id, $data){
-            $stmt = $this->db->prepare("UPDATE products SET product_name=?, product_category_id=?, price=?, description=?, image_url=? WHERE product_id=?");
+            $stmt = $this->db->prepare("UPDATE products SET product_name=?, product_category_id=?, price=?, description=?, short_description=?, image_url=? WHERE product_id=?");
             $stmt->execute([
                 $data['product_name'],
                 $data['product_category_id'],
                 $data['price'],
                 $data['description'],
+                $data['short_description'] ?? null,
                 $data['image_url'],
                 $product_id
             ]);
@@ -26,6 +27,15 @@ class ProductModel{
     {
         // Inject PDO instance into model
         $this->db = Database::getInstance();
+        $this->ensureProductColumns();
+    }
+
+    private function ensureProductColumns(): void
+    {
+        $shortDescCol = $this->db->query("SHOW COLUMNS FROM products LIKE 'short_description'");
+        if (!$shortDescCol || !$shortDescCol->fetch(PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE products ADD COLUMN short_description VARCHAR(255) NULL AFTER description");
+        }
     }
 
     /**
@@ -252,7 +262,7 @@ class ProductModel{
         // Fetch products for current page
         $stmt = $this->db->prepare(
             "SELECT 
-                p.product_id, p.product_name, p.price, p.description, p.image_url, 
+                p.product_id, p.product_name, p.price, p.description, p.short_description, p.image_url, 
                 c.category_name
              FROM products p
              JOIN categories c ON p.product_category_id = c.category_id
@@ -380,7 +390,7 @@ class ProductModel{
 
         $productStmt = $this->db->prepare(
             "SELECT 
-                p.product_id, p.product_name, p.price, p.description, p.image_url, 
+                p.product_id, p.product_name, p.price, p.description, p.short_description, p.image_url, 
                 c.category_name,
                 (SELECT SUM(v.stock) FROM product_variations v WHERE v.product_id = p.product_id AND v.is_active = 1) AS total_stock
             FROM products p
@@ -494,34 +504,37 @@ class ProductModel{
             $hasIsAvailable = in_array('is_available', $cols);
         }
         if ($hasIsAvailable) {
-            $stmt = $this->db->prepare("INSERT INTO products (product_name, product_category_id, price, description, image_url, is_available, sale_type) VALUES (?, ?, ?, ?, ?, ?, 'sale')");
+            $stmt = $this->db->prepare("INSERT INTO products (product_name, product_category_id, price, description, short_description, image_url, is_available, sale_type) VALUES (?, ?, ?, ?, ?, ?, ?, 'sale')");
             $stmt->execute([
                 $data['product_name'],
                 $data['product_category_id'],
                 $data['price'],
                 $data['description'],
+                $data['short_description'] ?? null,
                 $data['image_url'],
                 $data['is_available'] ?? 1
             ]);
         } else {
-            $stmt = $this->db->prepare("INSERT INTO products (product_name, product_category_id, price, description, image_url, sale_type) VALUES (?, ?, ?, ?, ?, 'sale')");
+            $stmt = $this->db->prepare("INSERT INTO products (product_name, product_category_id, price, description, short_description, image_url, sale_type) VALUES (?, ?, ?, ?, ?, ?, 'sale')");
             $stmt->execute([
                 $data['product_name'],
                 $data['product_category_id'],
                 $data['price'],
                 $data['description'],
+                $data['short_description'] ?? null,
                 $data['image_url']
             ]);
         }
     }
 
     public function updateProductForSale($product_id, $data){
-        $stmt = $this->db->prepare("UPDATE products SET product_name=?, product_category_id=?, price=?, description=?, image_url=?, sale_type='sale' WHERE product_id=?");
+        $stmt = $this->db->prepare("UPDATE products SET product_name=?, product_category_id=?, price=?, description=?, short_description=?, image_url=?, sale_type='sale' WHERE product_id=?");
         $stmt->execute([
             $data['product_name'],
             $data['product_category_id'],
             $data['price'],
             $data['description'],
+            $data['short_description'] ?? null,
             $data['image_url'],
             $product_id
         ]);
@@ -645,12 +658,13 @@ class ProductModel{
 
     // Add a general product (no is_available, no sale_type)
     public function addProduct($data) {
-        $stmt = $this->db->prepare("INSERT INTO products (product_name, product_category_id, price, description, image_url) VALUES (?, ?, ?, ?, ?)");
+        $stmt = $this->db->prepare("INSERT INTO products (product_name, product_category_id, price, description, short_description, image_url) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([
             $data['product_name'],
             $data['product_category_id'],
             $data['price'],
             $data['description'],
+            $data['short_description'] ?? null,
             $data['image_url']
         ]);
     }

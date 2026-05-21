@@ -99,6 +99,20 @@ class OrderModel {
     public function __construct()
     {
         $this->db = Database::getInstance();
+        $this->ensureOrderColumns();
+    }
+
+    private function ensureOrderColumns(): void
+    {
+        $weightOptionCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'client_weight_option'");
+        if (!$weightOptionCol || !$weightOptionCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN client_weight_option VARCHAR(32) NULL AFTER guest_phone");
+        }
+
+        $weightLbsCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'client_weight_lbs'");
+        if (!$weightLbsCol || !$weightLbsCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN client_weight_lbs INT NULL AFTER client_weight_option");
+        }
     }
 
     private function ensureOrderAssignments($orderId, $cart, $pickupDatetime, $returnDatetime, &$assignedScooters, $debugFile = null)
@@ -299,6 +313,7 @@ class OrderModel {
     {
         $sql = "INSERT INTO orders (
             user_id, guest_first_name, guest_last_name, guest_email, guest_phone,
+            client_weight_option, client_weight_lbs,
             address1, address2, state, zip,
             pickup_datetime, return_datetime, delivery_type, hotel_id, pickup_location,
             notes, payment_method, total_amount, status, customer_type, sale_type
@@ -313,6 +328,8 @@ class OrderModel {
             $orderData['guest_last_name'] ?? null,
             $orderData['guest_email'] ?? null,
             $orderData['guest_phone'] ?? null,
+            $orderData['client_weight_option'] ?? null,
+            $orderData['client_weight_lbs'] ?? null,
             $orderData['address1'] ?? null,
             $orderData['address2'] ?? null,
             $orderData['state'] ?? null,
@@ -756,6 +773,9 @@ class OrderModel {
         $customerName = trim($guest_first_name . ' ' . $guest_last_name);
         $customerEmail = $guest_email;
         $customerPhone = $guest_phone;
+        $clientWeightOption = htmlspecialchars(trim($form['client_weight_option'] ?? ''));
+        $clientWeightLbsRaw = $form['client_weight_lbs'] ?? null;
+        $clientWeightLbs = (is_numeric($clientWeightLbsRaw) && (int)$clientWeightLbsRaw > 0) ? (int)$clientWeightLbsRaw : null;
         if (isset($session['user_id'])) {
             $userId = $session['user_id'];
             // Optionally, you can still fetch userRow if needed for other logic
@@ -775,8 +795,7 @@ class OrderModel {
         foreach ($cart as $item) {
             $totalAmount += $item['qty'] * $item['price'];
         }
-        $tax = $totalAmount * 0.12;
-        $totalAmountWithTax = $totalAmount + $tax;
+        $totalAmountWithTax = $totalAmount;
         $pickup_datetime = $form['pickup_datetime'] ?? null;
         $return_datetime = $form['return_datetime'] ?? null;
         $deliveryTypeForOrder = in_array(($form['delivery_type'] ?? ''), ['hotel', 'pickup'], true)
@@ -792,6 +811,8 @@ class OrderModel {
                     $guest_last_name,
                     $guest_email,
                     $guest_phone,
+                    $clientWeightOption !== '' ? $clientWeightOption : null,
+                    $clientWeightLbs,
                     $address1,
                     $address2,
                     $state,
@@ -811,8 +832,8 @@ class OrderModel {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, customer_type, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, customer_type, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
@@ -1135,7 +1156,7 @@ class OrderModel {
         $itemsTable .= '</tbody></table>';
 
         if ($subtotal <= 0 && $totalAmountWithTax > 0) {
-            $subtotal = round($totalAmountWithTax / 1.12, 2);
+            $subtotal = round($totalAmountWithTax / 1.08375, 2);
         }
         $totalAmount = $subtotal;
         $pickup_datetime = $pickupDate;
@@ -1497,19 +1518,6 @@ class OrderModel {
             return ['error' => 'No valid items'];
         }
 
-        $tax = $totalAmount * 0.12;
-        $totalAmountWithTax = $totalAmount + $tax;
-        if ($tax > 0) {
-            $lineItems[] = [
-                'price_data' => [
-                    'currency' => 'usd',
-                    'product_data' => ['name' => 'Tax (12%)'],
-                    'unit_amount' => (int) round($tax * 100),
-                ],
-                'quantity' => 1,
-            ];
-        }
-
         $pickup_location_id = $post['pickup_location'] ?? '';
         $pickup_location = '';
         $pickup_location_address = '';
@@ -1539,6 +1547,8 @@ class OrderModel {
             'last_name' => htmlspecialchars(trim($post['last_name'] ?? '')),
             'guest_email' => $guestEmail,
             'guest_phone' => preg_replace('/\D/', '', $post['phone'] ?? ''),
+            'client_weight_option' => htmlspecialchars(trim($post['client_weight_option'] ?? '')),
+            'client_weight_lbs' => is_numeric($post['client_weight_lbs'] ?? null) ? (string) ((int) $post['client_weight_lbs']) : '',
             'address1' => htmlspecialchars(trim($post['address1'] ?? '')),
             'address2' => htmlspecialchars(trim($post['address2'] ?? '')),
             'state' => htmlspecialchars(trim($post['state'] ?? '')),
@@ -1638,9 +1648,6 @@ class OrderModel {
             return ['error' => 'No valid items'];
         }
 
-        $tax = $totalAmount * 0.12;
-        $totalAmountWithTax = $totalAmount + $tax;
-
         $deliveryType = $post['delivery_type'] ?? 'preferred';
         $pickup_location = '';
         if ($deliveryType === 'pickup' && !empty($post['pickup_location'])) {
@@ -1652,6 +1659,8 @@ class OrderModel {
             'last_name' => htmlspecialchars(trim($post['last_name'] ?? '')),
             'guest_email' => $guestEmail,
             'guest_phone' => preg_replace('/\D/', '', $post['phone'] ?? ''),
+            'client_weight_option' => htmlspecialchars(trim($post['client_weight_option'] ?? '')),
+            'client_weight_lbs' => is_numeric($post['client_weight_lbs'] ?? null) ? (string) ((int) $post['client_weight_lbs']) : '',
             'address1' => htmlspecialchars(trim($post['address1'] ?? '')),
             'address2' => htmlspecialchars(trim($post['address2'] ?? '')),
             'state' => htmlspecialchars(trim($post['state'] ?? '')),
@@ -1669,7 +1678,7 @@ class OrderModel {
         ];
 
         $intentParams = [
-            'amount' => (int)round($totalAmountWithTax * 100),
+            'amount' => (int)round($totalAmount * 100),
             'currency' => 'usd',
             'automatic_payment_methods' => ['enabled' => true],
             'metadata' => $metadata,
