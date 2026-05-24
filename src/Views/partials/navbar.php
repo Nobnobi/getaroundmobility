@@ -656,13 +656,12 @@ function openProductModal(product) {
             let diff = (end - start) / (1000 * 60 * 60 * 24);
             return diff > 0 ? Math.ceil(diff) : 1;
         }
-        function getTieredPrice(productId, variationId, days) {
-            if (!window.rentalPrices || !window.rentalPrices[productId] || !window.rentalPrices[productId][variationId]) return null;
-            const tiers = window.rentalPrices[productId][variationId];
-            days = Math.min(Math.max(parseInt(days, 10) || 1, 1), 31);
-            const key = String(days);
-            if (!Object.prototype.hasOwnProperty.call(tiers, key)) return null;
-            return Number(tiers[key]);
+
+        async function getTieredPrice(productId, variationId, days, fallbackPrice) {
+            if (typeof window.fetchRentalQuotePrice !== 'function') {
+                return Number(fallbackPrice || 0);
+            }
+            return await window.fetchRentalQuotePrice(productId, variationId, days, fallbackPrice);
         }
         // --- Dropdown Synchronization Logic ---
         function getCardDropdown() {
@@ -670,17 +669,14 @@ function openProductModal(product) {
             const selector = `.instant-days-dropdown[data-product-id='${product.id}'][data-variation-id='${product.variation_id}']`;
             return document.querySelector(selector);
         }
-        function updateModalPrice(syncCard) {
-            let price = product.price;
+        async function updateModalPrice(syncCard) {
+            let price = Number(product.price || 0);
             let days = 1;
             const daysDropdown = document.getElementById('modalDaysDropdown');
             if (daysDropdown) {
                 days = parseInt(daysDropdown.value) || 1;
             }
-            if (window.rentalPrices && window.rentalPrices[product.id] && window.rentalPrices[product.id][product.variation_id]) {
-                const tierPrice = getTieredPrice(product.id, product.variation_id, days);
-                if (tierPrice !== null) price = parseFloat(tierPrice);
-            }
+            price = await getTieredPrice(product.id, product.variation_id, days, price);
             const priceElem = document.getElementById('modalProductPrice');
             if (priceElem) priceElem.textContent = '$' + Number(price).toFixed(2);
             // If syncCard is true, update the card dropdown
@@ -702,8 +698,8 @@ function openProductModal(product) {
                 if (cardDropdown) {
                     daysDropdown.value = cardDropdown.value;
                 }
-                daysDropdown.addEventListener('change', function() {
-                    updateModalPrice(true); // sync card
+                daysDropdown.addEventListener('change', async function() {
+                    await updateModalPrice(true); // sync card
                 });
             }
         }, 0);
@@ -711,10 +707,10 @@ function openProductModal(product) {
     }
     // Attach Rent Now button handler
     if (rentNowBtn) {
-        rentNowBtn.onclick = function(e) {
+        rentNowBtn.onclick = async function(e) {
             e.preventDefault();
             var isHomePageModal = (!window.isSearchResultsModal && !window.isProductListModal && (window.location.pathname === '/' || window.location.pathname === '/index.php'));
-            let price = product.price;
+            let price = Number(product.price || 0);
             if (isHomePageModal) {
                 // Use the selected days from dropdown
                 let days = 1;
@@ -722,11 +718,8 @@ function openProductModal(product) {
                 if (daysDropdown) {
                     days = parseInt(daysDropdown.value) || 1;
                 }
-                // Calculate correct tiered price for selected days
-                if (window.rentalPrices && window.rentalPrices[product.id] && window.rentalPrices[product.id][product.variation_id]) {
-                    const tierPrice = getTieredPrice(product.id, product.variation_id, days);
-                    if (tierPrice !== null) price = Number(tierPrice);
-                }
+                // Calculate correct tiered price for selected days from API
+                price = await getTieredPrice(product.id, product.variation_id, days, price);
             }
             // Prepare cart with only this product, including variation info if present
             const cartItem = {
@@ -749,18 +742,15 @@ function openProductModal(product) {
     // Attach Add to Cart button handler
     const addToCartBtn = document.getElementById('modalAddToCartBtn');
     if (addToCartBtn) {
-        addToCartBtn.onclick = function(e) {
+        addToCartBtn.onclick = async function(e) {
             e.preventDefault();
-            let price = product.price;
+            let price = Number(product.price || 0);
             let days = 1;
             const daysDropdown = document.getElementById('modalDaysDropdown');
             if (daysDropdown) {
                 days = parseInt(daysDropdown.value) || 1;
             }
-            if (window.rentalPrices && window.rentalPrices[product.id] && window.rentalPrices[product.id][product.variation_id]) {
-                const tierPrice = getTieredPrice(product.id, product.variation_id, days);
-                if (tierPrice !== null) price = Number(tierPrice);
-            }
+            price = await getTieredPrice(product.id, product.variation_id, days, price);
             window.addToCart(
                 product.variation_name ? product.name + ' - ' + product.variation_name : product.name,
                 product.id,

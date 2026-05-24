@@ -26,6 +26,7 @@ $router->get('/cart', HomeController::class, 'cart');
 $router->get('/checkout', HomeController::class, 'checkout');
 $router->get('/contact', HomeController::class, 'contact');
 $router->get('/tips-troubleshooting', HomeController::class, 'tipsTroubleshooting');
+$router->get('/api/rental-price', HomeController::class, 'rentalPriceQuote');
 
 $router->get('/for-sale', ProductController::class, 'forSale');
 
@@ -90,6 +91,18 @@ $router->get('/admin/logout', AdminController::class, 'logout');
 
 /*
 |--------------------------------------------------------------------------
+| WALK-IN BOOKING (KIOSK)
+|--------------------------------------------------------------------------
+*/
+$router->get('/walkin-booking/login', AdminController::class, 'walkinBookingLogin');
+$router->post('/walkin-booking/login', AdminController::class, 'processWalkinBookingLogin');
+$router->get('/walkin-booking/logout', AdminController::class, 'walkinBookingLogout');
+$router->get('/walkin-booking', AdminController::class, 'walkinBooking');
+$router->post('/walkin-booking', AdminController::class, 'processWalkinBooking');
+$router->get('/walkin-booking/availability', AdminController::class, 'walkinBookingAvailability');
+
+/*
+|--------------------------------------------------------------------------
 | ADMIN ORDERS
 |--------------------------------------------------------------------------
 */
@@ -112,6 +125,7 @@ $router->post('/admin/orders/new', AdminController::class, 'processNewOrder');
 |--------------------------------------------------------------------------
 */
 $router->get('/admin/reservations', AdminController::class, 'reservations');
+$router->post('/admin/reservations/update', AdminController::class, 'updateReservation');
 
 $router->get('/admin/locations', LocationsController::class, 'index');
 $router->post('/admin/locations', LocationsController::class, 'handlePost');
@@ -156,6 +170,15 @@ $router->get('/admin/product-variations/new', ProductController::class, 'addProd
 $router->post('/admin/product-variations/new', ProductController::class, 'addProductVariation');
 $router->post('/admin/product-variations/save', ProductController::class, 'saveProductVariations');
 $router->get('/admin/api/product-variations', ProductController::class, 'apiProductVariations');
+
+/*
+|--------------------------------------------------------------------------
+| PROMO CODES
+|--------------------------------------------------------------------------
+*/
+$router->get('/admin/promo-codes', AdminController::class, 'promoCodes');
+$router->post('/admin/promo-codes/save', AdminController::class, 'savePromoCode');
+$router->post('/admin/promo-codes/delete', AdminController::class, 'deletePromoCode');
 
 /*
 |--------------------------------------------------------------------------

@@ -4,7 +4,20 @@ if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-$rentalPrices = $rentalPrices ?? [];
+$rentalPrices  = $rentalPrices ?? [];
+$activePromos  = $activePromos ?? [];
+$formAction = $formAction ?? '/admin/orders/new';
+$availabilityEndpoint = $availabilityEndpoint ?? '/admin/orders/availability';
+$cancelUrl = $cancelUrl ?? '/admin/orders';
+$cancelLabel = $cancelLabel ?? 'Cancel';
+$kioskMode = !empty($kioskMode);
+
+$outerWrapClass = $kioskMode
+    ? 'flex flex-1 items-start justify-center w-full px-4 py-6 md:px-8 md:py-10'
+    : 'flex flex-1 items-center justify-center w-full';
+$panelClass = $kioskMode
+    ? 'bg-white rounded-3xl shadow-2xl p-6 md:p-10 w-full max-w-6xl mx-auto border border-[#b8d1e4]'
+    : 'bg-white rounded-2xl shadow-xl p-10 w-full max-w-2xl mx-auto border border-gray-200';
 ?>
 
     <div id="booking-loading-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-[#062B41]/70 px-6">
@@ -15,9 +28,9 @@ $rentalPrices = $rentalPrices ?? [];
         </div>
     </div>
 
-    <div class="flex flex-1 items-center justify-center w-full">
-        <div class="bg-white rounded-2xl shadow-xl p-10 w-full max-w-2xl mx-auto border border-gray-200">
-            <h1 class="text-3xl font-bold mb-8 text-center text-[#062B41] tracking-tight">Walk-in Booking</h1>
+    <div class="<?= $outerWrapClass ?>">
+        <div class="<?= $panelClass ?>">
+            <h1 class="text-3xl md:text-4xl font-bold mb-8 text-center text-[#062B41] tracking-tight">Walk-in Booking</h1>
             <?php if (!empty($_SESSION['form_errors'])): ?>
                 <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded mb-6">
                     <?php foreach ($_SESSION['form_errors'] as $err): ?>
@@ -31,10 +44,14 @@ $rentalPrices = $rentalPrices ?? [];
                 </div>
                 <?php unset($_SESSION['booking_success']); ?>
             <?php endif; ?>
-            <form method="post" action="/admin/orders/new" class="space-y-6">
+            <form id="walkin-booking-form" method="post" action="<?= htmlspecialchars($formAction) ?>" class="space-y-6">
                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                 <input type="hidden" name="agree_policy" value="1">
                 <input type="hidden" name="cart" id="cart-json">
+                <input type="hidden" name="promo_code" id="promo-code-input" value="">
+                <?php if ($kioskMode): ?>
+                    <input type="hidden" name="booking_context" value="kiosk">
+                <?php endif; ?>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
@@ -56,6 +73,20 @@ $rentalPrices = $rentalPrices ?? [];
                     <div>
                         <label class="block mb-1 font-semibold text-gray-700">Address</label>
                         <input type="text" name="address1" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block mb-1 font-semibold text-gray-700">Client Weight Range</label>
+                        <select name="client_weight_option" id="clientWeightOption" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
+                            <option value="">Not specified</option>
+                            <option value="below120">Below 120 lbs</option>
+                            <option value="120to200">120-200 lbs</option>
+                            <option value="above200">Above 200 lbs</option>
+                            <option value="other">Other (exact)</option>
+                        </select>
+                    </div>
+                    <div id="clientWeightLbsWrap" class="hidden">
+                        <label class="block mb-1 font-semibold text-gray-700">Exact Weight (lbs)</label>
+                        <input type="number" name="client_weight_lbs" id="clientWeightLbs" min="1" max="700" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none" placeholder="e.g. 165">
                     </div>
                     <!-- Pickup Location removed for walk-in booking, default will be set in backend -->
                     <div>
@@ -197,13 +228,43 @@ $rentalPrices = $rentalPrices ?? [];
                     </div>
                 </div>
 
-                <div class="mb-4 mt-6 flex items-center justify-between">
-                    <label class="block font-semibold text-gray-700">Total Amount</label>
-                    <span id="total-amount" class="font-bold text-2xl text-[#062B41]">$0.00</span>
+                <div class="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                        <div class="w-full md:max-w-xs">
+                            <label for="promo-code" class="mb-1 block text-sm font-semibold text-gray-700">Promo Code</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="promo-code" maxlength="24" placeholder="e.g. WELCOME10" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#062B41]">
+                                <button type="button" id="apply-promo-btn" class="rounded-lg bg-[#062B41] px-4 py-2 text-sm font-semibold text-white hover:bg-[#08456b] transition-colors">Apply</button>
+                            </div>
+                            
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between text-sm text-gray-600">
+                            <span>Subtotal</span>
+                            <span id="subtotal-amount">$0.00</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm text-gray-600">
+                            <span>Discount</span>
+                            <span id="discount-amount">-$0.00</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm text-gray-600">
+                            <span>Subtotal (Pre-Tax)</span>
+                            <span id="pretax-amount">$0.00</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm text-gray-600">
+                            <span>Included NV Sales Tax</span>
+                            <span id="tax-amount">$0.00</span>
+                        </div>
+                        <div class="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
+                            <label class="block font-semibold text-gray-700">Total Amount</label>
+                            <span id="total-amount" class="font-bold text-2xl text-[#062B41]">$0.00</span>
+                        </div>
+                    </div>
                     <input type="hidden" name="total_amount" id="total-amount-input" value="0">
                 </div>
                 <div class="flex justify-end mt-8 gap-3">
-                    <a href="/admin/orders" class="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 transition-colors cursor-pointer">Cancel</a>
+                    <a href="<?= htmlspecialchars($cancelUrl) ?>" class="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 transition-colors cursor-pointer"><?= htmlspecialchars($cancelLabel) ?></a>
                     <button type="submit" class="bg-[#0086C9] text-white px-6 py-2 rounded-lg font-semibold shadow hover:bg-[#08456b] transition-colors cursor-pointer">Create Booking</button>
                 </div>
             </form>
@@ -212,12 +273,21 @@ $rentalPrices = $rentalPrices ?? [];
     
     <script>
 window.rentalPrices = <?= json_encode($rentalPrices, JSON_UNESCAPED_SLASHES) ?>;
+// DB-loaded active promo rules (for client-side discount preview only; server re-validates)
+window.WALKIN_PROMO_RULES = {};
+<?php foreach ($activePromos as $p): ?>
+window.WALKIN_PROMO_RULES[<?= json_encode($p['code']) ?>] = {type: <?= json_encode($p['type']) ?>, value: <?= (float)$p['value'] ?>};
+<?php endforeach; ?>
 </script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
-const bookingForm = document.querySelector('form[action="/admin/orders/new"]');
+const bookingForm = document.getElementById('walkin-booking-form');
 const bookingLoadingOverlay = document.getElementById('booking-loading-overlay');
+const availabilityEndpoint = <?= json_encode($availabilityEndpoint) ?>;
 const saleTypeSelect = bookingForm.querySelector('select[name="sale_type"]');
+const clientWeightOption = document.getElementById('clientWeightOption');
+const clientWeightLbsWrap = document.getElementById('clientWeightLbsWrap');
+const clientWeightLbsInput = document.getElementById('clientWeightLbs');
 const pickupInput = document.getElementById('pickupDatetime');
 const returnInput = document.getElementById('returnDatetime');
 const rentalDurationBadge = document.getElementById('rental-duration-badge');
@@ -228,6 +298,19 @@ const rentalWindowEyebrow = document.getElementById('rental-window-eyebrow');
 const rentalWindowHeading = document.getElementById('rental-window-heading');
 const rentalWindowCopy = document.getElementById('rental-window-copy');
 const saleTypeEmptyState = document.getElementById('sale-type-empty-state');
+const promoCodeInput = document.getElementById('promo-code');
+const promoCodeHiddenInput = document.getElementById('promo-code-input');
+const applyPromoBtn = document.getElementById('apply-promo-btn');
+const promoFeedback = document.getElementById('promo-feedback');
+const subtotalAmountEl = document.getElementById('subtotal-amount');
+const discountAmountEl = document.getElementById('discount-amount');
+const pretaxAmountEl = document.getElementById('pretax-amount');
+const taxAmountEl = document.getElementById('tax-amount');
+
+const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
+
+const WALKIN_PROMO_RULES = window.WALKIN_PROMO_RULES || {};
+let activePromoCode = '';
 
 function showBookingLoadingState() {
     if (bookingLoadingOverlay) {
@@ -245,6 +328,19 @@ function showBookingLoadingState() {
     bookingForm.querySelectorAll('button[type="button"]').forEach(button => {
         button.disabled = true;
     });
+}
+
+function syncClientWeightInput() {
+    if (!clientWeightOption || !clientWeightLbsWrap || !clientWeightLbsInput) {
+        return;
+    }
+
+    const isOther = clientWeightOption.value === 'other';
+    clientWeightLbsWrap.classList.toggle('hidden', !isOther);
+    clientWeightLbsInput.required = isOther;
+    if (!isOther) {
+        clientWeightLbsInput.value = '';
+    }
 }
 
 function formatMoney(value) {
@@ -403,7 +499,7 @@ async function refreshAvailabilityForWindow() {
     }
 
     try {
-        const response = await fetch(`/admin/orders/availability?${params.toString()}`, {
+        const response = await fetch(`${availabilityEndpoint}?${params.toString()}`, {
             headers: {
                 'X-Requested-With': 'XMLHttpRequest'
             }
@@ -504,6 +600,60 @@ function getEffectiveRowPrice(row) {
 
     const tieredPrice = getTieredPrice(selected.value, getVariationKey(row), getRentalDays());
     return tieredPrice !== null ? tieredPrice : basePrice;
+}
+
+function calculatePromoDiscount(subtotal) {
+    if (!activePromoCode || !Object.prototype.hasOwnProperty.call(WALKIN_PROMO_RULES, activePromoCode)) {
+        return 0;
+    }
+    const rule = WALKIN_PROMO_RULES[activePromoCode];
+    let discount = 0;
+    if (rule.type === 'percent') {
+        discount = subtotal * (Number(rule.value) / 100);
+    } else {
+        discount = Number(rule.value);
+    }
+    return Math.max(0, Math.min(discount, subtotal));
+}
+
+function setPromoFeedback(message, type = 'neutral') {
+    if (!promoFeedback) return;
+    promoFeedback.textContent = message;
+    promoFeedback.className = 'mt-2 text-xs';
+    if (type === 'success') {
+        promoFeedback.classList.add('text-green-700');
+    } else if (type === 'error') {
+        promoFeedback.classList.add('text-red-700');
+    } else {
+        promoFeedback.classList.add('text-gray-500');
+    }
+}
+
+function applyPromoCode() {
+    if (!promoCodeInput) return;
+    const code = String(promoCodeInput.value || '').trim().toUpperCase();
+    if (code === '') {
+        activePromoCode = '';
+        if (promoCodeHiddenInput) promoCodeHiddenInput.value = '';
+        setPromoFeedback('Promo removed.');
+        updateTotal();
+        return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(WALKIN_PROMO_RULES, code)) {
+        activePromoCode = '';
+        if (promoCodeHiddenInput) promoCodeHiddenInput.value = '';
+        setPromoFeedback('Invalid promo code.', 'error');
+        updateTotal();
+        return;
+    }
+
+    activePromoCode = code;
+    if (promoCodeHiddenInput) promoCodeHiddenInput.value = code;
+    const rule = WALKIN_PROMO_RULES[code];
+    const details = rule.type === 'percent' ? `${rule.value}% off` : `$${Number(rule.value).toFixed(2)} off`;
+    setPromoFeedback(`Promo ${code} applied (${details}).`, 'success');
+    updateTotal();
 }
 
 function updateRowPrice(row) {
@@ -644,7 +794,7 @@ function updateProductRow(select) {
 }
 
 function updateTotal() {
-    let total = 0;
+    let subtotal = 0;
     let hasErrors = false;
     document.querySelectorAll('.product-row').forEach(row => {
         const select = row.querySelector('.product-select');
@@ -664,8 +814,18 @@ function updateTotal() {
             qtyInput.classList.remove('border-red-500', 'bg-red-50');
         }
         
-        total += price * quantity;
+        subtotal += price * quantity;
     });
+
+    const discount = calculatePromoDiscount(subtotal);
+    const total = Math.max(0, subtotal - discount);
+    const pretaxSubtotal = total > 0 ? (total / NV_TAX_INCLUSIVE_FACTOR) : 0;
+    const taxIncluded = Math.max(0, total - pretaxSubtotal);
+
+    if (subtotalAmountEl) subtotalAmountEl.textContent = formatMoney(subtotal);
+    if (discountAmountEl) discountAmountEl.textContent = `-$${Number(discount).toFixed(2)}`;
+    if (pretaxAmountEl) pretaxAmountEl.textContent = formatMoney(pretaxSubtotal);
+    if (taxAmountEl) taxAmountEl.textContent = formatMoney(taxIncluded);
     document.getElementById('total-amount').textContent = `$${total.toFixed(2)}`;
     document.getElementById('total-amount-input').value = total.toFixed(2);
 }
@@ -690,6 +850,22 @@ document.querySelectorAll('.product-row').forEach(row => {
         deleteBtn.onclick = function() { removeProductRow(this); };
     }
 });
+
+if (applyPromoBtn) {
+    applyPromoBtn.addEventListener('click', applyPromoCode);
+}
+if (clientWeightOption) {
+    clientWeightOption.addEventListener('change', syncClientWeightInput);
+    syncClientWeightInput();
+}
+if (promoCodeInput) {
+    promoCodeInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            applyPromoCode();
+        }
+    });
+}
 
 let returnPicker;
 
@@ -775,8 +951,11 @@ bookingForm.addEventListener('submit', function(e) {
         const productId = select.value;
         const quantity = row.querySelector('.quantity-input').value;
         const price = row.dataset.effectivePrice || getEffectiveRowPrice(row);
-        const name = select.options[select.selectedIndex]?.textContent;
-        const image_url = select.options[select.selectedIndex]?.getAttribute('data-img');
+        const selectedOption = select.options[select.selectedIndex];
+        const optionText = selectedOption?.textContent || '';
+        const optionLabel = selectedOption?.getAttribute('data-product-label') || '';
+        const name = (optionLabel || optionText.replace(/\s*\(\d+\s+available\)\s*$/i, '')).trim();
+        const image_url = selectedOption?.getAttribute('data-img');
         // Variation
         const variationSelect = row.querySelector('.variation-select');
         let variation_id = null;

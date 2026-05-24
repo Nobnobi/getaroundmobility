@@ -394,6 +394,8 @@ class OrderController extends Controller
                 'last_name' => $meta['last_name'] ?? '',
                 'email' => $guestEmail,
                 'phone' => $meta['guest_phone'] ?? '',
+                'client_weight_option' => $meta['client_weight_option'] ?? '',
+                'client_weight_lbs' => $meta['client_weight_lbs'] ?? '',
                 'address1' => $meta['address1'] ?? '',
                 'address2' => $meta['address2'] ?? '',
                 'state' => $meta['state'] ?? '',
@@ -409,6 +411,9 @@ class OrderController extends Controller
                 'guest_last_name' => $meta['last_name'] ?? '',
                 'guest_email' => $guestEmail,
                 'guest_phone' => $meta['guest_phone'] ?? '',
+                'created_by_admin_id' => $meta['created_by_admin_id'] ?? '',
+                'created_by_admin_role' => $meta['created_by_admin_role'] ?? '',
+                'created_by_admin_name' => $meta['created_by_admin_name'] ?? '',
                 'payment' => 'card',
             ];
 
@@ -550,6 +555,9 @@ class OrderController extends Controller
             $clientWeightLbsRaw = $meta->client_weight_lbs ?? null;
             $clientWeightLbs = is_numeric($clientWeightLbsRaw) ? (int) $clientWeightLbsRaw : null;
             $loggedInUserId = $meta->logged_in_user_id ?? null;
+            $createdByAdminId = isset($meta->created_by_admin_id) && $meta->created_by_admin_id !== '' ? (int)$meta->created_by_admin_id : null;
+            $createdByAdminRole = strtolower(trim((string)($meta->created_by_admin_role ?? '')));
+            $createdByAdminName = trim((string)($meta->created_by_admin_name ?? ''));
 
             // --- CUSTOMER LOGIC START ---
             // $pdo = \App\Utils\Database::getInstance();
@@ -624,9 +632,9 @@ class OrderController extends Controller
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, total_amount, status, order_date, customer_type, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, total_amount, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', :total_amount, 'paid', NOW(), :customer_type, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', :total_amount, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
                     )"
                 );
                 $params = [
@@ -647,6 +655,10 @@ class OrderController extends Controller
                     ':notes' => $notes,
                     ':total_amount' => $totalAmount,
                     ':customer_type' => $loggedInUserId ? 'user' : 'guest',
+                    ':booking_source' => 'online',
+                    ':created_by_admin_id' => $createdByAdminId,
+                    ':created_by_admin_role' => $createdByAdminRole !== '' ? $createdByAdminRole : null,
+                    ':created_by_admin_name' => $createdByAdminName !== '' ? $createdByAdminName : null,
                     ':sale_type' => $saleType,
                 ];
                 fwrite($myfile, "[DEBUG] Order insert params: " . print_r($params, true) . "\n");

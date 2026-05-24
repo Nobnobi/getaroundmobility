@@ -648,6 +648,48 @@ class ProductModel{
         return $result;
     }
 
+    public function getRentalQuotePrice($productId, $variationId, $days): float {
+        $productId = (int)$productId;
+        $days = max(1, min(31, (int)$days));
+        $variationIdNorm = null;
+        if ($variationId !== null) {
+            $v = trim((string)$variationId);
+            if ($v !== '' && strtolower($v) !== 'null' && $v !== '0' && is_numeric($v)) {
+                $variationIdNorm = (int)$v;
+            }
+        }
+
+        if ($variationIdNorm !== null) {
+            $stmt = $this->db->prepare("SELECT price FROM rental_prices WHERE product_id = ? AND variation_id = ? AND days = ? LIMIT 1");
+            $stmt->execute([$productId, $variationIdNorm, $days]);
+            $price = $stmt->fetchColumn();
+            if ($price !== false) {
+                return (float)$price;
+            }
+        }
+
+        $stmt = $this->db->prepare("SELECT price FROM rental_prices WHERE product_id = ? AND variation_id IS NULL AND days = ? LIMIT 1");
+        $stmt->execute([$productId, $days]);
+        $baseTierPrice = $stmt->fetchColumn();
+        if ($baseTierPrice !== false) {
+            return (float)$baseTierPrice;
+        }
+
+        if ($variationIdNorm !== null) {
+            $stmt = $this->db->prepare("SELECT price FROM product_variations WHERE variation_id = ? AND product_id = ? LIMIT 1");
+            $stmt->execute([$variationIdNorm, $productId]);
+            $variationPrice = $stmt->fetchColumn();
+            if ($variationPrice !== false) {
+                return (float)$variationPrice;
+            }
+        }
+
+        $stmt = $this->db->prepare("SELECT price FROM products WHERE product_id = ? LIMIT 1");
+        $stmt->execute([$productId]);
+        $productPrice = $stmt->fetchColumn();
+        return $productPrice !== false ? (float)$productPrice : 0.0;
+    }
+
     /**
      * Get all rental products with scooter count for admin
      */

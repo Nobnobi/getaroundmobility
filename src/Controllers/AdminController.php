@@ -7,6 +7,7 @@ use Dompdf\Dompdf;
 use App\Models\AdminModel;
 use App\Models\OrderModel;
 use App\Models\ProductModel;
+use App\Models\PromoCodeModel;
 use App\Models\ReservationModel;
 use App\Models\TipsTroubleshootingModel;
 
@@ -47,6 +48,46 @@ class AdminController extends Controller
         }
     }
 
+    public function walkinBookingLogin() {
+        if (!empty($_SESSION['admin_id'])) {
+            header('Location: /walkin-booking');
+            exit;
+        }
+        require __DIR__ . '/../Views/admin/walkin-login.php';
+    }
+
+    public function processWalkinBookingLogin() {
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $username = htmlspecialchars(trim($_POST['username'] ?? ''));
+        $password = $_POST['password'] ?? '';
+
+        $pdo = \App\Utils\Database::getInstance();
+        $adminModel = new AdminModel($pdo);
+        $admin = $adminModel->findByUsername($username);
+
+        if ($admin && password_verify($password, $admin['password'])) {
+            $_SESSION['admin_id'] = $admin['id'];
+            $_SESSION['admin_username'] = $admin['username'];
+            $_SESSION['admin_role'] = $admin['role'];
+            header('Location: /walkin-booking');
+            exit;
+        }
+
+        $error = 'Invalid username or password.';
+        require __DIR__ . '/../Views/admin/walkin-login.php';
+    }
+
+    public function walkinBookingLogout() {
+        session_unset();
+        session_destroy();
+        header('Location: /walkin-booking/login');
+        exit;
+    }
+
     public function orders() {
         $this->requireAdmin();
         if (!isset($_SESSION['admin_id'])) {
@@ -60,6 +101,9 @@ class AdminController extends Controller
         $statusFilter = isset($_GET['status']) ? trim($_GET['status']) : '';
         $customerTypeFilter = isset($_GET['customer_type']) ? trim($_GET['customer_type']) : '';
         $saleTypeFilter = isset($_GET['sale_type']) ? trim($_GET['sale_type']) : '';
+        $bookingSourceFilter = isset($_GET['booking_source']) ? trim($_GET['booking_source']) : '';
+        $promoUsageFilter = isset($_GET['promo_usage']) ? trim($_GET['promo_usage']) : '';
+        $creatorRoleFilter = isset($_GET['creator_role']) ? trim($_GET['creator_role']) : '';
         $dateFromFilter = isset($_GET['date_from']) ? trim($_GET['date_from']) : '';
         $dateToFilter = isset($_GET['date_to']) ? trim($_GET['date_to']) : '';
         $sortBy = isset($_GET['sort_by']) ? trim($_GET['sort_by']) : 'order_id';
@@ -82,6 +126,21 @@ class AdminController extends Controller
             $saleTypeFilter = '';
         }
 
+        $allowedBookingSources = ['walk-in', 'online'];
+        if (!in_array(strtolower($bookingSourceFilter), $allowedBookingSources, true)) {
+            $bookingSourceFilter = '';
+        }
+
+        $allowedPromoUsage = ['with', 'without'];
+        if (!in_array(strtolower($promoUsageFilter), $allowedPromoUsage, true)) {
+            $promoUsageFilter = '';
+        }
+
+        $allowedCreatorRoles = ['superadmin', 'admin', 'staff', 'partner'];
+        if (!in_array(strtolower($creatorRoleFilter), $allowedCreatorRoles, true)) {
+            $creatorRoleFilter = '';
+        }
+
         if ($dateFromFilter !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFromFilter)) {
             $dateFromFilter = '';
         }
@@ -102,6 +161,9 @@ class AdminController extends Controller
             'status' => strtolower($statusFilter),
             'customer_type' => strtolower($customerTypeFilter),
             'sale_type' => strtolower($saleTypeFilter),
+            'booking_source' => strtolower($bookingSourceFilter),
+            'promo_usage' => strtolower($promoUsageFilter),
+            'creator_role' => strtolower($creatorRoleFilter),
             'date_from' => $dateFromFilter,
             'date_to' => $dateToFilter,
             'sort_by' => $sortBy,
@@ -154,6 +216,9 @@ class AdminController extends Controller
             'statusFilter' => strtolower($statusFilter),
             'customerTypeFilter' => strtolower($customerTypeFilter),
             'saleTypeFilter' => strtolower($saleTypeFilter),
+            'bookingSourceFilter' => strtolower($bookingSourceFilter),
+            'promoUsageFilter' => strtolower($promoUsageFilter),
+            'creatorRoleFilter' => strtolower($creatorRoleFilter),
             'dateFromFilter' => $dateFromFilter,
             'dateToFilter' => $dateToFilter,
             'sortBy' => $sortBy,
@@ -207,13 +272,24 @@ class AdminController extends Controller
 
     // NEWBOOKING (WALK-IN BOOKING)
     public function newOrder() {
-        $this->requireAdmin();
+        header('Location: /walkin-booking');
+        exit;
+    }
 
-        if (!isset($_SESSION['admin_id'])) {
-            header('Location: /admin/login');
-            exit;
-        }
+    public function walkinBooking() {
+        $this->requireWalkinBookingAuth();
 
+        $viewData = $this->buildWalkinBookingViewData();
+        $this->renderAdminWithLayout('admin/new-order', 'admin/walkin-layout.php', $viewData + [
+            'formAction' => '/walkin-booking',
+            'availabilityEndpoint' => '/walkin-booking/availability',
+            'cancelUrl' => '/walkin-booking/logout',
+            'cancelLabel' => 'Sign Out',
+            'kioskMode' => true,
+        ]);
+    }
+
+    private function buildWalkinBookingViewData(): array {
         $productModel = new ProductModel();
         $products = $productModel->getAllProductsBasic();
         $productIds = array_values(array_filter(array_map(static function ($product) {
@@ -232,10 +308,23 @@ class AdminController extends Controller
         }
         unset($product);
 
-        $this->renderAdmin('admin/new-order', [
+        $promoModel = new PromoCodeModel();
+        $activePromos = array_filter($promoModel->getAll(), function($p) {
+            return (int)$p['active'] === 1
+                && (int)$p['uses_count'] < (int)$p['max_uses']
+                && (empty($p['expires_at']) || strtotime($p['expires_at']) >= strtotime('today'));
+        });
+
+        return [
             'products' => $products,
-            'rentalPrices' => $rentalPrices
-        ]);
+            'rentalPrices' => $rentalPrices,
+            'activePromos' => array_values($activePromos),
+            'formAction' => '/admin/orders/new',
+            'availabilityEndpoint' => '/admin/orders/availability',
+            'cancelUrl' => '/admin/orders',
+            'cancelLabel' => 'Cancel',
+            'kioskMode' => false,
+        ];
     }
 
     public function newOrderAvailability() {
@@ -258,9 +347,17 @@ class AdminController extends Controller
         exit;
     }
 
+    public function walkinBookingAvailability() {
+        $this->requireWalkinBookingAuth();
+        $this->newOrderAvailability();
+    }
+
     // ALSO FOR NEWBOOKING (WALK-IN BOOKING)
     public function processNewOrder() {
         $this->requireAdmin();
+
+        $isKioskContext = strtolower((string)($_POST['booking_context'] ?? '')) === 'kiosk';
+        $newOrderRoute = $isKioskContext ? '/walkin-booking' : '/admin/orders/new';
         // VALIDATE CSRF TOKEN
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
@@ -282,21 +379,89 @@ class AdminController extends Controller
             'guest_last_name' => $guestLastName,
             'guest_email' => filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL),
             'guest_phone' => preg_replace('/\D/', '', $_POST['phone'] ?? ''),
+            'client_weight_option' => htmlspecialchars(trim($_POST['client_weight_option'] ?? '')),
+            'client_weight_lbs' => is_numeric($_POST['client_weight_lbs'] ?? null) ? (int)$_POST['client_weight_lbs'] : null,
             'address1' => htmlspecialchars(trim($_POST['address1'] ?? '')),
             // Pickup location is set to default for walk-in booking
             'pickup_location' => 'walk-in booking',
             'notes' => htmlspecialchars(trim($_POST['notes'] ?? '')),
             'payment_method' => htmlspecialchars(trim($_POST['payment_method'] ?? '')),
-            'total_amount' => filter_var($_POST['total_amount'] ?? '', FILTER_VALIDATE_FLOAT),
+            'total_amount' => 0,
             'customer_type' => 'guest',
+            'booking_source' => 'walk-in',
+            'promo_code' => null,
+            'promo_discount' => null,
+            'promo_applied_by_admin_id' => null,
+            'promo_applied_by_admin_role' => null,
+            'promo_applied_by_admin_name' => null,
+            'created_by_admin_id' => (int)($_SESSION['admin_id'] ?? 0) ?: null,
+            'created_by_admin_role' => strtolower(trim((string)($_SESSION['admin_role'] ?? ''))),
+            'created_by_admin_name' => trim((string)($_SESSION['admin_username'] ?? '')),
             'sale_type' => htmlspecialchars(trim($_POST['sale_type'] ?? '')),
             'pickup_datetime' => htmlspecialchars(trim($_POST['pickup_datetime'] ?? '')),
             'return_datetime' => htmlspecialchars(trim($_POST['return_datetime'] ?? '')),
         ];
         $cart = isset($_POST['cart']) ? json_decode($_POST['cart'], true) : [];
 
+        $promoCodeInput = strtoupper(trim($_POST['promo_code'] ?? ''));
+
+        if (!is_array($cart) || empty($cart)) {
+            $_SESSION['form_errors'] = ['Please add at least one product to the booking.'];
+            header('Location: ' . $newOrderRoute);
+            exit;
+        }
+
         require_once __DIR__ . '/../Models/OrderModel.php';
-        $orderModel = new \App\Models\OrderModel();        
+        $orderModel = new \App\Models\OrderModel();
+        $cart = $orderModel->normalizeCartForTrustedPricing(
+            $cart,
+            $orderData['pickup_datetime'] ?? null,
+            $orderData['return_datetime'] ?? null,
+            $orderData['sale_type'] ?? 'rental'
+        );
+
+        $cartSubtotal = 0.0;
+        foreach ($cart as $item) {
+            $qty = max(0, (int)($item['qty'] ?? $item['quantity'] ?? 0));
+            $price = max(0, (float)($item['price'] ?? 0));
+            $cartSubtotal += ($qty * $price);
+        }
+
+        $promoCodeModel = new PromoCodeModel();
+        $discountAmount = 0.0;
+        $appliedPromoCode = null;
+        $appliedPromoId = null;
+        if ($promoCodeInput !== '') {
+            $validPromo = $promoCodeModel->getValidByCode($promoCodeInput);
+            if ($validPromo === null) {
+                $_SESSION['form_errors'] = ['Invalid, expired, or fully-used promo code.'];
+                header('Location: ' . $newOrderRoute);
+                exit;
+            }
+            if ($validPromo['type'] === 'percent') {
+                $discountAmount = round($cartSubtotal * ((float)$validPromo['value'] / 100), 2);
+            } else {
+                $discountAmount = round((float)$validPromo['value'], 2);
+            }
+            $discountAmount = max(0, min($discountAmount, $cartSubtotal));
+            $appliedPromoCode = $validPromo['code'];
+            $appliedPromoId = (int)$validPromo['id'];
+        }
+
+        $finalTotalAmount = round(max(0, $cartSubtotal - $discountAmount), 2);
+        $pretaxSubtotal = round($finalTotalAmount / 1.08375, 2);
+        $includedTaxAmount = round($finalTotalAmount - $pretaxSubtotal, 2);
+        $orderData['total_amount'] = $finalTotalAmount;
+        if ($appliedPromoCode !== null) {
+            $promoNote = sprintf('Promo applied: %s (-$%0.2f)', $appliedPromoCode, $discountAmount);
+            $orderData['notes'] = trim(($orderData['notes'] !== '' ? ($orderData['notes'] . "\n") : '') . $promoNote);
+            $orderData['promo_code'] = $appliedPromoCode;
+            $orderData['promo_discount'] = $discountAmount;
+            $orderData['promo_applied_by_admin_id'] = (int)($_SESSION['admin_id'] ?? 0) ?: null;
+            $orderData['promo_applied_by_admin_role'] = strtolower(trim((string)($_SESSION['admin_role'] ?? '')));
+            $orderData['promo_applied_by_admin_name'] = trim((string)($_SESSION['admin_username'] ?? ''));
+        }
+
         // Validate stock availability before placing order
         $stockValidation = $orderModel->validateStockAvailability(
             $cart,
@@ -306,15 +471,19 @@ class AdminController extends Controller
         
         if (!$stockValidation['valid']) {
             $_SESSION['form_errors'] = $stockValidation['errors'];
-            header('Location: /admin/orders/new');
+            header('Location: ' . $newOrderRoute);
             exit;
         }
                 $result = $orderModel->placeOrder($orderData, $cart);
 
         if (isset($result['errors']) && count($result['errors']) > 0) {
             $_SESSION['form_errors'] = $result['errors'];
-            header('Location: /admin/orders/new');
+            header('Location: ' . $newOrderRoute);
             exit;
+        }
+
+        if ($appliedPromoId !== null) {
+            $promoCodeModel->incrementUse($appliedPromoId);
         }
 
         $order_id = $result['order_id'] ?? null;
@@ -351,7 +520,13 @@ class AdminController extends Controller
             $orderSummary .= "{$item['qty']} x {$item['name']} @ $" . number_format($item['price'], 2) . " each = $" . number_format($lineTotal, 2) . "\n";
         }
         $orderSummary .= "----------------------------------------\n";
-        $orderSummary .= "Subtotal: $" . number_format($total_amount, 2) . "\n";
+        $orderSummary .= "Subtotal: $" . number_format($cartSubtotal, 2) . "\n";
+        if ($appliedPromoCode !== null) {
+            $orderSummary .= "Promo ({$appliedPromoCode}): -$" . number_format($discountAmount, 2) . "\n";
+        }
+        $orderSummary .= "Subtotal (Pre-Tax): $" . number_format($pretaxSubtotal, 2) . "\n";
+        $orderSummary .= "Included NV Sales Tax: $" . number_format($includedTaxAmount, 2) . "\n";
+        $orderSummary .= "Total: $" . number_format($total_amount, 2) . "\n";
         $orderSummary .= "Pickup Location: {$pickup_location}\n";
         $orderSummary .= "Notes: {$notes}\n";
         $orderSummary .= "Payment Method: {$payment_method}\n";
@@ -366,12 +541,10 @@ class AdminController extends Controller
         $zip = $zip ?? '';
 
         // compute totals (subtotal, tax, total with tax) used by templates
-        $totalAmount = 0.0;
-        foreach ($cart as $cItem) {
-            $totalAmount += (float)$cItem['qty'] * (float)$cItem['price'];
-        }
-        $tax = round($totalAmount * 0.12, 2); // 12% tax as used elsewhere
-        $totalAmountWithTax = round($totalAmount + $tax, 2);
+        // total_amount is tax-inclusive in this flow; split it for display consistency.
+        $totalAmountWithTax = (float)$finalTotalAmount;
+        $totalAmount = round($totalAmountWithTax / 1.08375, 2);
+        $tax = round($totalAmountWithTax - $totalAmount, 2);
 
         $customerName = $name;
         $customerEmail = $email;
@@ -466,8 +639,14 @@ class AdminController extends Controller
         }
 
         $_SESSION['booking_success'] = "Booking successful! Order ID: $order_id";
-        header('Location: /admin/orders/new');
+        header('Location: ' . $newOrderRoute);
         exit;
+    }
+
+    public function processWalkinBooking() {
+        $this->requireWalkinBookingAuth();
+        $_POST['booking_context'] = 'kiosk';
+        $this->processNewOrder();
     }
 
     public function rejectOrder() {
@@ -537,6 +716,13 @@ class AdminController extends Controller
         }
     }
 
+    private function requireWalkinBookingAuth(): void {
+        if (empty($_SESSION['admin_id'])) {
+            header('Location: /walkin-booking/login');
+            exit;
+        }
+    }
+
     public function featuredProducts() {
         $this->requireAdmin();
 
@@ -592,6 +778,50 @@ class AdminController extends Controller
         ]);
     }
 
+    // ─── PROMO CODES ─────────────────────────────────────────────────────────
+
+    public function promoCodes() {
+        $this->requireAdmin(['admin', 'superadmin']);
+        $promoModel = new PromoCodeModel();
+        $codes = $promoModel->getAll();
+        $this->renderAdmin('admin/promo-codes', ['promoCodes' => $codes]);
+    }
+
+    public function savePromoCode() {
+        $this->requireAdmin(['admin', 'superadmin']);
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+        $promoModel = new PromoCodeModel();
+        $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
+        $ok = $promoModel->save($_POST, $id);
+        if (!$ok) {
+            $_SESSION['promo_error'] = 'Failed to save promo code. The code may already exist.';
+        } else {
+            $_SESSION['promo_success'] = $id ? 'Promo code updated.' : 'Promo code created.';
+        }
+        header('Location: /admin/promo-codes');
+        exit;
+    }
+
+    public function deletePromoCode() {
+        $this->requireAdmin(['admin', 'superadmin']);
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id > 0) {
+            (new PromoCodeModel())->delete($id);
+            $_SESSION['promo_success'] = 'Promo code deleted.';
+        }
+        header('Location: /admin/promo-codes');
+        exit;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     public function admins() {
         $this->requireAdmin();
 
@@ -619,7 +849,14 @@ class AdminController extends Controller
                 die('Invalid CSRF token');
             }
             $username = htmlspecialchars(trim($_POST['username']));
-            $role = htmlspecialchars(trim($_POST['role']));
+            $role = strtolower(trim((string)($_POST['role'] ?? '')));
+            $allowedRoles = ['superadmin', 'admin', 'staff', 'partner'];
+            if (!in_array($role, $allowedRoles, true)) {
+                $_SESSION['flash_message'] = 'Invalid admin role selected.';
+                $_SESSION['flash_type'] = 'error';
+                header('Location: /admin/admins/add');
+                exit;
+            }
             $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
             $adminModel->addAdmin($username, $password, $role);
             header('Location: /admin/admins');
@@ -647,7 +884,14 @@ class AdminController extends Controller
                 die('Invalid CSRF token');
             }
             $username = htmlspecialchars(trim($_POST['username']));
-            $role = htmlspecialchars(trim($_POST['role']));
+            $role = strtolower(trim((string)($_POST['role'] ?? '')));
+            $allowedRoles = ['superadmin', 'admin', 'staff', 'partner'];
+            if (!in_array($role, $allowedRoles, true)) {
+                $_SESSION['flash_message'] = 'Invalid admin role selected.';
+                $_SESSION['flash_type'] = 'error';
+                header('Location: /admin/admins/edit?id=' . urlencode((string)$id));
+                exit;
+            }
             $adminModel->updateAdmin($id, $username, $role);
             header('Location: /admin/admins');
             exit;
@@ -689,8 +933,21 @@ class AdminController extends Controller
         $status = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : 'pending';
         if ($status === 'paid') $status = 'pending'; // treat 'paid' as 'pending' for filter logic
         $search = isset($_GET['search']) ? trim($_GET['search']) : '';
+        $orderId = isset($_GET['order_id']) && is_numeric($_GET['order_id']) && (int)$_GET['order_id'] > 0
+            ? (int)$_GET['order_id']
+            : null;
         $reservationModel = new ReservationModel();
-        $result = $reservationModel->getReservations($status, $page, $perPage, $search);
+        $result = $reservationModel->getReservations($status, $page, $perPage, $search, $orderId);
+        $orderIds = $reservationModel->getReservationOrderIds($status);
+
+        $assignableScooters = [];
+        foreach (($result['reservations'] ?? []) as $reservationRow) {
+            $rid = (int)($reservationRow['reservation_id'] ?? 0);
+            if ($rid > 0) {
+                $assignableScooters[$rid] = $reservationModel->getAssignableScootersForReservation($rid);
+            }
+        }
+
         $this->renderAdmin('admin/reservations', [
             'reservations' => $result['reservations'],
             'totalReservations' => $result['totalReservations'],
@@ -698,8 +955,50 @@ class AdminController extends Controller
             'page' => $page,
             'perPage' => $perPage,
             'status' => $status,
-            'search' => $search
+            'search' => $search,
+            'orderId' => $orderId,
+            'orderIds' => $orderIds,
+            'assignableScooters' => $assignableScooters,
         ]);
+    }
+
+    public function updateReservation()
+    {
+        $this->requireAdmin();
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            header('Location: /admin/reservations');
+            exit;
+        }
+
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $reservationId = isset($_POST['reservation_id']) ? (int)$_POST['reservation_id'] : 0;
+        $scooterId = isset($_POST['scooter_id']) ? (int)$_POST['scooter_id'] : 0;
+        $notes = trim((string)($_POST['notes'] ?? ''));
+        if (strlen($notes) > 1000) {
+            $notes = substr($notes, 0, 1000);
+        }
+
+        $reservationModel = new ReservationModel();
+        $updateResult = $reservationModel->updateReservationAssignment($reservationId, $scooterId, $notes);
+        if (!empty($updateResult['success'])) {
+            $_SESSION['reservation_success'] = $updateResult['message'] ?? 'Reservation updated.';
+        } else {
+            $_SESSION['reservation_error'] = $updateResult['message'] ?? 'Unable to update reservation.';
+        }
+
+        $redirectQuery = trim((string)($_POST['redirect_query'] ?? ''));
+        if ($redirectQuery !== '') {
+            header('Location: /admin/reservations?' . ltrim($redirectQuery, '?'));
+            exit;
+        }
+
+        header('Location: /admin/reservations');
+        exit;
     }
 
     // ===================== TESTIMONIALS ADMIN =====================

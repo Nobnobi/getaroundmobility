@@ -8,6 +8,96 @@ use Dompdf\Dompdf;
 use Dompdf\Options;
 
 class OrderModel {
+            private function sanitizeProductNameForStorage($name): string {
+                $value = trim((string)$name);
+                // Remove UI stock suffixes such as "(12 available)".
+                $value = preg_replace('/\s*\(\d+\s+available\)\s*$/i', '', $value);
+                return trim((string)$value);
+            }
+
+            private function normalizeVariationId($variationId): ?int {
+                if ($variationId === null) return null;
+                $value = trim((string)$variationId);
+                if ($value === '' || strtolower($value) === 'null' || $value === '0') return null;
+                return is_numeric($value) ? (int)$value : null;
+            }
+
+            private function getRentalDays($pickupDatetime, $returnDatetime): int {
+                $pickupTs = strtotime((string)$pickupDatetime);
+                $returnTs = strtotime((string)$returnDatetime);
+                if (!$pickupTs || !$returnTs || $returnTs <= $pickupTs) {
+                    return 1;
+                }
+                $days = (int)ceil(($returnTs - $pickupTs) / 86400);
+                return max(1, min(31, $days));
+            }
+
+            private function getCatalogBasePrice(int $productId, ?int $variationId): float {
+                if ($variationId !== null) {
+                    $stmt = $this->db->prepare("SELECT price FROM product_variations WHERE variation_id = ? AND product_id = ? LIMIT 1");
+                    $stmt->execute([$variationId, $productId]);
+                    $price = $stmt->fetchColumn();
+                    if ($price !== false) {
+                        return (float)$price;
+                    }
+                }
+
+                $stmt = $this->db->prepare("SELECT price FROM products WHERE product_id = ? LIMIT 1");
+                $stmt->execute([$productId]);
+                $price = $stmt->fetchColumn();
+                return $price !== false ? (float)$price : 0.0;
+            }
+
+            private function getTrustedUnitPrice(int $productId, ?int $variationId, string $saleType, int $rentalDays): float {
+                if ($saleType === 'rental') {
+                    if ($variationId !== null) {
+                        $stmt = $this->db->prepare("SELECT price FROM rental_prices WHERE product_id = ? AND variation_id = ? AND days = ? LIMIT 1");
+                        $stmt->execute([$productId, $variationId, $rentalDays]);
+                        $tierPrice = $stmt->fetchColumn();
+                        if ($tierPrice !== false) {
+                            return (float)$tierPrice;
+                        }
+                    }
+
+                    $stmt = $this->db->prepare("SELECT price FROM rental_prices WHERE product_id = ? AND variation_id IS NULL AND days = ? LIMIT 1");
+                    $stmt->execute([$productId, $rentalDays]);
+                    $baseTierPrice = $stmt->fetchColumn();
+                    if ($baseTierPrice !== false) {
+                        return (float)$baseTierPrice;
+                    }
+                }
+
+                return $this->getCatalogBasePrice($productId, $variationId);
+            }
+
+            public function normalizeCartForTrustedPricing(array $cart, $pickupDatetime = null, $returnDatetime = null, $saleType = 'rental'): array {
+                $normalized = [];
+                $days = $this->getRentalDays($pickupDatetime, $returnDatetime);
+                $orderSaleType = strtolower(trim((string)$saleType));
+                if (!in_array($orderSaleType, ['rental', 'sale'], true)) {
+                    $orderSaleType = 'rental';
+                }
+
+                foreach ($cart as $item) {
+                    $productId = isset($item['id']) && is_numeric($item['id']) ? (int)$item['id'] : 0;
+                    if ($productId <= 0) continue;
+
+                    $variationId = $this->normalizeVariationId($item['variation_id'] ?? null);
+                    $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
+                    $trustedPrice = $this->getTrustedUnitPrice($productId, $variationId, $orderSaleType, $days);
+
+                    $normalized[] = array_merge($item, [
+                        'id' => $productId,
+                        'variation_id' => $variationId,
+                        'qty' => $qty,
+                        'quantity' => $qty,
+                        'price' => round(max(0, (float)$trustedPrice), 2),
+                    ]);
+                }
+
+                return $normalized;
+            }
+
             /**
              * Minimal availability check for all cart items before order/charge
              * Returns true if all items are available, false if any are not
@@ -113,6 +203,51 @@ class OrderModel {
         if (!$weightLbsCol || !$weightLbsCol->fetch(\PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE orders ADD COLUMN client_weight_lbs INT NULL AFTER client_weight_option");
         }
+
+        $bookingSourceCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'booking_source'");
+        if (!$bookingSourceCol || !$bookingSourceCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN booking_source VARCHAR(20) NULL AFTER customer_type");
+        }
+
+        $promoCodeCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_code'");
+        if (!$promoCodeCol || !$promoCodeCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_code VARCHAR(32) NULL AFTER booking_source");
+        }
+
+        $promoDiscountCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_discount'");
+        if (!$promoDiscountCol || !$promoDiscountCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_discount DECIMAL(10,2) NULL AFTER promo_code");
+        }
+
+        $promoAdminIdCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_applied_by_admin_id'");
+        if (!$promoAdminIdCol || !$promoAdminIdCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_applied_by_admin_id INT NULL AFTER promo_discount");
+        }
+
+        $promoAdminRoleCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_applied_by_admin_role'");
+        if (!$promoAdminRoleCol || !$promoAdminRoleCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_applied_by_admin_role VARCHAR(32) NULL AFTER promo_applied_by_admin_id");
+        }
+
+        $promoAdminNameCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_applied_by_admin_name'");
+        if (!$promoAdminNameCol || !$promoAdminNameCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_applied_by_admin_name VARCHAR(120) NULL AFTER promo_applied_by_admin_role");
+        }
+
+        $createdByAdminIdCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'created_by_admin_id'");
+        if (!$createdByAdminIdCol || !$createdByAdminIdCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN created_by_admin_id INT NULL AFTER promo_applied_by_admin_name");
+        }
+
+        $createdByAdminRoleCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'created_by_admin_role'");
+        if (!$createdByAdminRoleCol || !$createdByAdminRoleCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN created_by_admin_role VARCHAR(32) NULL AFTER created_by_admin_id");
+        }
+
+        $createdByAdminNameCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'created_by_admin_name'");
+        if (!$createdByAdminNameCol || !$createdByAdminNameCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN created_by_admin_name VARCHAR(120) NULL AFTER created_by_admin_role");
+        }
     }
 
     private function ensureOrderAssignments($orderId, $cart, $pickupDatetime, $returnDatetime, &$assignedScooters, $debugFile = null)
@@ -143,7 +278,7 @@ class OrderModel {
             $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
             $variationId = isset($item['variation_id']) && $item['variation_id'] !== '' ? $item['variation_id'] : null;
             $productId = $item['id'] ?? null;
-            $productName = $item['name'] ?? '';
+            $productName = $this->sanitizeProductNameForStorage($item['name'] ?? '');
             $price = $item['price'] ?? 0;
             $imageUrl = $item['image_url'] ?? null;
             $variationName = $item['variation_name'] ?? null;
@@ -311,14 +446,39 @@ class OrderModel {
 
     public function placeOrder($orderData, $cart)
     {
+        $cart = $this->normalizeCartForTrustedPricing(
+            is_array($cart) ? $cart : [],
+            $orderData['pickup_datetime'] ?? null,
+            $orderData['return_datetime'] ?? null,
+            $orderData['sale_type'] ?? 'rental'
+        );
+
+        $trustedSubtotal = 0.0;
+        foreach ($cart as $item) {
+            $trustedSubtotal += ((float)($item['price'] ?? 0)) * max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
+        }
+        $trustedSubtotal = round($trustedSubtotal, 2);
+
+        $promoDiscount = max(0, (float)($orderData['promo_discount'] ?? 0));
+        if (empty($orderData['promo_code'])) {
+            $promoDiscount = 0.0;
+        }
+        $promoDiscount = round(min($promoDiscount, $trustedSubtotal), 2);
+
+        $orderData['promo_discount'] = $promoDiscount > 0 ? $promoDiscount : null;
+        $orderData['total_amount'] = round(max(0, $trustedSubtotal - $promoDiscount), 2);
+
         $sql = "INSERT INTO orders (
             user_id, guest_first_name, guest_last_name, guest_email, guest_phone,
             client_weight_option, client_weight_lbs,
             address1, address2, state, zip,
             pickup_datetime, return_datetime, delivery_type, hotel_id, pickup_location,
-            notes, payment_method, total_amount, status, customer_type, sale_type
+            notes, payment_method, total_amount, status, customer_type, booking_source,
+            promo_code, promo_discount, promo_applied_by_admin_id, promo_applied_by_admin_role, promo_applied_by_admin_name,
+            created_by_admin_id, created_by_admin_role, created_by_admin_name,
+            sale_type
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )";
 
         $stmt = $this->db->prepare($sql);
@@ -343,6 +503,15 @@ class OrderModel {
             $orderData['payment_method'],
             $orderData['total_amount'],
             $orderData['customer_type'],
+            $orderData['booking_source'] ?? null,
+            $orderData['promo_code'] ?? null,
+            $orderData['promo_discount'] ?? null,
+            $orderData['promo_applied_by_admin_id'] ?? null,
+            $orderData['promo_applied_by_admin_role'] ?? null,
+            $orderData['promo_applied_by_admin_name'] ?? null,
+            $orderData['created_by_admin_id'] ?? null,
+            $orderData['created_by_admin_role'] ?? null,
+            $orderData['created_by_admin_name'] ?? null,
             $orderData['sale_type']
         ]);
 
@@ -423,7 +592,7 @@ class OrderModel {
             $assignedScooters[] = [
                 'order_id' => $orderId,
                 'product_id' => $item['id'],
-                'product_name' => $item['name'],
+                'product_name' => $this->sanitizeProductNameForStorage($item['name'] ?? ''),
                 'price' => $item['price'],
                 'quantity' => $qty,
                 'image_url' => $item['image_url'] ?? null,
@@ -595,6 +764,26 @@ class OrderModel {
         if ($saleType !== '') {
             $where[] = 'LOWER(sale_type) = ?';
             $params[] = $saleType;
+        }
+
+        $bookingSource = strtolower(trim((string)($filters['booking_source'] ?? '')));
+        if ($bookingSource === 'walk-in') {
+            $where[] = "(LOWER(COALESCE(booking_source, '')) = 'walk-in' OR LOWER(COALESCE(pickup_location, '')) = 'walk-in booking')";
+        } elseif ($bookingSource === 'online') {
+            $where[] = "(LOWER(COALESCE(booking_source, 'online')) = 'online' AND LOWER(COALESCE(pickup_location, '')) <> 'walk-in booking')";
+        }
+
+        $promoUsage = strtolower(trim((string)($filters['promo_usage'] ?? '')));
+        if ($promoUsage === 'with') {
+            $where[] = "(promo_code IS NOT NULL AND promo_code <> '')";
+        } elseif ($promoUsage === 'without') {
+            $where[] = "(promo_code IS NULL OR promo_code = '')";
+        }
+
+        $creatorRole = strtolower(trim((string)($filters['creator_role'] ?? '')));
+        if ($creatorRole !== '') {
+            $where[] = "LOWER(COALESCE(created_by_admin_role, '')) = ?";
+            $params[] = $creatorRole;
         }
 
         $dateFrom = trim((string)($filters['date_from'] ?? ''));
@@ -776,6 +965,13 @@ class OrderModel {
         $clientWeightOption = htmlspecialchars(trim($form['client_weight_option'] ?? ''));
         $clientWeightLbsRaw = $form['client_weight_lbs'] ?? null;
         $clientWeightLbs = (is_numeric($clientWeightLbsRaw) && (int)$clientWeightLbsRaw > 0) ? (int)$clientWeightLbsRaw : null;
+
+        $cart = $this->normalizeCartForTrustedPricing(
+            is_array($cart) ? $cart : [],
+            $form['pickup_datetime'] ?? null,
+            $form['return_datetime'] ?? null,
+            $form['sale_type'] ?? 'rental'
+        );
         if (isset($session['user_id'])) {
             $userId = $session['user_id'];
             // Optionally, you can still fetch userRow if needed for other logic
@@ -798,6 +994,12 @@ class OrderModel {
         $totalAmountWithTax = $totalAmount;
         $pickup_datetime = $form['pickup_datetime'] ?? null;
         $return_datetime = $form['return_datetime'] ?? null;
+        $bookingSource = htmlspecialchars(trim((string)($form['booking_source'] ?? 'online')));
+        $createdByAdminId = isset($form['created_by_admin_id']) && is_numeric($form['created_by_admin_id'])
+            ? (int)$form['created_by_admin_id']
+            : (isset($session['admin_id']) && is_numeric($session['admin_id']) ? (int)$session['admin_id'] : null);
+        $createdByAdminRole = strtolower(trim((string)($form['created_by_admin_role'] ?? ($session['admin_role'] ?? ''))));
+        $createdByAdminName = trim((string)($form['created_by_admin_name'] ?? ($session['admin_username'] ?? '')));
         $deliveryTypeForOrder = in_array(($form['delivery_type'] ?? ''), ['hotel', 'pickup'], true)
             ? $form['delivery_type']
             : 'hotel';
@@ -822,6 +1024,10 @@ class OrderModel {
                     $payment,
                     $totalAmountWithTax,
                     $customerType,
+                    $bookingSource,
+                    $createdByAdminId,
+                    $createdByAdminRole !== '' ? $createdByAdminRole : null,
+                    $createdByAdminName !== '' ? $createdByAdminName : null,
                     $pickup_datetime,
                     $return_datetime,
                     $deliveryTypeForOrder,
@@ -832,8 +1038,8 @@ class OrderModel {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, customer_type, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
@@ -895,7 +1101,7 @@ class OrderModel {
                     $fallbackItemStmt->execute([
                         $orderId,
                         $item['id'] ?? null,
-                        $item['name'] ?? 'Item',
+                        $this->sanitizeProductNameForStorage($item['name'] ?? 'Item'),
                         (float)($item['price'] ?? 0),
                         $qty,
                         $item['image_url'] ?? null,
@@ -1486,6 +1692,13 @@ class OrderModel {
             return ['error' => 'Some items are no longer available for the selected dates. Please update your cart.'];
         }
 
+        $cart = $this->normalizeCartForTrustedPricing(
+            $cart,
+            $pickup_datetime,
+            $return_datetime,
+            $post['sale_type'] ?? 'rental'
+        );
+
         $stripeSecret = $_ENV['STRIPE_SECRET_KEY'] ?? null;
         if (!$stripeSecret) {
             return ['error' => 'Stripe secret not configured'];
@@ -1563,6 +1776,9 @@ class OrderModel {
             'cart_json' => json_encode($cart),
             'total_amount' => (string)$totalAmount,
             'logged_in_user_id' => (string)($session['user_id'] ?? ''),
+            'created_by_admin_id' => (string)($session['admin_id'] ?? ''),
+            'created_by_admin_role' => strtolower(trim((string)($session['admin_role'] ?? ''))),
+            'created_by_admin_name' => trim((string)($session['admin_username'] ?? '')),
         ];
 
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
@@ -1624,6 +1840,13 @@ class OrderModel {
             return ['error' => 'Some items are no longer available for the selected dates. Please update your cart.'];
         }
 
+        $cart = $this->normalizeCartForTrustedPricing(
+            $cart,
+            $pickup_datetime,
+            $return_datetime,
+            $post['sale_type'] ?? 'rental'
+        );
+
         $stripeSecret = $_ENV['STRIPE_SECRET_KEY'] ?? null;
         if (!$stripeSecret) {
             return ['error' => 'Stripe secret not configured'];
@@ -1675,6 +1898,9 @@ class OrderModel {
             'cart_json' => json_encode($cart),
             'total_amount' => (string)$totalAmount,
             'logged_in_user_id' => (string)($session['user_id'] ?? ''),
+            'created_by_admin_id' => (string)($session['admin_id'] ?? ''),
+            'created_by_admin_role' => strtolower(trim((string)($session['admin_role'] ?? ''))),
+            'created_by_admin_name' => trim((string)($session['admin_username'] ?? '')),
         ];
 
         $intentParams = [

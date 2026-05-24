@@ -13,7 +13,7 @@
 <body class="bg-gray-100 min-h-screen flex">
     <?php include __DIR__ . '/sidebar.php'; ?>
 
-    <?= $content ?>   <!-- Dynamic page content -->
+    <?= $content ?>   
 
 </body>
 </html>

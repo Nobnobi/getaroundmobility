@@ -48,18 +48,37 @@ class HomeController extends Controller
         $tipsHomeFeatured = $tipsModel->getFeaturedArticles();
         $tipsArticles = !empty($tipsHomeFeatured) ? $tipsHomeFeatured : $tipsModel->getArticles();
         // Collect all product and variation IDs for rental price lookup
-        $productIds = [];
-        foreach ($featuredProducts as $item) {
-            if (!empty($item['product_id'])) $productIds[] = $item['product_id'];
-        }
-        $rentalPrices = $this->productModel->getRentalPricesForProducts($productIds);
         $this->render('index', [
             'featuredProducts' => $featuredProducts,
-            'rentalPrices' => $rentalPrices,
             'testimonials' => $testimonials,
             'tipsSection' => $tipsSection,
             'tipsArticles' => $tipsArticles
         ]);
+    }
+
+    public function rentalPriceQuote()
+    {
+        header('Content-Type: application/json');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+        $productId = isset($_GET['product_id']) ? (int)$_GET['product_id'] : 0;
+        $variationId = $_GET['variation_id'] ?? null;
+        $days = isset($_GET['days']) ? (int)$_GET['days'] : 1;
+
+        if ($productId <= 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid product_id']);
+            exit;
+        }
+
+        $price = $this->productModel->getRentalQuotePrice($productId, $variationId, $days);
+        echo json_encode([
+            'product_id' => $productId,
+            'variation_id' => $variationId,
+            'days' => max(1, min(31, $days)),
+            'price' => round((float)$price, 2),
+        ]);
+        exit;
     }
 
     public function tipsTroubleshooting()
@@ -150,13 +169,6 @@ class HomeController extends Controller
         ];
         $productData = $this->productModel->getSearch($filters);
 
-        // Collect all product IDs for rental price lookup
-        $productIds = [];
-        foreach ($productData['products'] as $item) {
-            if (!empty($item['product_id'])) $productIds[] = $item['product_id'];
-        }
-        $rentalPrices = $this->productModel->getRentalPricesForProducts($productIds);
-
         $this->render('search-results', [
             'categories' => $productData['categories'],
             'products' => $productData['products'],
@@ -164,8 +176,7 @@ class HomeController extends Controller
             'current_page' => $productData['current_page'],
             'selected_category' => $filters['category'],
             'price_order' => $filters['price_order'],
-            'total_products' => $productData['total_products'],
-            'rentalPrices' => $rentalPrices
+            'total_products' => $productData['total_products']
             // ...other filter values as needed
         ]);
     }

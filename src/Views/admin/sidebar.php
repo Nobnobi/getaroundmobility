@@ -1,4 +1,7 @@
 <!-- filepath: c:\xampp\htdocs\GetAroundMobility\src\Views\admin\sidebar.php -->
+<?php
+$role = strtolower($_SESSION['admin_role'] ?? '');
+?>
 <aside class="w-64 bg-[#062B41] text-white flex flex-col min-h-screen">
     <!-- Logo and Header -->
     <div class="p-6 border-b border-white">
@@ -49,13 +52,6 @@
             Featured Products
         </a>
 
-        <a href="/admin/orders/new" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">
-            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-            </svg>
-            New Booking
-        </a>
-
         <a href="/admin/categories" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">
             <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path>
@@ -91,6 +87,15 @@
             Scooter Inventory
         </a>
 
+        <?php if ($role === 'superadmin' || $role === 'admin'): ?>
+            <a href="/admin/promo-codes" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a2 2 0 012-2z"/>
+                </svg>
+                Promo Codes
+            </a>
+        <?php endif; ?>
+
         <a href="/admin/testimonials" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">
             <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
@@ -107,7 +112,6 @@
 
         <?php
         // Only show Admins link for super admin and admin roles
-        $role = strtolower($_SESSION['admin_role'] ?? '');
         if ($role === 'superadmin' || $role === 'admin'): ?>
             <a href="/admin/admins" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">
                 <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

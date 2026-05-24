@@ -18,6 +18,7 @@
                     <select name="role" class="w-full border border-blue-200 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition text-base">
                         <option value="admin">Admin</option>
                         <option value="staff">Staff</option>
+                        <option value="partner">Partner</option>
                         <option value="superadmin">Super Admin</option>
                     </select>
                 </div>

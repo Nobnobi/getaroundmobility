@@ -148,10 +148,7 @@ function paginationUrl($page) {
         const pickupMobile = document.querySelector('#mobileFilterPanel #pickupDatetime');
         const returnMobile = document.querySelector('#mobileFilterPanel #returnDatetime');
 
-        // TEMPORARY COMMENT OUT
-        // [pickupDesktop, returnDesktop, pickupMobile, returnMobile].forEach(function(input) {
-        //     if (input) input.addEventListener('change', updateDateSummary);
-        // });
+       
         <?php endif; ?>
     });
     </script>
@@ -406,11 +403,6 @@ function paginationUrl($page) {
         </form>
     </aside>
 
-    <?php if (isset($rentalPrices)): ?>
-    <script>
-    window.rentalPrices = <?= json_encode($rentalPrices) ?>;
-    </script>
-    <?php endif; ?>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script>
     // --- Days Badge and Dynamic Price Logic ---
@@ -504,15 +496,14 @@ function paginationUrl($page) {
 
         return { valid: true, days: days };
     }
-    function getTieredPrice(productId, variationId, days) {
-        if (!window.rentalPrices || !window.rentalPrices[productId] || !window.rentalPrices[productId][variationId]) return null;
-        const tiers = window.rentalPrices[productId][variationId];
-        days = Math.min(Math.max(parseInt(days, 10) || 1, 1), 31);
-        let key = String(days);
-        if (!Object.prototype.hasOwnProperty.call(tiers, key)) return null;
-        return Number(tiers[key]);
+    async function getTieredPrice(productId, variationId, days, fallbackPrice = 0) {
+        if (typeof window.fetchRentalQuotePrice !== 'function') {
+            return Number(fallbackPrice || 0);
+        }
+        return await window.fetchRentalQuotePrice(productId, variationId, days, fallbackPrice);
     }
-    function updateDaysAndPrices() {
+
+    async function updateDaysAndPrices() {
         const pickup = document.getElementById('pickupDatetime')?.value || localStorage.getItem('pickupDatetime');
         const ret = document.getElementById('returnDatetime')?.value || localStorage.getItem('returnDatetime');
         const days = getDaysDiff(pickup, ret);
@@ -521,22 +512,22 @@ function paginationUrl($page) {
             badge.textContent = days + ' day' + (days > 1 ? 's' : '');
         });
         // Update all variation prices
-        document.querySelectorAll('.variation-price').forEach(function(td) {
+        const variationCells = Array.from(document.querySelectorAll('.variation-price'));
+        await Promise.all(variationCells.map(async function(td) {
             const productId = td.getAttribute('data-product-id');
             const variationId = td.getAttribute('data-variation-id');
-            const price = getTieredPrice(productId, variationId, days);
-            if (price !== null) {
-                td.textContent = '$' + Number(price).toFixed(2);
-            }
-        });
+            const current = Number(String(td.textContent || '').replace(/[^0-9.\-]/g, '')) || 0;
+            const price = await getTieredPrice(productId, variationId, days, current);
+            td.textContent = '$' + Number(price).toFixed(2);
+        }));
         // Update base product prices (no variations)
-        document.querySelectorAll('.base-product-price').forEach(function(span) {
+        const basePriceSpans = Array.from(document.querySelectorAll('.base-product-price'));
+        await Promise.all(basePriceSpans.map(async function(span) {
             const productId = span.getAttribute('data-product-id');
-            const price = getTieredPrice(productId, 'null', days);
-            if (price !== null) {
-                span.textContent = '$' + Number(price).toFixed(2);
-            }
-        });
+            const current = Number(String(span.textContent || '').replace(/[^0-9.\-]/g, '')) || 0;
+            const price = await getTieredPrice(productId, 'null', days, current);
+            span.textContent = '$' + Number(price).toFixed(2);
+        }));
     }
     // Add pulsing animation style if not present
     if (!document.getElementById('searchPulseStyle')) {
@@ -646,7 +637,7 @@ function paginationUrl($page) {
         if (typeof emphasizeRentalForm === 'function') emphasizeRentalForm();
     }
 
-    function addToCartDynamicPrice(name, id, variation_id, image_url, scooter_count, variation_name = null) {
+    async function addToCartDynamicPrice(name, id, variation_id, image_url, scooter_count, variation_name = null) {
         // Date validation
         const { pickup: pickupInput, ret: returnInput } = getActiveDateFormState();
         const pickup = pickupInput?.value || '';
@@ -666,17 +657,8 @@ function paginationUrl($page) {
 
         // Calculate correct price for selected days
         const days = rentalValidation.days;
-        let price = null;
-        if (window.rentalPrices && window.rentalPrices[id]) {
-            const vId = variation_id === null ? 'null' : String(variation_id);
-            if (window.rentalPrices[id][vId]) {
-                price = getTieredPrice(id, vId, days);
-            }
-        }
-        if (price === null) {
-            // fallback: use base price (not recommended)
-            price = 0;
-        }
+        const vId = variation_id === null ? 'null' : String(variation_id);
+        const price = await getTieredPrice(id, vId, days, 0);
         let cart = loadCart();
         let added = false;
         let existing = cart.find(item => {
@@ -1026,33 +1008,6 @@ function paginationUrl($page) {
         }
     });
     </script>
-
-    <!-- <?php if (!empty($products)): ?>
-    <div style="background:#f9fafb;border:1px solid #cbd5e1;padding:12px;margin-bottom:16px;font-size:13px;overflow-x:auto;">
-        <strong>Debug: rentalPrices for first product (JS):</strong><br>
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            var firstId = <?= json_encode($products[0]['product_id']) ?>;
-            var debugDiv = document.createElement('pre');
-            debugDiv.style.maxWidth = '100%';
-            debugDiv.style.whiteSpace = 'pre-wrap';
-            debugDiv.textContent = JSON.stringify(window.rentalPrices && window.rentalPrices[firstId], null, 2);
-            document.currentScript.parentNode.appendChild(debugDiv);
-        });
-        </script>
-    </div>
-    <div style="background:#f9fafb;border:1px solid #cbd5e1;padding:12px;margin-bottom:16px;font-size:13px;overflow-x:auto;">
-        <strong>Debug: rentalPrices (JS, all products)</strong><br>
-        <button onclick="console.log('window.rentalPrices:', window.rentalPrices);alert('Check the browser console for full output.');" style="margin-bottom:8px;padding:2px 8px;font-size:12px;">Print to Console</button>
-        <pre id="rentalPricesDebug" style="max-width:100%;white-space:pre-wrap;"></pre>
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            var debugDiv = document.getElementById('rentalPricesDebug');
-            debugDiv.textContent = JSON.stringify(window.rentalPrices, null, 2);
-        });
-        </script>
-    </div>
-    <?php endif; ?> -->
 
     <!-- Cross-form synchronization for date inputs -->
     <script>

@@ -6,9 +6,10 @@ if (empty($_SESSION['csrf_token'])) {
 
 
 $roleLabels = [
-    'superAdmin' => 'Super Admin',
+    'superadmin' => 'Super Admin',
     'admin' => 'Admin',
-    'staff' => 'Staff'
+    'staff' => 'Staff',
+    'partner' => 'Partner'
 ];
 $roleKey = $_SESSION['admin_role'] ?? 'admin';
 $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
@@ -29,6 +30,17 @@ $buildSortLink = function (string $column) use ($currentQuery, $sortByCurrent, $
 $buildPageLink = function (int $pageNumber) use ($currentQuery) {
     $query = array_merge($currentQuery, ['page' => $pageNumber]);
     return '?' . http_build_query($query);
+};
+
+$formatDateTime = function ($value) {
+    if (empty($value)) {
+        return '';
+    }
+    $ts = strtotime((string)$value);
+    if ($ts === false) {
+        return (string)$value;
+    }
+    return date('M j, Y g:i A', $ts);
 };
 
 ?>
@@ -176,7 +188,7 @@ $buildPageLink = function (int $pageNumber) use ($currentQuery) {
                         <a href="/admin/orders" class="text-xs font-semibold text-[#0b5f8a] hover:underline">Reset all</a>
                     </div>
 
-                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-6">
+                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-8">
                         <div class="lg:col-span-2">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Order ID</label>
                             <input type="text" name="order_id_search" value="<?= htmlspecialchars($searchTerm ?? '') ?>" placeholder="Search Order ID..." class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
@@ -210,6 +222,35 @@ $buildPageLink = function (int $pageNumber) use ($currentQuery) {
                             </select>
                         </div>
 
+                        <div>
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Booking Source</label>
+                            <select name="booking_source" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <option value="">All</option>
+                                <option value="walk-in" <?= (($bookingSourceFilter ?? '') === 'walk-in') ? 'selected' : '' ?>>Walk-in</option>
+                                <option value="online" <?= (($bookingSourceFilter ?? '') === 'online') ? 'selected' : '' ?>>Online</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Promo</label>
+                            <select name="promo_usage" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <option value="">All</option>
+                                <option value="with" <?= (($promoUsageFilter ?? '') === 'with') ? 'selected' : '' ?>>With Promo</option>
+                                <option value="without" <?= (($promoUsageFilter ?? '') === 'without') ? 'selected' : '' ?>>Without Promo</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Booked By Role</label>
+                            <select name="creator_role" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <option value="">All</option>
+                                <option value="partner" <?= (($creatorRoleFilter ?? '') === 'partner') ? 'selected' : '' ?>>Partner</option>
+                                <option value="admin" <?= (($creatorRoleFilter ?? '') === 'admin') ? 'selected' : '' ?>>Admin</option>
+                                <option value="staff" <?= (($creatorRoleFilter ?? '') === 'staff') ? 'selected' : '' ?>>Staff</option>
+                                <option value="superadmin" <?= (($creatorRoleFilter ?? '') === 'superadmin') ? 'selected' : '' ?>>Super Admin</option>
+                            </select>
+                        </div>
+
                         <div class="lg:col-span-2">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Date Range (Order Date)</label>
                             <div class="grid grid-cols-2 gap-2">
@@ -237,6 +278,10 @@ $buildPageLink = function (int $pageNumber) use ($currentQuery) {
                                 <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('sale_type')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Sale Type <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'sale_type') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th> <!-- New: Sale Type -->
                                 <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('total_amount')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Total Amount <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'total_amount') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
                                 <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('status')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Status <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'status') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
+                                <th class="px-4 py-2">Source</th>
+                                <th class="px-4 py-2">Booked By</th>
+                                <th class="px-4 py-2">Promo</th>
+                                <th class="px-4 py-2">Promo Applied By</th>
                                 <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('order_date')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Date Ordered <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'order_date') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
                                 <th class="text-left"><a href="<?= htmlspecialchars($buildSortLink('pickup_datetime')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Pickup Date/Time <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'pickup_datetime') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
                                 <th class="text-left"><a href="<?= htmlspecialchars($buildSortLink('return_datetime')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Return Date/Time <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'return_datetime') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
@@ -261,9 +306,41 @@ $buildPageLink = function (int $pageNumber) use ($currentQuery) {
                                 </td>
                                 <td class="px-4 py-2">$<?= number_format($order['total_amount'], 2) ?></td>
                                 <td class="px-4 py-2"><?= htmlspecialchars($order['status']) ?></td>
-                                <td class="px-4 py-2"><?= htmlspecialchars($order['order_date']) ?></td>
-                                <td class="px-4 py-2"><?= htmlspecialchars($order['pickup_datetime']) ?></td>
-                                <td class="px-4 py-2"><?= htmlspecialchars($order['return_datetime']) ?></td>
+                                <td class="px-4 py-2">
+                                    <?php $isWalkIn = (strtolower((string)($order['booking_source'] ?? '')) === 'walk-in') || (strtolower((string)($order['pickup_location'] ?? '')) === 'walk-in booking'); ?>
+                                    <?= $isWalkIn
+                                        ? '<span class="bg-amber-100 text-amber-800 px-2 py-1 rounded text-xs">Walk-in</span>'
+                                        : '<span class="bg-sky-100 text-sky-800 px-2 py-1 rounded text-xs">Online</span>' ?>
+                                </td>
+                                <td class="px-4 py-2 text-xs text-gray-700">
+                                    <?php if (!empty($order['created_by_admin_role']) || !empty($order['created_by_admin_name'])): ?>
+                                        <div class="font-semibold"><?= htmlspecialchars($order['created_by_admin_name'] ?? 'Admin') ?></div>
+                                        <div class="text-gray-500"><?= htmlspecialchars($roleLabels[strtolower((string)($order['created_by_admin_role'] ?? ''))] ?? ucfirst((string)($order['created_by_admin_role'] ?? ''))) ?></div>
+                                    <?php else: ?>
+                                        <span class="text-gray-400">Website Checkout</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="px-4 py-2">
+                                    <?php if (!empty($order['promo_code'])): ?>
+                                        <span class="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-xs font-semibold"><?= htmlspecialchars($order['promo_code']) ?></span>
+                                        <?php if (isset($order['promo_discount']) && $order['promo_discount'] !== null): ?>
+                                            <div class="text-xs text-gray-500 mt-1">-$<?= number_format((float)$order['promo_discount'], 2) ?></div>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <span class="text-xs text-gray-400">None</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="px-4 py-2 text-xs text-gray-700">
+                                    <?php if (!empty($order['promo_code'])): ?>
+                                        <div class="font-semibold"><?= htmlspecialchars($order['promo_applied_by_admin_name'] ?? 'N/A') ?></div>
+                                        <div class="text-gray-500"><?= htmlspecialchars($order['promo_applied_by_admin_role'] ?? 'N/A') ?></div>
+                                    <?php else: ?>
+                                        <span class="text-gray-400">N/A</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="px-4 py-2"><?= htmlspecialchars($formatDateTime($order['order_date'] ?? '')) ?></td>
+                                <td class="px-4 py-2"><?= htmlspecialchars($formatDateTime($order['pickup_datetime'] ?? '')) ?></td>
+                                <td class="px-4 py-2"><?= htmlspecialchars($formatDateTime($order['return_datetime'] ?? '')) ?></td>
 
                                 <!-- ACTIONS -->
                                 <td class="px-4 py-2 space-x-2">
@@ -376,6 +453,21 @@ $buildPageLink = function (int $pageNumber) use ($currentQuery) {
         }
     }
 
+    function toOrdinaryTime(value) {
+        if (!value) return '';
+        const date = new Date(String(value).replace(' ', 'T'));
+        if (Number.isNaN(date.getTime())) return value;
+        const opts = {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        };
+        return date.toLocaleString(undefined, opts);
+    }
+
     function openOrderModal(orderId) {
         document.getElementById('orderModal').classList.remove('hidden');
         const content = document.getElementById('orderModalContent');
@@ -403,7 +495,9 @@ $buildPageLink = function (int $pageNumber) use ($currentQuery) {
                                                 }<br>
                         <span class="font-semibold">Email:</span> ${data.order.guest_email || data.order.customer_email}<br>
                         <span class="font-semibold">Status:</span> ${data.order.status}<br>
-                        <span class="font-semibold">Date:</span> ${data.order.order_date}<br>
+                        <span class="font-semibold">Date:</span> ${toOrdinaryTime(data.order.order_date)}<br>
+                        <span class="font-semibold">Pickup:</span> ${toOrdinaryTime(data.order.pickup_datetime)}<br>
+                        <span class="font-semibold">Return:</span> ${toOrdinaryTime(data.order.return_datetime)}<br>
                     </div>
                     <div class="mb-4">
                         <span class="font-semibold">Items:</span>

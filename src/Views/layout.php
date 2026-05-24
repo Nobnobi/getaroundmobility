@@ -12,6 +12,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link href="/img/Original logo.svg" rel="icon" type="image/x-icon">
+    <script src="/js/rental-quote.js?v=1"></script>
 </head>
 
 <?php
@@ -25,7 +26,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
     <?php include __DIR__ . '/partials/navbar.php'; ?>
 
-     <?= $content ?>   <!-- Dynamic page content -->
+     <?= $content ?>   
 
 
     <?php include __DIR__ . '/partials/footer.php'; ?>

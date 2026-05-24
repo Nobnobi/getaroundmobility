@@ -7,7 +7,8 @@ $isSuperAdmin = (isset($_SESSION['admin_role']) && strtolower($_SESSION['admin_r
 $roleLabels = [
     'superadmin' => 'Super Admin',
     'admin' => 'Admin',
-    'staff' => 'Staff'
+    'staff' => 'Staff',
+    'partner' => 'Partner'
 ];
 
 ?>
@@ -21,7 +22,8 @@ $roleLabels = [
                     <span class="font-bold text-base">Roles:</span>
                     <span class="inline-block bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-xs font-semibold mr-2">Super Admin</span>
                     <span class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold mr-2">Admin</span>
-                    <span class="inline-block bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-xs font-semibold">Staff</span>
+                    <span class="inline-block bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-xs font-semibold mr-2">Staff</span>
+                    <span class="inline-block bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-semibold">Partner</span>
                 </div>
                 <?php if ($isSuperAdmin): ?>
                     <a href="/admin/admins/add" class="bg-[#0086C9] text-white px-6 py-2 rounded-lg shadow hover:bg-[#006a9c] font-semibold transition cursor-pointer">Add Admin</a>
@@ -60,6 +62,8 @@ $roleLabels = [
                                         $badgeClass = 'bg-purple-100 text-purple-800';
                                     } elseif ($role === 'admin') {
                                         $badgeClass = 'bg-blue-100 text-blue-800';
+                                    } elseif ($role === 'partner') {
+                                        $badgeClass = 'bg-emerald-100 text-emerald-800';
                                     } else {
                                         $badgeClass = 'bg-gray-100 text-gray-800';
                                     }
