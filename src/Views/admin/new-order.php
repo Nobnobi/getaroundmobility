@@ -1,4 +1,4 @@
-<!-- filepath: c:\xampp\htdocs\GetAroundMobility\src\Views\admin\new-order.php -->
+
 <?php
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -16,8 +16,8 @@ $outerWrapClass = $kioskMode
     ? 'flex flex-1 items-start justify-center w-full px-4 py-6 md:px-8 md:py-10'
     : 'flex flex-1 items-center justify-center w-full';
 $panelClass = $kioskMode
-    ? 'bg-white rounded-3xl shadow-2xl p-6 md:p-10 w-full max-w-6xl mx-auto border border-[#b8d1e4]'
-    : 'bg-white rounded-2xl shadow-xl p-10 w-full max-w-2xl mx-auto border border-gray-200';
+    ? 'w-full max-w-6xl mx-auto'
+    : 'rounded-2xl p-10 w-full max-w-2xl mx-auto';
 ?>
 
     <div id="booking-loading-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-[#062B41]/70 px-6">
@@ -30,7 +30,10 @@ $panelClass = $kioskMode
 
     <div class="<?= $outerWrapClass ?>">
         <div class="<?= $panelClass ?>">
-            <h1 class="text-3xl md:text-4xl font-bold mb-8 text-center text-[#062B41] tracking-tight">Walk-in Booking</h1>
+            <div class="mb-5">
+                <h1 class="text-4xl font-bold text-[#0086C9] font-[Barlow]">Walk-in Booking</h1>
+                <div class="mt-2 h-px w-full bg-[#b8c4d1]"></div>
+            </div>
             <?php if (!empty($_SESSION['form_errors'])): ?>
                 <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded mb-6">
                     <?php foreach ($_SESSION['form_errors'] as $err): ?>
@@ -53,127 +56,130 @@ $panelClass = $kioskMode
                     <input type="hidden" name="booking_context" value="kiosk">
                 <?php endif; ?>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">First Name</label>
-                        <input type="text" name="guest_first_name" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">Last Name</label>
-                        <input type="text" name="guest_last_name" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">Email</label>
-                        <input type="email" name="email" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">Phone</label>
-                        <input type="text" name="phone" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">Address</label>
-                        <input type="text" name="address1" required class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">Client Weight Range</label>
-                        <select name="client_weight_option" id="clientWeightOption" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
+                <div class="space-y-6">
+                    <section class="p-0">
+                        <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-slate-700">First Name <span class="text-red-500">*</span></label>
+                                <input type="text" name="guest_first_name" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="Enter First Name">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Last Name <span class="text-red-500">*</span></label>
+                                <input type="text" name="guest_last_name" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="Enter Last Name">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Email <span class="text-red-500">*</span></label>
+                                <input type="email" name="email" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="youremail@email.com">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Phone <span class="text-red-500">*</span></label>
+                                <input type="text" name="phone" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="Enter Phone Number">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Sale Type <span class="text-red-500">*</span></label>
+                                <select name="sale_type" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                    <option value="rental">Rental</option>
+                                    <option value="sale">Sale</option>
+                                </select>
+                                <p id="sale-type-helper" class="mt-2 text-xs text-slate-500">Showing products marked for rental bookings.</p>
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Client Weight Range <span class="text-red-500">*</span></label>
+                                <select name="client_weight_option" id="clientWeightOption" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                             <option value="">Not specified</option>
                             <option value="below120">Below 120 lbs</option>
                             <option value="120to200">120-200 lbs</option>
                             <option value="above200">Above 200 lbs</option>
                             <option value="other">Other (exact)</option>
                         </select>
-                    </div>
-                    <div id="clientWeightLbsWrap" class="hidden">
-                        <label class="block mb-1 font-semibold text-gray-700">Exact Weight (lbs)</label>
-                        <input type="number" name="client_weight_lbs" id="clientWeightLbs" min="1" max="700" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none" placeholder="e.g. 165">
-                    </div>
-                    <!-- Pickup Location removed for walk-in booking, default will be set in backend -->
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">Notes</label>
-                        <textarea name="notes" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none"></textarea>
-                    </div>
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">Sale Type</label>
-                        <select name="sale_type" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
-                            <option value="rental">Rental</option>
-                            <option value="sale">Sale</option>
-                        </select>
-                        <p id="sale-type-helper" class="mt-2 text-sm text-gray-500">Showing products marked for rental bookings.</p>
-                    </div>
-                    <div>
-                        <label class="block mb-1 font-semibold text-gray-700">Payment Method</label>
-                        <select name="payment_method" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
-                            <option value="cash">Cash</option>
-                            <option value="card">Card</option>
-                        </select>
-                    </div>
-                    <div class="md:col-span-2">
-                        <div id="rental-window-card" class="rounded-2xl border border-gray-200 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm transition-colors duration-200">
+                            </div>
+                            <div id="clientWeightLbsWrap" class="hidden">
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Exact Weight (lbs)</label>
+                                <input type="number" name="client_weight_lbs" id="clientWeightLbs" min="1" max="700" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="e.g. 165">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Notes</label>
+                                <textarea name="notes" rows="4" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="Enter any additional notes or special instructions"></textarea>
+                            </div>
+                            <div class="md:col-span-1 md:max-w-sm">
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Payment Method <span class="text-red-500">*</span></label>
+                                <select name="payment_method" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                    <option value="cash">Cash</option>
+                                    <option value="card">Card</option>
+                                </select>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="p-0">
+                        <div id="rental-window-card" class="rounded-xl border border-[#d8e0ea] bg-white p-4 shadow-none transition-colors duration-200">
                             <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                                 <div>
                                     <p id="rental-window-eyebrow" class="text-sm font-semibold uppercase tracking-[0.18em] text-[#0086C9]">Rental Window</p>
-                                    <h2 id="rental-window-heading" class="mt-1 text-xl font-bold text-[#062B41]">Pickup and Return</h2>
-                                    <p id="rental-window-copy" class="mt-1 text-sm text-gray-500">Pricing updates automatically from the selected rental duration.</p>
+                                    <h2 id="rental-window-heading" class="mt-1 text-2xl font-bold text-[#1f2937]">Pickup and Return</h2>
+                                    <p id="rental-window-copy" class="mt-1 text-sm text-slate-500">Pricing updates automatically from the selected rental duration.</p>
                                 </div>
-                                <div id="rental-duration-badge" class="inline-flex items-center rounded-full bg-[#062B41] px-4 py-2 text-sm font-semibold text-white">
+                                <div id="rental-duration-badge" class="inline-flex items-center rounded-full border border-[#9bc9e5] bg-[#e7f4fc] px-3 py-1 text-xs font-semibold text-[#0086C9]">
                                     1 day rental
                                 </div>
                             </div>
                             <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
                                 <div>
-                                    <label for="pickupDatetime" class="mb-1 block text-sm font-semibold text-gray-700">Pickup date & time</label>
+                                    <label for="pickupDatetime" class="mb-1 block text-sm font-medium text-slate-700">Pickup date & time <span class="text-red-500">*</span></label>
                                     <input
                                         id="pickupDatetime"
                                         name="pickup_datetime"
                                         type="text"
                                         readonly
                                         required
-                                        class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-[#062B41]"
+                                        class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm transition focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20"
                                         placeholder="Select pickup date and time"
                                         autocomplete="off"
                                     >
                                 </div>
                                 <div>
-                                    <label for="returnDatetime" class="mb-1 block text-sm font-semibold text-gray-700">Return date & time</label>
+                                    <label for="returnDatetime" class="mb-1 block text-sm font-medium text-slate-700">Return date & time <span class="text-red-500">*</span></label>
                                     <input
                                         id="returnDatetime"
                                         name="return_datetime"
                                         type="text"
                                         readonly
                                         required
-                                        class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-[#062B41]"
+                                        class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm transition focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20"
                                         placeholder="Select return date and time"
                                         autocomplete="off"
                                     >
                                 </div>
                             </div>
                             <div class="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                <div id="rental-window-note" class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                                <div id="rental-window-note" class="rounded-xl border border-[#b7d8ee] bg-[#e8f4fd] px-4 py-3 text-sm text-[#0079b6]">
                                     Admin bookings support up to 31 rental days in this form.
                                 </div>
-                                <div id="rental-window-summary" class="text-sm font-medium text-gray-500">
+                                <div id="rental-window-summary" class="text-sm font-medium text-slate-500">
                                     Select both dates to calculate tiered rental pricing.
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </section>
                 </div>
 
-                <div class="mt-8 border-t pt-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <label class="block font-bold text-lg text-gray-800">Order Items</label>
-                        <button type="button" onclick="addProductRow()" class="bg-green-500 text-white px-4 py-2 rounded-lg shadow hover:bg-green-600 transition-colors cursor-pointer flex items-center gap-2">
+                <section class="mt-2 rounded-2xl border border-[#d8e0ea] bg-white p-5 md:p-6">
+                    <div class="mb-4 flex items-center justify-between">
+                        <label class="block text-2xl font-bold text-[#1f2937]">Order Items</label>
+                        <button type="button" onclick="addProductRow()" class="flex cursor-pointer items-center gap-2 rounded-lg bg-[#0086C9] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#0873ab] transition-colors">
                             <span>+</span> Add Product
                         </button>
                     </div>
-                    <div id="products-list" class="space-y-4">
-                        <div class="product-row bg-white rounded-lg border border-gray-300 p-5 shadow-sm hover:shadow-md transition-shadow">
-                            <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                                <div class="md:col-span-4">
-                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Product</label>
-                                    <select required class="w-full cursor-pointer border border-gray-300 rounded-lg px-3 py-2 product-select focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm" onchange="updateProductRow(this)">
-                                        <option value="">-- Select a product --</option>
+                    <div class="mb-3 rounded-lg border border-[#c8e2f3] bg-[#edf7ff] px-4 py-2">
+                        <p id="order-items-tier-text" class="text-sm font-semibold text-[#0086C9]">Select dates first</p>
+                    </div>
+                    <div id="products-list" class="space-y-2">
+                        <div class="product-row rounded-xl border border-[#d5dde8] bg-transparent p-4 shadow-none transition-shadow hover:shadow-none">
+                            <div class="grid grid-cols-1 gap-4 items-end md:grid-cols-2 xl:grid-cols-12">
+                                <div class="md:col-span-2 xl:col-span-4">
+                                    <label class="mb-2 block text-sm font-medium text-slate-700">Product</label>
+                                    <select required class="product-select w-full cursor-pointer rounded-lg border border-[#c9d1dc] bg-white px-3 py-2 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" onchange="updateProductRow(this)">
+                                        <option value="">Select a product</option>
                                         <?php foreach ($products as $product): ?>
                                             <?php 
                                                     $totalStock = $product['scooter_count'];
@@ -193,31 +199,30 @@ $panelClass = $kioskMode
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
-                                <div class="md:col-span-2">
-                                    <select class="w-full cursor-pointer border border-gray-300 rounded-lg px-3 py-2 variation-select focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm" style="display:none;">
-                                        <option value="">-- Select variation --</option>
+                                <div class="md:col-span-1 xl:col-span-2">
+                                    <select class="variation-select w-full cursor-pointer rounded-lg border border-[#c9d1dc] bg-white px-3 py-2 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" style="display:none;">
+                                        <option value="">Select variation</option>
                                     </select>
                                 </div>
-                                <div class="md:col-span-2">
-                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Qty</label>
-                                    <input type="number" min="1" value="1" class="w-full cursor-pointer border border-gray-300 rounded-lg px-3 py-2 quantity-input focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm text-center" onchange="updateTotal()" max="1">
+                                <div class="md:col-span-1 xl:col-span-2">
+                                    <label class="mb-2 block text-sm font-medium text-slate-700">Qty</label>
+                                    <input type="number" min="1" value="1" class="quantity-input w-full cursor-pointer rounded-lg border border-[#c9d1dc] bg-white px-3 py-2 text-center text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" onchange="updateTotal()" max="1">
                                 </div>
-                                <div class="md:col-span-2">
-                                    <label class="block text-sm font-semibold text-gray-700 mb-2">Price</label>
-                                    <span class="product-price text-gray-700 font-bold text-lg">--</span>
-                                    <p class="product-price-meta mt-1 text-xs text-gray-500">Choose dates to see rental pricing.</p>
+                                <div class="md:col-span-1 xl:col-span-2">
+                                    <label class="mb-2 block text-sm font-medium text-slate-700">Price</label>
+                                    <span class="product-price text-lg font-bold text-[#1f2937]">--</span>
                                 </div>
-                                <div class="md:col-span-2 flex gap-2">
-                                    <span class="product-stock text-xs font-semibold px-3 py-2 rounded-lg bg-gray-100 text-gray-600 w-full text-center" title="Available stock">0 left</span>
-                                    <button type="button" onclick="removeProductRow(this)" class="text-white cursor-pointer bg-red-500 hover:bg-red-600 rounded-lg px-3 py-2 font-bold transition-colors">×</button>
+                                <div class="md:col-span-1 xl:col-span-2 flex gap-2 xl:justify-end">
+                                    <span class="product-stock w-full rounded-lg bg-gray-100 px-3 py-2 text-center text-xs font-semibold text-gray-600" title="Available stock">0 left</span>
+                                    <button type="button" onclick="removeProductRow(this)" class="cursor-pointer rounded-lg bg-red-500 px-3 py-2 font-bold text-white transition-colors hover:bg-red-600">×</button>
                                 </div>
                             </div>
-                            <div class="product-image-section mt-4 hidden">
-                                <div class="flex items-center gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                    <img src="" alt="Product" class="product-image h-16 w-16 object-contain rounded">
+                            <div class="product-image-section mt-2 hidden rounded-lg bg-[#f8fbff] px-3 py-2">
+                                <div class="flex items-center gap-3">
+                                    <img src="" alt="Product" class="product-image h-12 w-12 object-contain rounded">
                                     <div>
-                                        <p class="text-sm font-semibold text-gray-700 product-name"></p>
-                                        <p class="text-xs text-gray-500 product-details"></p>
+                                        <p class="product-name text-sm font-semibold text-slate-700"></p>
+                                        <p class="product-details text-xs text-slate-500"></p>
                                     </div>
                                 </div>
                             </div>
@@ -226,47 +231,51 @@ $panelClass = $kioskMode
                     <div id="sale-type-empty-state" class="mt-4 hidden rounded-2xl border border-dashed border-amber-300 bg-amber-50 px-4 py-5 text-sm text-amber-800">
                         No products are currently marked for this booking type.
                     </div>
-                </div>
+                </section>
 
-                <div class="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <section class="p-0">
                     <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                         <div class="w-full md:max-w-xs">
-                            <label for="promo-code" class="mb-1 block text-sm font-semibold text-gray-700">Promo Code</label>
+                            <label for="promo-code" class="mb-1 block text-sm font-medium text-slate-700">Promo Code</label>
                             <div class="flex gap-2">
-                                <input type="text" id="promo-code" maxlength="24" placeholder="e.g. WELCOME10" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#062B41]">
-                                <button type="button" id="apply-promo-btn" class="rounded-lg bg-[#062B41] px-4 py-2 text-sm font-semibold text-white hover:bg-[#08456b] transition-colors cursor-pointer">Apply</button>
+                                <input type="text" id="promo-code" maxlength="24" placeholder="e.g. WELCOME10" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2 text-sm uppercase text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <button type="button" id="apply-promo-btn" class="cursor-pointer rounded-lg bg-[#0086C9] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#0873ab]">Apply</button>
                             </div>
-                            <p id="promo-feedback" class="mt-2 text-xs text-gray-500" aria-live="polite"></p>
+                            <p id="promo-feedback" class="mt-2 text-xs text-slate-500" aria-live="polite"></p>
                             
                         </div>
                     </div>
                     <div class="space-y-2">
-                        <div class="flex items-center justify-between text-sm text-gray-600">
+                        <div class="flex items-center justify-between text-sm text-slate-600">
                             <span>Subtotal</span>
                             <span id="subtotal-amount">$0.00</span>
                         </div>
-                        <div class="flex items-center justify-between text-sm text-gray-600">
+                        <div class="flex items-center justify-between text-sm text-slate-600">
                             <span>Discount</span>
                             <span id="discount-amount">-$0.00</span>
                         </div>
-                        <div class="flex items-center justify-between text-sm text-gray-600">
+                        <div class="flex items-center justify-between text-sm text-slate-600">
                             <span>Subtotal (Pre-Tax)</span>
                             <span id="pretax-amount">$0.00</span>
                         </div>
-                        <div class="flex items-center justify-between text-sm text-gray-600">
+                        <div class="flex items-center justify-between text-sm text-slate-600">
                             <span>Included NV Sales Tax</span>
                             <span id="tax-amount">$0.00</span>
                         </div>
-                        <div class="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
-                            <label class="block font-semibold text-gray-700">Total Amount</label>
-                            <span id="total-amount" class="font-bold text-2xl text-[#062B41]">$0.00</span>
+                        <div class="mt-3 flex items-center justify-between border-t border-[#d8e0ea] pt-3">
+                            <label class="block font-semibold text-slate-700">Total Amount</label>
+                            <span id="total-amount" class="text-2xl font-bold text-[#1f2937]">$0.00</span>
                         </div>
                     </div>
                     <input type="hidden" name="total_amount" id="total-amount-input" value="0">
-                </div>
-                <div class="flex justify-end mt-8 gap-3">
-                    <a href="<?= htmlspecialchars($cancelUrl) ?>" class="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 transition-colors cursor-pointer"><?= htmlspecialchars($cancelLabel) ?></a>
-                    <button type="submit" class="bg-[#0086C9] text-white px-6 py-2 rounded-lg font-semibold shadow hover:bg-[#08456b] transition-colors cursor-pointer">Create Booking</button>
+                </section>
+                <div class="mt-8">
+                    <?php if (!$kioskMode): ?>
+                        <div class="mb-3 text-right">
+                            <a href="<?= htmlspecialchars($cancelUrl) ?>" class="inline-flex cursor-pointer rounded-lg border border-gray-300 bg-white px-5 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100"><?= htmlspecialchars($cancelLabel) ?></a>
+                        </div>
+                    <?php endif; ?>
+                    <button type="submit" class="w-full cursor-pointer rounded-lg border border-[#0086C9] bg-white px-6 py-3 text-sm font-semibold text-[#0086C9] transition-colors hover:bg-[#e8f4fd]">Create Booking</button>
                 </div>
             </form>
         </div>
@@ -307,6 +316,7 @@ const subtotalAmountEl = document.getElementById('subtotal-amount');
 const discountAmountEl = document.getElementById('discount-amount');
 const pretaxAmountEl = document.getElementById('pretax-amount');
 const taxAmountEl = document.getElementById('tax-amount');
+const orderItemsTierText = document.getElementById('order-items-tier-text');
 
 const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
 
@@ -346,6 +356,16 @@ function syncClientWeightInput() {
 
 function formatMoney(value) {
     return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function updateOrderItemsTierText() {
+    if (!orderItemsTierText) return;
+    if (getSelectedMode() === 'sale') {
+        orderItemsTierText.textContent = 'Sale booking pricing';
+        return;
+    }
+    const days = getRentalDays();
+    orderItemsTierText.textContent = `Rental tier for ${days} day${days > 1 ? 's' : ''}`;
 }
 
 function parseAdminDate(value) {
@@ -414,7 +434,7 @@ function resetProductRow(row) {
     const stockSpan = row.querySelector('.product-stock');
 
     select.value = '';
-    variationSelect.innerHTML = '<option value="">-- Select variation --</option>';
+    variationSelect.innerHTML = '<option value="">Select variation</option>';
     variationSelect.style.display = 'none';
     qtyInput.value = 1;
     qtyInput.disabled = false;
@@ -438,7 +458,7 @@ function syncProductOptionsToMode() {
             if (index === 0) {
                 option.hidden = false;
                 option.disabled = false;
-                option.textContent = mode === 'sale' ? '-- Select a product for sale --' : '-- Select a product for rental --';
+                option.textContent = mode === 'sale' ? 'Select a product for sale' : 'Select a product for rental';
                 return;
             }
 
@@ -470,14 +490,14 @@ function updateSaleTypeUI() {
     const mode = getSelectedMode();
     if (mode === 'sale') {
         saleTypeHelper.textContent = 'Showing products marked for sale bookings.';
-        rentalWindowCard.className = 'rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5 shadow-sm transition-colors duration-200';
+        rentalWindowCard.className = 'rounded-xl border border-amber-200 bg-white p-4 shadow-none transition-colors duration-200';
         rentalWindowEyebrow.textContent = 'Sale Booking';
         rentalWindowEyebrow.className = 'text-sm font-semibold uppercase tracking-[0.18em] text-amber-600';
         rentalWindowHeading.textContent = 'Booking Details';
         rentalWindowCopy.textContent = 'Sale bookings use the listed sale price per unit. Pickup and return are still recorded here.';
     } else {
         saleTypeHelper.textContent = 'Showing products marked for rental bookings.';
-        rentalWindowCard.className = 'rounded-2xl border border-gray-200 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm transition-colors duration-200';
+        rentalWindowCard.className = 'rounded-xl border border-[#d8e0ea] bg-white p-4 shadow-none transition-colors duration-200';
         rentalWindowEyebrow.textContent = 'Rental Window';
         rentalWindowEyebrow.className = 'text-sm font-semibold uppercase tracking-[0.18em] text-[#0086C9]';
         rentalWindowHeading.textContent = 'Pickup and Return';
@@ -485,6 +505,7 @@ function updateSaleTypeUI() {
     }
 
     syncProductOptionsToMode();
+    updateOrderItemsTierText();
     updateRentalWindowSummary();
     refreshAllRowPrices();
     refreshAvailabilityForWindow();
@@ -570,6 +591,8 @@ function updateRentalWindowSummary() {
     rentalWindowSummary.textContent = getSelectedMode() === 'sale'
         ? `Sale recorded on ${pickupLabel} with return noted for ${returnLabel}`
         : `${pickupLabel} to ${returnLabel}`;
+
+    updateOrderItemsTierText();
 }
 
 function validateRentalWindow() {
@@ -700,10 +723,8 @@ function updateRowPrice(row) {
     const productSelect = row.querySelector('.product-select');
     const selected = productSelect.options[productSelect.selectedIndex];
     const priceLabel = row.querySelector('.product-price');
-    const priceMeta = row.querySelector('.product-price-meta');
     if (!selected || !selected.value) {
         priceLabel.textContent = '--';
-        priceMeta.textContent = 'Choose dates to see rental pricing.';
         row.dataset.effectivePrice = '0';
         return;
     }
@@ -711,12 +732,6 @@ function updateRowPrice(row) {
     const price = getEffectiveRowPrice(row);
     row.dataset.effectivePrice = String(price);
     priceLabel.textContent = formatMoney(price);
-    if (saleTypeSelect.value === 'sale') {
-        priceMeta.textContent = 'One-time sale price per unit.';
-    } else {
-        const days = getRentalDays();
-        priceMeta.textContent = `Rental tier for ${days} day${days > 1 ? 's' : ''}.`;
-    }
 }
 
 function refreshAllRowPrices() {
@@ -742,7 +757,6 @@ function addProductRow() {
     
     newRow.querySelector('.quantity-input').value = 1;
     newRow.querySelector('.product-price').textContent = '--';
-    newRow.querySelector('.product-price-meta').textContent = 'Choose dates to see rental pricing.';
     newRow.querySelector('.product-stock').textContent = '0 left';
     newRow.querySelector('.product-stock').className = 'product-stock text-xs font-semibold px-3 py-2 rounded-lg bg-gray-100 text-gray-600 w-full text-center';
     newRow.querySelector('.product-image-section').classList.add('hidden');
@@ -772,7 +786,7 @@ function setVariationOptions(selectEl, variations) {
     selectEl.replaceChildren();
     const placeholder = document.createElement('option');
     placeholder.value = '';
-    placeholder.textContent = '-- Select variation --';
+    placeholder.textContent = 'Select variation';
     selectEl.appendChild(placeholder);
 
     (variations || []).forEach(function (variation) {
@@ -984,6 +998,7 @@ saleTypeSelect.addEventListener('change', function() {
     updateSaleTypeUI();
 });
 
+updateOrderItemsTierText();
 updateSaleTypeUI();
 refreshAvailabilityForWindow();
 

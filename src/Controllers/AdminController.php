@@ -201,14 +201,6 @@ class AdminController extends Controller
 
         $totalPages = max(1, ceil($totalOrders / $perPage));
 
-        // Get analytics data
-        $completedOrders = $orderModel->getCompletedOrdersCount();
-        $totalSales = $orderModel->getTotalSales();
-        $pendingOrders = $orderModel->getPendingOrdersCount();
-        $ordersByStatus = $orderModel->getOrdersByStatus();
-        $salesByDate = $orderModel->getSalesByDate(30);
-        $orderCountByDate = $orderModel->getOrderCountByDate(30);
-
         // Use renderAdmin to render the orders page with admin layout
         $this->renderAdmin('admin/orders', [
             'orders' => $orders,
@@ -226,7 +218,28 @@ class AdminController extends Controller
             'page' => $page,
             'perPage' => $perPage,
             'totalOrders' => $totalOrders,
-            'totalPages' => $totalPages,
+            'totalPages' => $totalPages
+        ]);
+    }
+
+    public function orderAnalytics() {
+        $this->requireAdmin();
+        if (!isset($_SESSION['admin_id'])) {
+            header('Location: /admin/login');
+            exit;
+        }
+
+        $orderModel = new OrderModel();
+        $totalOrders = $orderModel->getTotalOrdersCount();
+        $completedOrders = $orderModel->getCompletedOrdersCount();
+        $totalSales = $orderModel->getTotalSales();
+        $pendingOrders = $orderModel->getPendingOrdersCount();
+        $ordersByStatus = $orderModel->getOrdersByStatus();
+        $salesByDate = $orderModel->getSalesByDate(30);
+        $orderCountByDate = $orderModel->getOrderCountByDate(30);
+
+        $this->renderAdmin('admin/orders-analytics', [
+            'totalOrders' => $totalOrders,
             'completedOrders' => $completedOrders,
             'totalSales' => $totalSales,
             'pendingOrders' => $pendingOrders,

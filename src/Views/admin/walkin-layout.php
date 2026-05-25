@@ -9,25 +9,21 @@
     <link rel="shortcut icon" href="/favicon.png" />
     <style>
         body {
-            background:
-                radial-gradient(1200px 500px at 10% -10%, rgba(0, 134, 201, 0.18), transparent 60%),
-                radial-gradient(900px 420px at 100% 0%, rgba(6, 43, 65, 0.18), transparent 60%),
-                linear-gradient(180deg, #e8f3fb 0%, #f7fbff 55%, #eaf2f8 100%);
+            background: #F3F8FF;
         }
     </style>
 </head>
 <body class="min-h-screen text-slate-800">
-    <header class="sticky top-0 z-40 border-b border-[#d7e6f2] bg-white/90 backdrop-blur">
-        <div class="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 md:px-8">
-            <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#0086C9]">Get Around Mobility</p>
-                <h1 class="text-lg font-bold text-[#062B41] md:text-2xl">Walk-in Booking Kiosk</h1>
+    <header class="sticky top-0 z-40 border-b border-[#d7e6f2] bg-white shadow-xs">
+        <div class="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 md:px-8 font-[Barlow]">
+            <div class="flex">               
+                <h1 class="text-3xl font-bold leading-tight text-[#0086C9]">Walk-in Booking Kiosk</h1>        
             </div>
             <div class="flex items-center gap-3">
-                <span class="hidden rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 md:inline-block">
-                    Signed in: <?= htmlspecialchars($_SESSION['admin_username'] ?? 'Admin') ?>
+                <span class="hidden text-sm font-medium text-slate-500 md:inline-block">
+                    Welcome, <?= htmlspecialchars($_SESSION['admin_username'] ?? 'Admin') ?>
                 </span>
-                <a href="/walkin-booking/logout" class="rounded-xl bg-[#062B41] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0b3d5b]">Sign Out</a>
+                <a href="/walkin-booking/logout" class="rounded-lg border border-[#0086C9] px-4 py-2 text-sm font-semibold text-[#0086C9] hover:bg-[#e8f4fd]">Sign Out</a>
             </div>
         </div>
     </header>

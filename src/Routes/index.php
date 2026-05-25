@@ -107,6 +107,7 @@ $router->get('/walkin-booking/availability', AdminController::class, 'walkinBook
 |--------------------------------------------------------------------------
 */
 $router->get('/admin/orders', AdminController::class, 'orders');
+$router->get('/admin/orders/analytics', AdminController::class, 'orderAnalytics');
 $router->get('/admin/orders/new', AdminController::class, 'newOrder');
 $router->get('/admin/orders/availability', AdminController::class, 'newOrderAvailability');
 $router->get('/admin/orders/details', OrderController::class, 'ajaxOrderDetails');
