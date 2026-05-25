@@ -19,6 +19,10 @@ order-debug-log.txt
 stripe-debug.txt
 stripe-webhook-logs.txt
 debug_*.txt
+public/*-debug-log.txt
+
+# Temporary tooling artifacts
+.tmp-sri/
 
 # OS files
 .DS_Store

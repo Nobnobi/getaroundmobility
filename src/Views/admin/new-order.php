@@ -172,7 +172,7 @@ $panelClass = $kioskMode
                             <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                                 <div class="md:col-span-4">
                                     <label class="block text-sm font-semibold text-gray-700 mb-2">Product</label>
-                                    <select required class="w-full border border-gray-300 rounded-lg px-3 py-2 product-select focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm" onchange="updateProductRow(this)">
+                                    <select required class="w-full cursor-pointer border border-gray-300 rounded-lg px-3 py-2 product-select focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm" onchange="updateProductRow(this)">
                                         <option value="">-- Select a product --</option>
                                         <?php foreach ($products as $product): ?>
                                             <?php 
@@ -194,13 +194,13 @@ $panelClass = $kioskMode
                                     </select>
                                 </div>
                                 <div class="md:col-span-2">
-                                    <select class="w-full border border-gray-300 rounded-lg px-3 py-2 variation-select focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm" style="display:none;">
+                                    <select class="w-full cursor-pointer border border-gray-300 rounded-lg px-3 py-2 variation-select focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm" style="display:none;">
                                         <option value="">-- Select variation --</option>
                                     </select>
                                 </div>
                                 <div class="md:col-span-2">
                                     <label class="block text-sm font-semibold text-gray-700 mb-2">Qty</label>
-                                    <input type="number" min="1" value="1" class="w-full border border-gray-300 rounded-lg px-3 py-2 quantity-input focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm text-center" onchange="updateTotal()" max="1">
+                                    <input type="number" min="1" value="1" class="w-full cursor-pointer border border-gray-300 rounded-lg px-3 py-2 quantity-input focus:ring-2 focus:ring-[#062B41] focus:outline-none text-sm text-center" onchange="updateTotal()" max="1">
                                 </div>
                                 <div class="md:col-span-2">
                                     <label class="block text-sm font-semibold text-gray-700 mb-2">Price</label>
@@ -209,7 +209,7 @@ $panelClass = $kioskMode
                                 </div>
                                 <div class="md:col-span-2 flex gap-2">
                                     <span class="product-stock text-xs font-semibold px-3 py-2 rounded-lg bg-gray-100 text-gray-600 w-full text-center" title="Available stock">0 left</span>
-                                    <button type="button" onclick="removeProductRow(this)" class="text-white bg-red-500 hover:bg-red-600 rounded-lg px-3 py-2 font-bold transition-colors">×</button>
+                                    <button type="button" onclick="removeProductRow(this)" class="text-white cursor-pointer bg-red-500 hover:bg-red-600 rounded-lg px-3 py-2 font-bold transition-colors">×</button>
                                 </div>
                             </div>
                             <div class="product-image-section mt-4 hidden">
@@ -234,8 +234,9 @@ $panelClass = $kioskMode
                             <label for="promo-code" class="mb-1 block text-sm font-semibold text-gray-700">Promo Code</label>
                             <div class="flex gap-2">
                                 <input type="text" id="promo-code" maxlength="24" placeholder="e.g. WELCOME10" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#062B41]">
-                                <button type="button" id="apply-promo-btn" class="rounded-lg bg-[#062B41] px-4 py-2 text-sm font-semibold text-white hover:bg-[#08456b] transition-colors">Apply</button>
+                                <button type="button" id="apply-promo-btn" class="rounded-lg bg-[#062B41] px-4 py-2 text-sm font-semibold text-white hover:bg-[#08456b] transition-colors cursor-pointer">Apply</button>
                             </div>
+                            <p id="promo-feedback" class="mt-2 text-xs text-gray-500" aria-live="polite"></p>
                             
                         </div>
                     </div>
@@ -279,7 +280,7 @@ window.WALKIN_PROMO_RULES = {};
 window.WALKIN_PROMO_RULES[<?= json_encode($p['code']) ?>] = {type: <?= json_encode($p['type']) ?>, value: <?= (float)$p['value'] ?>};
 <?php endforeach; ?>
 </script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
 <script>
 const bookingForm = document.getElementById('walkin-booking-form');
 const bookingLoadingOverlay = document.getElementById('booking-loading-overlay');
@@ -557,9 +558,18 @@ function updateRentalWindowSummary() {
         return;
     }
 
+    const fmt = (value) => {
+        if (typeof window.formatAdminDateTime === 'function') {
+            return window.formatAdminDateTime(value);
+        }
+        return String(value || '');
+    };
+    const pickupLabel = fmt(pickupInput.value);
+    const returnLabel = fmt(returnInput.value);
+
     rentalWindowSummary.textContent = getSelectedMode() === 'sale'
-        ? `Sale recorded on ${pickupDate.toLocaleString()} with return noted for ${returnDate.toLocaleString()}`
-        : `${pickupDate.toLocaleString()} to ${returnDate.toLocaleString()}`;
+        ? `Sale recorded on ${pickupLabel} with return noted for ${returnLabel}`
+        : `${pickupLabel} to ${returnLabel}`;
 }
 
 function validateRentalWindow() {
@@ -629,9 +639,25 @@ function setPromoFeedback(message, type = 'neutral') {
     }
 }
 
-function applyPromoCode() {
+function setApplyPromoLoadingState(isLoading) {
+    if (!applyPromoBtn) return;
+    applyPromoBtn.disabled = isLoading;
+    applyPromoBtn.classList.toggle('opacity-60', isLoading);
+    applyPromoBtn.classList.toggle('cursor-not-allowed', isLoading);
+    applyPromoBtn.textContent = isLoading ? 'Applying...' : 'Apply';
+    if (promoCodeInput) {
+        promoCodeInput.disabled = isLoading;
+    }
+}
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function applyPromoCode() {
     if (!promoCodeInput) return;
     const code = String(promoCodeInput.value || '').trim().toUpperCase();
+
     if (code === '') {
         activePromoCode = '';
         if (promoCodeHiddenInput) promoCodeHiddenInput.value = '';
@@ -640,20 +666,34 @@ function applyPromoCode() {
         return;
     }
 
-    if (!Object.prototype.hasOwnProperty.call(WALKIN_PROMO_RULES, code)) {
-        activePromoCode = '';
-        if (promoCodeHiddenInput) promoCodeHiddenInput.value = '';
-        setPromoFeedback('Invalid promo code.', 'error');
-        updateTotal();
-        return;
-    }
+    setApplyPromoLoadingState(true);
+    setPromoFeedback('Checking promo code...');
+    await wait(450);
 
-    activePromoCode = code;
-    if (promoCodeHiddenInput) promoCodeHiddenInput.value = code;
-    const rule = WALKIN_PROMO_RULES[code];
-    const details = rule.type === 'percent' ? `${rule.value}% off` : `$${Number(rule.value).toFixed(2)} off`;
-    setPromoFeedback(`Promo ${code} applied (${details}).`, 'success');
-    updateTotal();
+    try {
+        if (!Object.prototype.hasOwnProperty.call(WALKIN_PROMO_RULES, code)) {
+            activePromoCode = '';
+            if (promoCodeHiddenInput) promoCodeHiddenInput.value = '';
+            setPromoFeedback('Invalid promo code.', 'error');
+            updateTotal();
+            return;
+        }
+
+        const confirmed = window.confirm(`Apply promo code ${code}?`);
+        if (!confirmed) {
+            setPromoFeedback('Promo application cancelled.');
+            return;
+        }
+
+        activePromoCode = code;
+        if (promoCodeHiddenInput) promoCodeHiddenInput.value = code;
+        const rule = WALKIN_PROMO_RULES[code];
+        const details = rule.type === 'percent' ? `${rule.value}% off` : `$${Number(rule.value).toFixed(2)} off`;
+        setPromoFeedback(`Promo ${code} confirmed (${details}).`, 'success');
+        updateTotal();
+    } finally {
+        setApplyPromoLoadingState(false);
+    }
 }
 
 function updateRowPrice(row) {
@@ -726,6 +766,23 @@ function removeProductRow(btn) {
     }
 }
 
+function setVariationOptions(selectEl, variations) {
+    if (!selectEl) return;
+
+    selectEl.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '-- Select variation --';
+    selectEl.appendChild(placeholder);
+
+    (variations || []).forEach(function (variation) {
+        const option = document.createElement('option');
+        option.value = String(variation?.variation_id ?? '');
+        option.textContent = String(variation?.variation_name ?? '');
+        selectEl.appendChild(option);
+    });
+}
+
 function updateProductRow(select) {
     const selected = select.options[select.selectedIndex];
     const imgUrl = selected.getAttribute('data-img');
@@ -778,8 +835,7 @@ function updateProductRow(select) {
         variations = JSON.parse(selected.getAttribute('data-variations'));
     } catch (e) { variations = []; }
     if (variations && variations.length > 0) {
-        variationSelect.innerHTML = '<option value="">-- Select variation --</option>' +
-            variations.map(v => `<option value="${v.variation_id}">${v.variation_name}</option>`).join('');
+        setVariationOptions(variationSelect, variations);
         variationSelect.style.display = '';
         variationSelect.onchange = function() {
             updateRowPrice(row);

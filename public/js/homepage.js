@@ -22,6 +22,11 @@
         return pad(date.getHours()) + ':' + pad(date.getMinutes());
     }
 
+    function normalizeClassicMeridiem(instance) {
+        if (!instance || !instance.altInput) return;
+        instance.altInput.value = instance.altInput.value.replace(/\bAM\b/g, 'am').replace(/\bPM\b/g, 'pm');
+    }
+
     function isToday(date) {
         var today = new Date();
         return date.getFullYear() === today.getFullYear()
@@ -207,10 +212,18 @@
         var pickupPicker = window.flatpickr(pickupInput, {
             enableTime: true,
             dateFormat: 'Y-m-d H:i',
+            altInput: true,
+            altFormat: 'F j, Y h:i K',
             minDate: getNearest15Min(),
             defaultDate: getNearest15Min(),
-            time_24hr: true,
+            time_24hr: false,
             minuteIncrement: 15,
+            onReady: function (selectedDates, dateStr, instance) {
+                normalizeClassicMeridiem(instance);
+            },
+            onValueUpdate: function (selectedDates, dateStr, instance) {
+                normalizeClassicMeridiem(instance);
+            },
             onOpen: function (selectedDates, dateStr, instance) {
                 var selected = selectedDates[0] || (instance.input.value ? new Date(instance.input.value) : new Date());
                 instance.set('minTime', isToday(selected) ? formatTime(getNearest15Min()) : null);
@@ -232,9 +245,17 @@
         returnPicker = window.flatpickr(returnInput, {
             enableTime: true,
             dateFormat: 'Y-m-d H:i',
+            altInput: true,
+            altFormat: 'F j, Y h:i K',
             minDate: getNearest15Min(),
-            time_24hr: true,
+            time_24hr: false,
             minuteIncrement: 15,
+            onReady: function (selectedDates, dateStr, instance) {
+                normalizeClassicMeridiem(instance);
+            },
+            onValueUpdate: function (selectedDates, dateStr, instance) {
+                normalizeClassicMeridiem(instance);
+            },
             onOpen: function (selectedDates, dateStr, instance) {
                 var selected = selectedDates[0] || (instance.input.value ? new Date(instance.input.value) : new Date());
                 instance.set('minTime', isToday(selected) ? formatTime(getNearest15Min()) : null);
@@ -420,8 +441,8 @@
         var instantTime = document.getElementById('instantMobilityTime');
         if (instantDate && instantTime) {
             var nearest = getNearest15Min();
-            instantDate.textContent = nearest.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-            instantTime.textContent = nearest.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+            instantDate.textContent = nearest.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+            instantTime.textContent = nearest.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }).replace(' AM', 'am').replace(' PM', 'pm');
         }
 
         initFlatpickr();

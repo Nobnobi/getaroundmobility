@@ -8,7 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="/css/output.css" rel="stylesheet">
     <!-- Flatpickr CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
     <title>Product Description</title>
 </head>
 <body>

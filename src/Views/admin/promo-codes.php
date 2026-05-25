@@ -83,13 +83,13 @@ $promoCodes = $promoCodes ?? [];
                             <div class="inline-flex gap-2">
                                 <button
                                     onclick='openModal(<?= htmlspecialchars(json_encode($promo), ENT_QUOTES) ?>)'
-                                    class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors">
+                                    class="rounded-lg cursor-pointer border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors">
                                     Edit
                                 </button>
                                 <form method="post" action="/admin/promo-codes/delete" onsubmit="return confirm('Delete promo code <?= htmlspecialchars($promo['code'], ENT_QUOTES) ?>?')">
                                     <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                     <input type="hidden" name="id" value="<?= (int)$promo['id'] ?>">
-                                    <button type="submit" class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors">
+                                    <button type="submit" class="rounded-lg cursor-pointer border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors">
                                         Delete
                                     </button>
                                 </form>
@@ -110,7 +110,7 @@ $promoCodes = $promoCodes ?? [];
         <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <h2 id="modal-title" class="text-lg font-bold text-[#062B41]">New Promo Code</h2>
             <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
-                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                <svg class="h-6 w-6 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
         </div>
         <form method="post" action="/admin/promo-codes/save" class="p-6 space-y-5">
@@ -157,18 +157,59 @@ $promoCodes = $promoCodes ?? [];
             </div>
 
             <div class="flex justify-end gap-3 border-t border-gray-100 pt-4">
-                <button type="button" onclick="closeModal()" class="rounded-xl border border-gray-300 px-5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Cancel</button>
-                <button type="submit" class="rounded-xl bg-[#0086C9] px-5 py-2 text-sm font-semibold text-white hover:bg-[#08456b] transition-colors">Save Code</button>
+                <button type="button" onclick="closeModal()" class="rounded-xl cursor-pointer border border-gray-300 px-5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Cancel</button>
+                <button type="submit" class="rounded-xl cursor-pointer bg-[#0086C9] px-5 py-2 text-sm font-semibold text-white hover:bg-[#08456b] transition-colors">Save Code</button>
             </div>
         </form>
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
 <script>
+let promoExpiresPicker = null;
+
+function normalizeExpiryDate(value) {
+    if (!value) return '';
+    const normalized = String(value).trim();
+    const match = normalized.match(/^\d{4}-\d{2}-\d{2}/);
+    return match ? match[0] : '';
+}
+
+function initPromoExpiresPicker() {
+    const expiresInput = document.getElementById('modal-expires-at');
+    if (!expiresInput || typeof flatpickr !== 'function') return;
+
+    if (promoExpiresPicker) return;
+
+    promoExpiresPicker = flatpickr(expiresInput, {
+        dateFormat: 'Y-m-d',
+        altInput: true,
+        altFormat: 'F j, Y',
+        allowInput: true,
+        clickOpens: true
+    });
+}
+
 function openModal(promo) {
     const modal = document.getElementById('promo-modal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+
+    initPromoExpiresPicker();
+
+    const expiresInput = document.getElementById('modal-expires-at');
+    const setExpiry = function(value) {
+        const normalized = normalizeExpiryDate(value);
+        if (promoExpiresPicker) {
+            if (normalized) {
+                promoExpiresPicker.setDate(normalized, true, 'Y-m-d');
+            } else {
+                promoExpiresPicker.clear();
+            }
+        } else if (expiresInput) {
+            expiresInput.value = normalized;
+        }
+    };
 
     if (promo) {
         document.getElementById('modal-title').textContent = 'Edit Promo Code';
@@ -177,7 +218,7 @@ function openModal(promo) {
         document.getElementById('modal-type').value   = promo.type;
         document.getElementById('modal-value').value  = promo.value;
         document.getElementById('modal-max-uses').value = promo.max_uses;
-        document.getElementById('modal-expires-at').value = promo.expires_at ?? '';
+        setExpiry(promo.expires_at ?? '');
         document.getElementById('modal-active').checked = parseInt(promo.active, 10) === 1;
     } else {
         document.getElementById('modal-title').textContent = 'New Promo Code';
@@ -186,7 +227,7 @@ function openModal(promo) {
         document.getElementById('modal-type').value   = 'percent';
         document.getElementById('modal-value').value  = '';
         document.getElementById('modal-max-uses').value = 1;
-        document.getElementById('modal-expires-at').value = '';
+        setExpiry('');
         document.getElementById('modal-active').checked = true;
     }
 }
@@ -199,5 +240,9 @@ function closeModal() {
 
 document.getElementById('promo-modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    initPromoExpiresPicker();
 });
 </script>

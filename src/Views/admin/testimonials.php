@@ -42,7 +42,9 @@ $isStaff = ($role === 'staff');
                             <?php endfor; ?>
                         </td>
                         <td class="py-2 px-4 border-b text-sm text-gray-500">
-                            <?= isset($t['created_at']) ? htmlspecialchars($t['created_at']) : '' ?>
+                            <?php if (isset($t['created_at']) && $t['created_at'] !== ''): ?>
+                                <span data-admin-datetime="<?= htmlspecialchars($t['created_at']) ?>"><?= htmlspecialchars($t['created_at']) ?></span>
+                            <?php endif; ?>
                         </td>
                         <td class="py-2 px-4 border-b">
                             <?php if (!$isStaff): ?>

@@ -475,10 +475,7 @@
 }
 </style>
 
-<!-- FOOTER -->
 
-<!-- Cart Toast (keep this for notifications) -->
-<!-- <div id="cartToast" class="fixed bottom-6 right-6 z-50 bg-green-600 text-white px-4 py-2 rounded shadow-lg hidden transition-opacity duration-300"></div> -->
 
 <!-- Messenger Plugin -->
 <div id="fb-root"></div>
@@ -502,7 +499,7 @@ window.fbAsyncInit = function() {
 }(document, 'script', 'facebook-jssdk'));
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
 
 
 <script src="/js/homepage.js?v=1" defer></script>

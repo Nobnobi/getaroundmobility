@@ -139,13 +139,12 @@
 
     
 
-    <!-- Cart Toast (keep this for notifications) -->
-    <!-- <div id="cartToast" class="fixed bottom-6 right-6 z-50 bg-green-600 text-white px-4 py-2 rounded shadow-lg hidden transition-opacity duration-300"></div> -->
+
     <div id="formOverlay" class="fixed inset-0 z-40 hidden transition-opacity duration-500" style="background: rgba(0,0,0,0.7);"></div>
 
 
     <!-- Flatpickr JS -->
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
     <script>
             // Ensure isProductListModal is reset when modal closes
             document.addEventListener('DOMContentLoaded', function() {
@@ -163,22 +162,50 @@
                     observer.observe(modal, { attributes: true });
                 }
             });
-        // Pickup DateTime Picker
-        flatpickr("#pickupDatetime", {
-            enableTime: true,
-            dateFormat: "Y-m-d H:i",
-            minDate: "today",
-            time_24hr: true,
-            minuteIncrement: 15
-        });
-        // Return DateTime Picker
-        flatpickr("#returnDatetime", {
-            enableTime: true,
-            dateFormat: "Y-m-d H:i",
-            minDate: "today",
-            time_24hr: true,
-            minuteIncrement: 15
-        });
+        const pickupInput = document.getElementById('pickupDatetime');
+        const returnInput = document.getElementById('returnDatetime');
+
+        function normalizeClassicMeridiem(instance) {
+            if (!instance || !instance.altInput) return;
+            instance.altInput.value = instance.altInput.value.replace(/\bAM\b/g, 'am').replace(/\bPM\b/g, 'pm');
+        }
+
+        // Only initialize as a fallback when date-form script hasn't already initialized these fields.
+        if (pickupInput && !pickupInput._flatpickr) {
+            flatpickr("#pickupDatetime", {
+                enableTime: true,
+                dateFormat: "Y-m-d H:i",
+                altInput: true,
+                altFormat: "F j, Y h:i K",
+                minDate: "today",
+                time_24hr: false,
+                minuteIncrement: 15,
+                onReady: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
+                onValueUpdate: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                }
+            });
+        }
+
+        if (returnInput && !returnInput._flatpickr) {
+            flatpickr("#returnDatetime", {
+                enableTime: true,
+                dateFormat: "Y-m-d H:i",
+                altInput: true,
+                altFormat: "F j, Y h:i K",
+                minDate: "today",
+                time_24hr: false,
+                minuteIncrement: 15,
+                onReady: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
+                onValueUpdate: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                }
+            });
+        }
     </script>
     
     

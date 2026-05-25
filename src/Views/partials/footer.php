@@ -1,4 +1,4 @@
-<!-- filepath: c:\xampp\htdocs\GetAroundMobility\src\Views\partials\footer.php -->
+
 <!-- FOOTER -->
 <footer class="bg-[#062C41] text-white px-6 pt-10 pb-6 mt-8 font-[Barlow]">
   <div class="max-w-7xl mx-auto">

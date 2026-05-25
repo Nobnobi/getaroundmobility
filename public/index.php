@@ -5,6 +5,39 @@ header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
 
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$isAdminSurface = str_starts_with($requestPath, '/admin') || str_starts_with($requestPath, '/walkin-booking');
+if ($isAdminSurface) {
+    $cspReportOnly = [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'self'",
+        "form-action 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
+        "font-src 'self' data: https://fonts.gstatic.com",
+        "img-src 'self' data: blob:",
+        "connect-src 'self'",
+    ];
+    header('Content-Security-Policy-Report-Only: ' . implode('; ', $cspReportOnly));
+} else {
+    $publicCspReportOnly = [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'self'",
+        "form-action 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com https://www.paypal.com https://www.paypalobjects.com https://connect.facebook.net",
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
+        "font-src 'self' data: https://fonts.gstatic.com",
+        "img-src 'self' data: blob: https:",
+        "connect-src 'self' https://api.stripe.com https://www.paypal.com https://*.paypal.com https://connect.facebook.net",
+        "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://www.paypal.com https://www.sandbox.paypal.com https://www.facebook.com",
+    ];
+    header('Content-Security-Policy-Report-Only: ' . implode('; ', $publicCspReportOnly));
+}
+
 // =============================
 // ERROR HANDLING (PRODUCTION SAFE)
 // =============================

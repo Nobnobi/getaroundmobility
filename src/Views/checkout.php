@@ -574,6 +574,30 @@ if (file_exists(__DIR__ . '/../../.env')) {
         return [];
     }
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function sanitizeImageUrl(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '/img/placeholder.png';
+        if (raw.startsWith('/')) return raw;
+        try {
+            const parsed = new URL(raw, window.location.origin);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed.href;
+            }
+        } catch (e) {
+            return '/img/placeholder.png';
+        }
+        return '/img/placeholder.png';
+    }
+
     function renderCheckoutSummary() {
         const cart = loadCart();
         const summaryContainer = document.getElementById('checkoutSummary');
@@ -589,14 +613,15 @@ if (file_exists(__DIR__ . '/../../.env')) {
             const price = Number(item.price || item.unit_price || 0);
             const lineTotal = price * qty;
             subtotal += lineTotal;
-            const image = (item.image_url && item.image_url.trim() !== '') ? item.image_url : '/img/placeholder.png';
+            const image = sanitizeImageUrl(item.image_url);
+            const name = escapeHtml(item.name || '');
             itemsHtml += `
             <li class="flex items-center py-4 gap-4">
-                <img src="${image}"
-                    alt="${(item.name || '')}"
+                <img src="${escapeHtml(image)}"
+                    alt="${name}"
                     class="w-16 h-16 object-cover rounded border border-gray-200 bg-gray-100 flex-shrink-0">
                 <div class="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
-                    <div class="font-semibold text-base">${(item.name || '')}</div>
+                    <div class="font-semibold text-base">${name}</div>
                     <div class="sm:ml-auto flex flex-col items-end">
                         <span class="text-[#0086C9] font-bold text-base">$${price.toFixed(2)}</span>
                         <span class="text-xs text-gray-500">Qty: ${qty}</span>
@@ -629,13 +654,15 @@ if (file_exists(__DIR__ . '/../../.env')) {
         if (!value) return 'Not selected';
         const parsed = new Date(value.replace(' ', 'T'));
         if (Number.isNaN(parsed.getTime())) return value;
-        return parsed.toLocaleString(undefined, {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        const month = parsed.toLocaleString(undefined, { month: 'long' });
+        const day = parsed.getDate();
+        const year = parsed.getFullYear();
+        let hours = parsed.getHours();
+        const minutes = String(parsed.getMinutes()).padStart(2, '0');
+        const meridiem = hours >= 12 ? 'pm' : 'am';
+        hours = hours % 12;
+        if (hours === 0) hours = 12;
+        return `${month} ${day}, ${year} ${hours}:${minutes}${meridiem}`;
     }
 
     function renderSelectedDatesSummary() {
@@ -956,9 +983,9 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
                 document.getElementById('confPhone').textContent = o.guest_phone || '—';
                 document.getElementById('confEmail').textContent = o.guest_email || '—';
                 document.getElementById('confPickup').textContent = o.pickup_datetime 
-                    ? new Date(o.pickup_datetime).toLocaleString() : '—';
+                    ? formatCheckoutDateTime(o.pickup_datetime) : '—';
                 document.getElementById('confReturn').textContent = o.return_datetime 
-                    ? new Date(o.return_datetime).toLocaleString() : '—';
+                    ? formatCheckoutDateTime(o.return_datetime) : '—';
                 const deliveryInfo = resolveConfirmationDelivery(o);
                 document.getElementById('confHotelRow').style.display = 'none';
                 document.getElementById('confPickupLocationRow').style.display = 'none';
@@ -1060,14 +1087,16 @@ document.addEventListener('DOMContentLoaded', function() {
     renderSelectedDatesSummary();
 });
 </script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
 <script>
     
 
 // Example function to show a result to the user. Your site's UI library can be used instead.
 function resultMessage(message) {
     const container = document.querySelector("#result-message");
-    container.innerHTML = message;
+    if (container) {
+        container.textContent = String(message || '');
+    }
 }
 
 
@@ -1348,9 +1377,9 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('confPhone').textContent = o.guest_phone || '—';
             document.getElementById('confEmail').textContent = o.guest_email || '—';
             document.getElementById('confPickup').textContent = o.pickup_datetime 
-                ? new Date(o.pickup_datetime).toLocaleString() : '—';
+                ? formatCheckoutDateTime(o.pickup_datetime) : '—';
             document.getElementById('confReturn').textContent = o.return_datetime 
-                ? new Date(o.return_datetime).toLocaleString() : '—';
+                ? formatCheckoutDateTime(o.return_datetime) : '—';
 
             const deliveryInfo = resolveConfirmationDelivery(o);
             document.getElementById('confHotelRow').style.display = 'none';

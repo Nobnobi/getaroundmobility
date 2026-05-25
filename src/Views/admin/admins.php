@@ -72,7 +72,7 @@ $roleLabels = [
                                     <?= htmlspecialchars($roleLabels[$role] ?? $admin['role']) ?>
                                 </span>
                             </td>
-                            <td class="py-2 px-4 border-b border-gray-200 align-middle text-sm"><?= htmlspecialchars($admin['created_at']) ?></td>
+                            <td class="py-2 px-4 border-b border-gray-200 align-middle text-sm"><span data-admin-datetime="<?= htmlspecialchars($admin['created_at']) ?>"><?= htmlspecialchars($admin['created_at']) ?></span></td>
                             <?php if ($isSuperAdmin): ?>
                             <td class="py-2 px-4 border-b border-gray-200 align-middle">
                                 <a href="/admin/admins/edit?id=<?= urlencode($admin['id']) ?>" class="text-blue-600 hover:underline mr-4 font-semibold">Edit</a>

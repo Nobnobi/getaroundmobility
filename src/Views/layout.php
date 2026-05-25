@@ -10,7 +10,7 @@
     <link href="/css/output.css?v=<?= $cssVersion ?>" rel="stylesheet">
     <title><?= htmlspecialchars($pageTitle ?? 'Get Around Mobility') ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
     <link href="/img/Original logo.svg" rel="icon" type="image/x-icon">
     <script src="/js/rental-quote.js?v=1"></script>
 </head>

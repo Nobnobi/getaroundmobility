@@ -482,11 +482,17 @@ class AdminController extends Controller
             exit;
         }
 
-        if ($appliedPromoId !== null) {
+        $order_id = $result['order_id'] ?? null;
+        if (!$order_id) {
+            $_SESSION['form_errors'] = ['Booking was not completed. Please try again.'];
+            header('Location: ' . $newOrderRoute);
+            exit;
+        }
+
+        if ($appliedPromoId !== null && $order_id) {
             $promoCodeModel->incrementUse($appliedPromoId);
         }
 
-        $order_id = $result['order_id'] ?? null;
         $name = trim(($orderData['guest_first_name'] ?? '') . ' ' . ($orderData['guest_last_name'] ?? ''));
         if ($name === '') {
             $name = $orderData['guest_name'] ?? '';

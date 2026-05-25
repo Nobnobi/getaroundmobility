@@ -79,6 +79,30 @@ $isGuest = empty($_SESSION['user_id']);
         return parsed;
     }
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function sanitizeImageUrl(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '/img/placeholder.png';
+        if (raw.startsWith('/')) return raw;
+        try {
+            const parsed = new URL(raw, window.location.origin);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed.href;
+            }
+        } catch (e) {
+            return '/img/placeholder.png';
+        }
+        return '/img/placeholder.png';
+    }
+
     function renderCartPage() {
         const cart = loadCart();
         const itemsContainer = document.getElementById('cartPageItems');
@@ -103,24 +127,27 @@ $isGuest = empty($_SESSION['user_id']);
             const canDecrement = item.qty > 1;
             const canIncrement = item.qty < maxStock;
             // Extract variation from name if present (format: Product - Variation)
-            let name = item.name;
+            let name = String(item.name || '');
             let variation = '';
             if (name.includes(' - ')) {
                 const parts = name.split(' - ');
                 name = parts[0];
                 variation = parts.slice(1).join(' - ');
             }
+            const safeName = escapeHtml(name);
+            const safeVariation = escapeHtml(variation);
+            const safeImage = escapeHtml(sanitizeImageUrl(item.image_url));
             itemsHtml += `
             <div class="flex flex-col sm:flex-row items-center justify-between bg-white shadow rounded-lg p-4 gap-4">
                 <div class="flex items-center space-x-4 w-full sm:w-auto">
-                    <img src="${item.image_url && item.image_url.trim() !== '' ? item.image_url : '/img/placeholder.png'}"
-                        alt="${name}"
+                    <img src="${safeImage}"
+                        alt="${safeName}"
                         class="w-24 h-24 object-cover rounded border border-gray-200 bg-gray-100">
                     <div class="w-56 overflow-hidden whitespace-nowrap text-ellipsis">
-                        <h2 class="font-semibold text-lg" title="${name}">
-                            ${name.length > 25 ? name.substring(0, 25) + '…' : name}
+                        <h2 class="font-semibold text-lg" title="${safeName}">
+                            ${name.length > 25 ? escapeHtml(name.substring(0, 25) + '…') : safeName}
                         </h2>
-                        ${variation ? `<span class='block text-xs text-blue-600 font-semibold mt-1 px-2 py-0.5 bg-blue-50 border border-blue-300 rounded-full w-fit mb-1'>${variation}</span>` : ''}
+                        ${variation ? `<span class='block text-xs text-blue-600 font-semibold mt-1 px-2 py-0.5 bg-blue-50 border border-blue-300 rounded-full w-fit mb-1'>${safeVariation}</span>` : ''}
                     </div>
                 </div>
                 <div class="flex flex-row items-center gap-2">
@@ -288,6 +315,6 @@ $isGuest = empty($_SESSION['user_id']);
 
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
 
     

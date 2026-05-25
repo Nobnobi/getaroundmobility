@@ -43,7 +43,7 @@ if (!isset($totalPages)) $totalPages = 1;
                             <td class="py-2 px-4 border-b border-gray-200 align-middle"><?= htmlspecialchars($customer['email']) ?></td>
                             <td class="py-2 px-4 border-b border-gray-200 align-middle"><?= htmlspecialchars($customer['phone']) ?></td>
                             <td class="py-2 px-4 border-b border-gray-200 align-middle"><?= htmlspecialchars($customer['address']) ?></td>
-                            <td class="py-2 px-4 border-b border-gray-200 align-middle text-sm"><?= htmlspecialchars($customer['created_at']) ?></td>
+                            <td class="py-2 px-4 border-b border-gray-200 align-middle text-sm"><span data-admin-datetime="<?= htmlspecialchars($customer['created_at']) ?>"><?= htmlspecialchars($customer['created_at']) ?></span></td>
                             <td class="py-2 px-4 border-b border-gray-200 align-middle">
                                 <?php if (empty($customer['password_hash'])): ?>
                                     <span class="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-xs font-semibold">Guest</span>

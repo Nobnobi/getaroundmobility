@@ -338,9 +338,9 @@ $formatDateTime = function ($value) {
                                         <span class="text-gray-400">N/A</span>
                                     <?php endif; ?>
                                 </td>
-                                <td class="px-4 py-2"><?= htmlspecialchars($formatDateTime($order['order_date'] ?? '')) ?></td>
-                                <td class="px-4 py-2"><?= htmlspecialchars($formatDateTime($order['pickup_datetime'] ?? '')) ?></td>
-                                <td class="px-4 py-2"><?= htmlspecialchars($formatDateTime($order['return_datetime'] ?? '')) ?></td>
+                                <td class="px-4 py-2"><span data-admin-datetime="<?= htmlspecialchars($order['order_date'] ?? '') ?>"><?= htmlspecialchars($order['order_date'] ?? '') ?></span></td>
+                                <td class="px-4 py-2"><span data-admin-datetime="<?= htmlspecialchars($order['pickup_datetime'] ?? '') ?>"><?= htmlspecialchars($order['pickup_datetime'] ?? '') ?></span></td>
+                                <td class="px-4 py-2"><span data-admin-datetime="<?= htmlspecialchars($order['return_datetime'] ?? '') ?>"><?= htmlspecialchars($order['return_datetime'] ?? '') ?></span></td>
 
                                 <!-- ACTIONS -->
                                 <td class="px-4 py-2 space-x-2">
@@ -455,22 +455,24 @@ $formatDateTime = function ($value) {
 
     function toOrdinaryTime(value) {
         if (!value) return '';
+        if (typeof window.formatAdminDateTime === 'function') {
+            return window.formatAdminDateTime(value);
+        }
         const date = new Date(String(value).replace(' ', 'T'));
-        if (Number.isNaN(date.getTime())) return value;
-        const opts = {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-        };
-        return date.toLocaleString(undefined, opts);
+        return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
     }
 
     function openOrderModal(orderId) {
         document.getElementById('orderModal').classList.remove('hidden');
         const content = document.getElementById('orderModalContent');
+        const esc = (value) => {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        };
         content.innerHTML = '<div class="text-center text-gray-500">Loading...</div>';
         fetch(`/admin/orders/details?order_id=${orderId}`)
             .then(res => {
@@ -481,20 +483,20 @@ $formatDateTime = function ($value) {
             })
             .then(data => {
                 if (data.error) {
-                    content.innerHTML = `<div class="text-red-500">${data.error}</div>`;
+                    content.innerHTML = `<div class="text-red-500">${esc(data.error)}</div>`;
                     return;
                 }
 
                 let html = `
                     <div class="mb-4">
-                        <span class="font-semibold">Order ID:</span> ${data.order.order_id}<br>
+                        <span class="font-semibold">Order ID:</span> ${esc(data.order.order_id)}<br>
                                                 <span class="font-semibold">Customer:</span> ${
                                                     (data.order.guest_first_name && data.order.guest_last_name)
-                                                        ? (data.order.guest_first_name + ' ' + data.order.guest_last_name)
-                                                        : (data.order.customer_name || '')
+                                                        ? esc(data.order.guest_first_name + ' ' + data.order.guest_last_name)
+                                                        : esc(data.order.customer_name || '')
                                                 }<br>
-                        <span class="font-semibold">Email:</span> ${data.order.guest_email || data.order.customer_email}<br>
-                        <span class="font-semibold">Status:</span> ${data.order.status}<br>
+                        <span class="font-semibold">Email:</span> ${esc(data.order.guest_email || data.order.customer_email)}<br>
+                        <span class="font-semibold">Status:</span> ${esc(data.order.status)}<br>
                         <span class="font-semibold">Date:</span> ${toOrdinaryTime(data.order.order_date)}<br>
                         <span class="font-semibold">Pickup:</span> ${toOrdinaryTime(data.order.pickup_datetime)}<br>
                         <span class="font-semibold">Return:</span> ${toOrdinaryTime(data.order.return_datetime)}<br>
@@ -533,8 +535,8 @@ $formatDateTime = function ($value) {
                 Object.values(grouped).forEach(function(item) {
                     const total = (parseFloat(item.price) * item.quantity).toFixed(2);
                     html += `<tr>
-                        <td class="border px-2 py-1">${item.name}</td>
-                        <td class="border px-2 py-1">${item.variation ? `<span class='border border-gray-300 rounded px-2 py-0.5 text-xs bg-gray-50'>${item.variation}</span>` : ''}</td>
+                        <td class="border px-2 py-1">${esc(item.name)}</td>
+                        <td class="border px-2 py-1">${item.variation ? `<span class='border border-gray-300 rounded px-2 py-0.5 text-xs bg-gray-50'>${esc(item.variation)}</span>` : ''}</td>
                         <td class="border px-2 py-1">$${item.price}</td>
                         <td class="border px-2 py-1">${item.quantity}</td>
                         <td class="border px-2 py-1 font-semibold">$${total}</td>
@@ -545,7 +547,7 @@ $formatDateTime = function ($value) {
                 if (data.contract_pdf) {
                     html += `
                         <div class="mb-2">
-                            <a href="${data.contract_pdf}" target="_blank" class="bg-gray-500 text-white px-2 py-1 rounded text-xs hover:bg-gray-700">Open Contract PDF</a>
+                            <a href="${esc(data.contract_pdf)}" target="_blank" class="bg-gray-500 text-white px-2 py-1 rounded text-xs hover:bg-gray-700">Open Contract PDF</a>
                         </div>
                     `;
                 } else {
@@ -555,7 +557,7 @@ $formatDateTime = function ($value) {
                 if (data.invoice_pdf) {
                     html += `
                         <div class="mb-4">
-                            <a href="${data.invoice_pdf}" target="_blank" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-800">Open Invoice PDF</a>
+                            <a href="${esc(data.invoice_pdf)}" target="_blank" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-800">Open Invoice PDF</a>
                         </div>
                     `;
                 } else {
@@ -691,8 +693,8 @@ $formatDateTime = function ($value) {
     </script>
 </body>
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" integrity="sha384-RkASv+6KfBMW9eknReJIJ6b3UnjKOKC5bOUaNgIY778NFbQ8MtWq9Lr/khUgqtTt" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
 
     <style>
     .flatpickr-calendar {
@@ -713,7 +715,7 @@ $formatDateTime = function ($value) {
     }
     </style>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
 <script>
     // Chart.js charts initialization
     document.addEventListener('DOMContentLoaded', function() {

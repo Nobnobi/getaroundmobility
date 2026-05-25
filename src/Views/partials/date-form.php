@@ -309,15 +309,26 @@
             return { valid: true, days: diffDays };
         }
 
+        function normalizeClassicMeridiem(instance) {
+            if (!instance || !instance.altInput) return;
+            instance.altInput.value = instance.altInput.value.replace(/\bAM\b/g, 'am').replace(/\bPM\b/g, 'pm');
+        }
+
         const pickupPicker = flatpickr(pickupInput, {
             enableTime: true,
             dateFormat: "Y-m-d H:i",
             altInput: true,
             altFormat: "F j, Y h:i K",
             minDate: getNearest15Min(),
-            time_24hr: true,
+            time_24hr: false,
             minuteIncrement: 15,
             disableMobile: true,
+            onReady: function(selectedDates, dateStr, instance) {
+                normalizeClassicMeridiem(instance);
+            },
+            onValueUpdate: function(selectedDates, dateStr, instance) {
+                normalizeClassicMeridiem(instance);
+            },
             onChange: function(selectedDates) {
                 if (selectedDates[0]) {
                     syncReturnLimit(selectedDates[0]);
@@ -345,9 +356,15 @@
             altInput: true,
             altFormat: "F j, Y h:i K",
             minDate: getNearest15Min(),
-            time_24hr: true,
+            time_24hr: false,
             minuteIncrement: 15,
             disableMobile: true,
+            onReady: function(selectedDates, dateStr, instance) {
+                normalizeClassicMeridiem(instance);
+            },
+            onValueUpdate: function(selectedDates, dateStr, instance) {
+                normalizeClassicMeridiem(instance);
+            },
             onChange: function(selectedDates) {
                 if (selectedDates[0]) {
                     // Show "call us" banner if return date is at the 31-day maximum

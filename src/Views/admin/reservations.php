@@ -149,10 +149,10 @@
                                 </span>
                             </td>
                             <td class="py-2 px-4 border-b border-gray-200 align-middle text-center text-sm text-gray-700">
-                                <?= htmlspecialchars($res['pickup_datetime']) ?>
+                                <span data-admin-datetime="<?= htmlspecialchars($res['pickup_datetime']) ?>"><?= htmlspecialchars($res['pickup_datetime']) ?></span>
                             </td>
                             <td class="py-2 px-4 border-b border-gray-200 align-middle text-center text-sm text-gray-700">
-                                <?= htmlspecialchars($res['return_datetime']) ?>
+                                <span data-admin-datetime="<?= htmlspecialchars($res['return_datetime']) ?>"><?= htmlspecialchars($res['return_datetime']) ?></span>
                             </td>
                             <td class="py-2 px-4 border-b border-gray-200 align-middle text-left text-sm text-gray-700">
                                 <?= !empty($res['notes']) ? nl2br(htmlspecialchars($res['notes'])) : '<span class="text-gray-400">No notes</span>' ?>
@@ -256,6 +256,15 @@
         const content = document.getElementById('reservation-order-modal-content');
         if (!modal || !content) return;
 
+        const esc = (value) => {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        };
+
         modal.classList.remove('hidden');
         modal.classList.add('flex');
         content.innerHTML = '<div class="py-8 text-center text-gray-500">Loading...</div>';
@@ -269,7 +278,7 @@
             })
             .then(data => {
                 if (data.error || !data.order) {
-                    content.innerHTML = `<div class="text-red-600">${data.error || 'Order details unavailable.'}</div>`;
+                    content.innerHTML = `<div class="text-red-600">${esc(data.error || 'Order details unavailable.')}</div>`;
                     return;
                 }
 
@@ -277,24 +286,32 @@
                 const customerName = [order.guest_first_name || '', order.guest_last_name || ''].join(' ').trim() || 'N/A';
                 const customerEmail = order.guest_email || order.customer_email || 'N/A';
                 const customerPhone = order.guest_phone || order.customer_phone || 'N/A';
+                const fmt = (value) => {
+                    if (!value) return 'N/A';
+                    if (typeof window.formatAdminDateTime === 'function') {
+                        return window.formatAdminDateTime(value);
+                    }
+                    const date = new Date(String(value).replace(' ', 'T'));
+                    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+                };
 
                 let html = `
                     <div class="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-2">
-                        <div><span class="font-semibold text-[#062B41]">Order ID:</span> ${order.order_id ?? ''}</div>
-                        <div><span class="font-semibold text-[#062B41]">Status:</span> ${order.status ?? ''}</div>
-                        <div><span class="font-semibold text-[#062B41]">Customer:</span> ${customerName}</div>
-                        <div><span class="font-semibold text-[#062B41]">Email:</span> ${customerEmail}</div>
-                        <div><span class="font-semibold text-[#062B41]">Phone:</span> ${customerPhone}</div>
-                        <div><span class="font-semibold text-[#062B41]">Payment:</span> ${order.payment_method ?? 'N/A'}</div>
-                        <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${order.pickup_datetime ?? 'N/A'}</div>
-                        <div><span class="font-semibold text-[#062B41]">Return:</span> ${order.return_datetime ?? 'N/A'}</div>
+                        <div><span class="font-semibold text-[#062B41]">Order ID:</span> ${esc(order.order_id ?? '')}</div>
+                        <div><span class="font-semibold text-[#062B41]">Status:</span> ${esc(order.status ?? '')}</div>
+                        <div><span class="font-semibold text-[#062B41]">Customer:</span> ${esc(customerName)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Email:</span> ${esc(customerEmail)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method ?? 'N/A')}</div>
+                        <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${fmt(order.pickup_datetime)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Return:</span> ${fmt(order.return_datetime)}</div>
                         <div><span class="font-semibold text-[#062B41]">Total:</span> $${Number(order.total_amount || 0).toFixed(2)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Ordered At:</span> ${order.order_date ?? 'N/A'}</div>
+                        <div><span class="font-semibold text-[#062B41]">Ordered At:</span> ${fmt(order.order_date)}</div>
                     </div>
                 `;
 
                 if (order.notes) {
-                    html += `<div class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-3"><span class="font-semibold text-[#062B41]">Order Notes:</span><div class="mt-1 whitespace-pre-wrap">${order.notes}</div></div>`;
+                    html += `<div class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-3"><span class="font-semibold text-[#062B41]">Order Notes:</span><div class="mt-1 whitespace-pre-wrap">${esc(order.notes)}</div></div>`;
                 }
 
                 const items = Array.isArray(data.items) ? data.items : [];
@@ -364,9 +381,9 @@
                             : '—';
                         html += `
                             <tr>
-                                <td class="border border-gray-200 px-2 py-1">${item.product_name || ''}</td>
-                                <td class="border border-gray-200 px-2 py-1">${item.variation_name || ''}</td>
-                                <td class="border border-gray-200 px-2 py-1 text-center">${scooterCell}</td>
+                                <td class="border border-gray-200 px-2 py-1">${esc(item.product_name || '')}</td>
+                                <td class="border border-gray-200 px-2 py-1">${esc(item.variation_name || '')}</td>
+                                <td class="border border-gray-200 px-2 py-1 text-center">${esc(scooterCell)}</td>
                                 <td class="border border-gray-200 px-2 py-1 text-right">${item.quantity || 1}</td>
                                 <td class="border border-gray-200 px-2 py-1 text-right">$${Number(item.price || 0).toFixed(2)}</td>
                             </tr>
@@ -376,6 +393,9 @@
                 }
 
                 content.innerHTML = html;
+                if (typeof window.applyAdminDateFormatting === 'function') {
+                    window.applyAdminDateFormatting(content);
+                }
             })
             .catch(() => {
                 content.innerHTML = '<div class="text-red-600">Failed to load order details.</div>';

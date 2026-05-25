@@ -119,9 +119,17 @@ function paginationUrl($page) {
         // Helper to format date string (YYYY-MM-DDTHH:MM or YYYY-MM-DD HH:MM)
         function formatDateString(dateStr) {
             if (!dateStr) return '';
-            let d = new Date(dateStr.replace(' ', 'T'));
+            const d = new Date(String(dateStr).replace(' ', 'T'));
             if (isNaN(d)) return dateStr;
-            return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const month = d.toLocaleString(undefined, { month: 'long' });
+            const day = d.getDate();
+            const year = d.getFullYear();
+            let hours = d.getHours();
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            const meridiem = hours >= 12 ? 'pm' : 'am';
+            hours = hours % 12;
+            if (hours === 0) hours = 12;
+            return `${month} ${day}, ${year} ${hours}:${minutes}${meridiem}`;
         }
 
         // Only update date summary if search is not active
@@ -135,10 +143,10 @@ function paginationUrl($page) {
             let ret = returnDesktop?.value || returnMobile?.value || '';
             const summary = document.getElementById('dateSummary');
             if (pickup && ret) {
-                summary.innerHTML = 'Showing available rentals from <span class="font-semibold">' + formatDateString(pickup) + '</span> to <span class="font-semibold">' + formatDateString(ret) + '</span>';
+                summary.textContent = `Showing available rentals from ${formatDateString(pickup)} to ${formatDateString(ret)}`;
                 summary.style.display = '';
             } else {
-                summary.innerHTML = '';
+                summary.textContent = '';
                 summary.style.display = 'none';
             }
         }
@@ -403,7 +411,7 @@ function paginationUrl($page) {
         </form>
     </aside>
 
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
     <script>
     // --- Days Badge and Dynamic Price Logic ---
     function getDaysDiff(pickup, ret) {
@@ -773,14 +781,27 @@ function paginationUrl($page) {
                 returnPicker.set('maxTime', '23:59');
             }
 
+            function normalizeClassicMeridiem(instance) {
+                if (!instance || !instance.altInput) return;
+                instance.altInput.value = instance.altInput.value.replace(/\bAM\b/g, 'am').replace(/\bPM\b/g, 'pm');
+            }
+
             // Remove defaultDate — we control it manually
             const pickupPicker = flatpickr(pickupInput, {
                 enableTime: true,
                 dateFormat: "Y-m-d H:i",
+                altInput: true,
+                altFormat: "F j, Y h:i K",
                 minDate: getNearest15Min(),
-                time_24hr: true,
+                time_24hr: false,
                 minuteIncrement: 15,
                 disableMobile: true,
+                onReady: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
+                onValueUpdate: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
                 onChange: function(selectedDates) {
                     if (selectedDates[0]) {
                         const minReturnDate = new Date(selectedDates[0].getTime() + (30 * 60 * 1000));
@@ -817,10 +838,18 @@ function paginationUrl($page) {
             const returnPicker = flatpickr(returnInput, {
                 enableTime: true,
                 dateFormat: "Y-m-d H:i",
+                altInput: true,
+                altFormat: "F j, Y h:i K",
                 minDate: getNearest15Min(),
-                time_24hr: true,
+                time_24hr: false,
                 minuteIncrement: 15,
                 disableMobile: true,
+                onReady: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
+                onValueUpdate: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
                 onOpen: function() {
                     syncMobileReturnTimeBounds();
                 },

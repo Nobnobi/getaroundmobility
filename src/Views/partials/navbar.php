@@ -70,9 +70,6 @@ if ($displayFullName === '') {
 }
 ?>
 
-<!-- filepath: c:\xampp\htdocs\GetAroundMobility\src\Views\navbar.php -->
-
-
 
 <!-- Mobile Cart List -->
 <div id="mobileCartList" class="fixed top-16 right-4 z-[90] bg-white shadow-lg rounded-lg p-4 w-80 border border-gray-200 md:hidden hidden">
@@ -358,6 +355,28 @@ function loadCart() {
 function saveCart(cart) {
     localStorage.setItem('cart', JSON.stringify(cart));
 }
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+function sanitizeImageUrl(value, fallback = '/img/default-scooter.png') {
+    const raw = String(value || '').trim();
+    if (!raw) return fallback;
+    if (raw.startsWith('/')) return raw;
+    try {
+        const parsed = new URL(raw, window.location.origin);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.href;
+        }
+    } catch (e) {
+        return fallback;
+    }
+    return fallback;
+}
 function updateCartCountBadge() {
     const cart = loadCart();
     const badge = document.getElementById('cartCountBadge');
@@ -394,27 +413,35 @@ function renderCart() {
         if (cartTotalRow) cartTotalRow.innerHTML = '';
     } else {
         cart.forEach(item => {
-            const lineTotal = item.price * item.qty;
+            const qty = Math.max(1, parseInt(item.qty, 10) || 1);
+            const maxStock = Math.max(1, parseInt(item.scooter_count, 10) || 1);
+            const safeId = String(item.id ?? '');
+            const safeVariationId = String(item.variation_id ?? '');
+            const price = Number(item.price) || 0;
+            const lineTotal = price * qty;
             total += lineTotal;
             // Extract variation from name if present (format: Product - Variation)
-            let name = item.name;
+            let name = String(item.name || '');
             let variation = '';
             if (name.includes(' - ')) {
                 const parts = name.split(' - ');
                 name = parts[0];
                 variation = parts.slice(1).join(' - ');
             }
+            const safeName = escapeHtml(name);
+            const safeVariation = escapeHtml(variation);
+            const safeImage = escapeHtml(sanitizeImageUrl(item.image_url));
             cartItems.innerHTML += `
                 <li class="flex items-center justify-between mb-2 border-b pb-2">
                     <div class="flex items-center font-[Barlow]">
-                        <img src="${item.image_url || '/img/default-scooter.png'}" alt="${name}" class="w-16 h-16 object-cover mr-2">
+                        <img src="${safeImage}" alt="${safeName}" class="w-16 h-16 object-cover mr-2">
                         <div>
-                            <span class="block font-semibold text-sm text-gray-900">${name}</span>
-                            ${variation ? `<span class='block text-xs text-blue-600 font-semibold mt-1 px-2 py-0.5 bg-blue-50 border border-blue-300 rounded-full w-fit mb-1'>${variation}</span>` : ''}
+                            <span class="block font-semibold text-sm text-gray-900">${safeName}</span>
+                            ${variation ? `<span class='block text-xs text-blue-600 font-semibold mt-1 px-2 py-0.5 bg-blue-50 border border-blue-300 rounded-full w-fit mb-1'>${safeVariation}</span>` : ''}
                             <div class="flex items-center mt-1">
-                                <span class="text-blue-600 mr-2">$${Number(item.price).toFixed(2)}</span>
-                                <input type="number" value="${item.qty}" min="1" max="${item.scooter_count}" class="w-12 p-1 border rounded" data-id="${item.id}" data-variation-id="${item.variation_id !== undefined ? item.variation_id : ''}">
-                                <button class="cursor-pointer ml-2 remove-cart-item" data-id="${item.id}" data-variation-id="${item.variation_id !== undefined ? item.variation_id : ''}" title="Remove">
+                                <span class="text-blue-600 mr-2">$${price.toFixed(2)}</span>
+                                <input type="number" value="${qty}" min="1" max="${maxStock}" class="w-12 p-1 border rounded" data-id="${escapeHtml(safeId)}" data-variation-id="${escapeHtml(safeVariationId)}">
+                                <button class="cursor-pointer ml-2 remove-cart-item" data-id="${escapeHtml(safeId)}" data-variation-id="${escapeHtml(safeVariationId)}" title="Remove">
                                     <img src="/img/delete_grey.png" alt="Delete" class="w-5 h-5 inline-block align-middle">
                                 </button>
                             </div>
@@ -974,27 +1001,35 @@ function renderMobileCart() {
         if (cartTotalRow) cartTotalRow.innerHTML = '';
     } else {
         cart.forEach(item => {
-            const lineTotal = item.price * item.qty;
+            const qty = Math.max(1, parseInt(item.qty, 10) || 1);
+            const maxStock = Math.max(1, parseInt(item.scooter_count, 10) || 1);
+            const safeId = String(item.id ?? '');
+            const safeVariationId = String(item.variation_id ?? '');
+            const price = Number(item.price) || 0;
+            const lineTotal = price * qty;
             total += lineTotal;
             // Extract variation from name if present (format: Product - Variation)
-            let name = item.name;
+            let name = String(item.name || '');
             let variation = '';
             if (name.includes(' - ')) {
                 const parts = name.split(' - ');
                 name = parts[0];
                 variation = parts.slice(1).join(' - ');
             }
+            const safeName = escapeHtml(name);
+            const safeVariation = escapeHtml(variation);
+            const safeImage = escapeHtml(sanitizeImageUrl(item.image_url));
             cartItems.innerHTML += `
                 <li class="flex items-center justify-between mb-2 border-b pb-2">
                     <div class="flex items-center font-[Barlow]">
-                        <img src="${item.image_url || '/img/default-scooter.png'}" alt="${name}" class="w-16 h-16 object-cover mr-2">
+                        <img src="${safeImage}" alt="${safeName}" class="w-16 h-16 object-cover mr-2">
                         <div>
-                            <span class="block font-semibold text-sm text-gray-900">${name}</span>
-                            ${variation ? `<span class='block text-xs text-blue-600 font-semibold mt-1 px-2 py-0.5 bg-blue-50 border border-blue-300 rounded-full w-fit mb-1'>${variation}</span>` : ''}
+                            <span class="block font-semibold text-sm text-gray-900">${safeName}</span>
+                            ${variation ? `<span class='block text-xs text-blue-600 font-semibold mt-1 px-2 py-0.5 bg-blue-50 border border-blue-300 rounded-full w-fit mb-1'>${safeVariation}</span>` : ''}
                             <div class="flex items-center mt-1">
-                                <span class="text-blue-600 mr-2">$${Number(item.price).toFixed(2)}</span>
-                                <input type="number" value="${item.qty}" min="1" max="${item.scooter_count}" class="w-12 p-1 border rounded" data-id="${item.id}" data-variation-id="${item.variation_id !== undefined ? item.variation_id : ''}">
-                                <button class="cursor-pointer ml-2 remove-mobile-cart-item" data-id="${item.id}" data-variation-id="${item.variation_id !== undefined ? item.variation_id : ''}" title="Remove">
+                                <span class="text-blue-600 mr-2">$${price.toFixed(2)}</span>
+                                <input type="number" value="${qty}" min="1" max="${maxStock}" class="w-12 p-1 border rounded" data-id="${escapeHtml(safeId)}" data-variation-id="${escapeHtml(safeVariationId)}">
+                                <button class="cursor-pointer ml-2 remove-mobile-cart-item" data-id="${escapeHtml(safeId)}" data-variation-id="${escapeHtml(safeVariationId)}" title="Remove">
                                     <img src="/img/delete_grey.png" alt="Delete" class="w-5 h-5 inline-block align-middle">
                                 </button>
                             </div>
@@ -1135,7 +1170,7 @@ window.addForSaleToCart = addForSaleToCart;
 </script>
 
 
-<!-- FOR REGISTRATION MODAL -->
+
 <script>
 
 
@@ -1190,12 +1225,25 @@ window.addForSaleToCart = addForSaleToCart;
             const savedPickup = localStorage.getItem('pickupDatetime');
             const savedReturn = localStorage.getItem('returnDatetime');
 
+            function normalizeClassicMeridiem(instance) {
+                if (!instance || !instance.altInput) return;
+                instance.altInput.value = instance.altInput.value.replace(/\bAM\b/g, 'am').replace(/\bPM\b/g, 'pm');
+            }
+
             const mobilePickupPicker = flatpickr(mobilePickupInput, {
                 enableTime: true,
                 dateFormat: "Y-m-d H:i",
+                altInput: true,
+                altFormat: "F j, Y h:i K",
                 minDate: new Date(),
-                time_24hr: true,
+                time_24hr: false,
                 minuteIncrement: 15,
+                onReady: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
+                onValueUpdate: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
                 onChange: function(selectedDates) {
                     if (selectedDates[0]) {
                         mobileReturnPicker.set('minDate', selectedDates[0]);
@@ -1210,9 +1258,17 @@ window.addForSaleToCart = addForSaleToCart;
             const mobileReturnPicker = flatpickr(mobileReturnInput, {
                 enableTime: true,
                 dateFormat: "Y-m-d H:i",
+                altInput: true,
+                altFormat: "F j, Y h:i K",
                 minDate: new Date(),
-                time_24hr: true,
-                minuteIncrement: 15
+                time_24hr: false,
+                minuteIncrement: 15,
+                onReady: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                },
+                onValueUpdate: function(selectedDates, dateStr, instance) {
+                    normalizeClassicMeridiem(instance);
+                }
             });
 
             // Set initial values from localStorage
