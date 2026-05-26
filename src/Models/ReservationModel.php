@@ -29,7 +29,7 @@ class ReservationModel {
      */
     public function getReservations($status = null, $page = 1, $perPage = 30, $search = '', $orderId = null)
     {
-        $whereClauses = [];
+        $whereClauses = ["COALESCE(o.status, '') <> 'cancelled'", "COALESCE(r.status, '') <> 'cancelled'"];
         $params = [];
         if ($status === 'pending') {
             $whereClauses[] = "r.status IN ('pending', 'paid')";
@@ -48,6 +48,7 @@ class ReservationModel {
         $where = count($whereClauses) ? 'WHERE ' . implode(' AND ', $whereClauses) : '';
 
         $countSql = "SELECT COUNT(*) FROM reservations r
+                     LEFT JOIN orders o ON o.order_id = r.order_id
                      LEFT JOIN scooters s ON s.scooter_id = r.scooter_id
                      LEFT JOIN products p ON p.product_id = s.product_id
                      $where";
@@ -62,6 +63,7 @@ class ReservationModel {
         $sql = "SELECT r.*,
                        p.product_name
                 FROM reservations r
+            LEFT JOIN orders o ON o.order_id = r.order_id
                 LEFT JOIN scooters s ON s.scooter_id = r.scooter_id
                 LEFT JOIN products p ON p.product_id = s.product_id
                 $where
@@ -84,18 +86,22 @@ class ReservationModel {
 
     public function getReservationOrderIds($status = null)
     {
-        $whereClauses = [];
+        $whereClauses = ["COALESCE(o.status, '') <> 'cancelled'", "COALESCE(r.status, '') <> 'cancelled'"];
         $params = [];
 
         if ($status === 'pending') {
-            $whereClauses[] = "status IN ('pending', 'paid')";
+            $whereClauses[] = "r.status IN ('pending', 'paid')";
         } elseif ($status === 'completed') {
-            $whereClauses[] = 'status = :status';
+            $whereClauses[] = 'r.status = :status';
             $params[':status'] = $status;
         }
 
         $where = count($whereClauses) ? 'WHERE ' . implode(' AND ', $whereClauses) : '';
-        $sql = "SELECT DISTINCT order_id FROM reservations {$where} ORDER BY order_id DESC";
+        $sql = "SELECT DISTINCT r.order_id
+                FROM reservations r
+                LEFT JOIN orders o ON o.order_id = r.order_id
+                {$where}
+                ORDER BY r.order_id DESC";
         $stmt = $this->db->prepare($sql);
         foreach ($params as $k => $v) {
             $stmt->bindValue($k, $v);

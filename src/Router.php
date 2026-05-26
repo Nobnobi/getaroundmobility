@@ -62,6 +62,29 @@ class Router
             return;
         }
 
+        // Pattern match dynamic routes, e.g. /api/orders/{orderId}/capture
+        foreach ($routes as $route => $data) {
+            if (strpos($route, '{') === false) {
+                continue;
+            }
+
+            $pattern = preg_replace('#\{[^/]+\}#', '([^/]+)', $route);
+            if ($pattern === null) {
+                continue;
+            }
+
+            if (preg_match('#^' . $pattern . '$#', $uri, $matches)) {
+                array_shift($matches);
+
+                $controller = $data['controller'];
+                $action = $data['action'];
+
+                $instance = new $controller();
+                $instance->$action(...$matches);
+                return;
+            }
+        }
+
         http_response_code(404);
         echo "404 Not Found";
     } catch (\Throwable $e) {

@@ -477,6 +477,13 @@ if (file_exists(__DIR__ . '/../../.env')) {
         const pickupDropdown = document.querySelector('select[name="pickup_location"]');
 
         if (deliveryType === 'hotel') {
+            if (hotelDropdown && !hotelDropdown.value) {
+                const firstValid = Array.from(hotelDropdown.options || []).find(opt => opt && opt.value);
+                if (firstValid) {
+                    hotelDropdown.value = firstValid.value;
+                    hotelDropdown.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
             if (!hotelDropdown || !hotelDropdown.value) {
                 alert('Please select a partner hotel for delivery.');
                 return false;
@@ -484,6 +491,13 @@ if (file_exists(__DIR__ . '/../../.env')) {
         }
 
         if (deliveryType === 'pickup') {
+            if (pickupDropdown && !pickupDropdown.value) {
+                const firstValid = Array.from(pickupDropdown.options || []).find(opt => opt && opt.value);
+                if (firstValid) {
+                    pickupDropdown.value = firstValid.value;
+                    pickupDropdown.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
             if (!pickupDropdown || !pickupDropdown.value) {
                 alert('Please select a store for pickup.');
                 return false;

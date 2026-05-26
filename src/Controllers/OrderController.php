@@ -66,6 +66,84 @@ class OrderController extends Controller
         return @fopen($path, 'a');
     }
 
+    private function readJsonBody(): array
+    {
+        $raw = file_get_contents('php://input');
+        if (!is_string($raw) || trim($raw) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function getStripeFallbackPayloadFromPost(array $post): array
+    {
+        return [
+            'first_name' => trim((string)($post['first_name'] ?? '')),
+            'last_name' => trim((string)($post['last_name'] ?? '')),
+            'guest_email' => trim((string)($post['email'] ?? '')),
+            'guest_phone' => trim((string)($post['phone'] ?? '')),
+            'client_weight_option' => trim((string)($post['client_weight_option'] ?? '')),
+            'client_weight_lbs' => trim((string)($post['client_weight_lbs'] ?? '')),
+            'address1' => trim((string)($post['address1'] ?? '')),
+            'address2' => trim((string)($post['address2'] ?? '')),
+            'state' => trim((string)($post['state'] ?? '')),
+            'zip' => trim((string)($post['zip'] ?? '')),
+            'delivery_type' => trim((string)($post['delivery_type'] ?? 'preferred')),
+            'hotel_id' => trim((string)($post['hotel_id'] ?? '')),
+            'pickup_datetime' => trim((string)($post['pickup_datetime'] ?? '')),
+            'return_datetime' => trim((string)($post['return_datetime'] ?? '')),
+            'pickup_location' => trim((string)($post['pickup_location'] ?? '')),
+            'notes' => trim((string)($post['notes'] ?? '')),
+            'sale_type' => trim((string)($post['sale_type'] ?? 'rental')),
+            'cart_json' => (string)($post['cart'] ?? '[]'),
+            'created_by_admin_id' => trim((string)($_SESSION['admin_id'] ?? '')),
+            'created_by_admin_role' => trim((string)($_SESSION['admin_role'] ?? '')),
+            'created_by_admin_name' => trim((string)($_SESSION['admin_username'] ?? '')),
+        ];
+    }
+
+    private function findRecentlyCreatedStripeOrderId(string $guestEmail, array $cart, array $meta): ?int
+    {
+        try {
+            $totalAmount = 0.0;
+            foreach ($cart as $item) {
+                $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
+                $price = (float)($item['price'] ?? 0);
+                if ($price <= 0) {
+                    continue;
+                }
+                $totalAmount += ($qty * $price);
+            }
+
+            if ($totalAmount <= 0) {
+                return null;
+            }
+
+            $pickup = trim((string)($meta['pickup_datetime'] ?? ''));
+            $return = trim((string)($meta['return_datetime'] ?? ''));
+
+            $pdo = \App\Utils\Database::getInstance();
+            if ($pickup !== '' && $return !== '') {
+                $stmt = $pdo->prepare("SELECT order_id FROM orders WHERE payment_method = 'card' AND guest_email = ? AND pickup_datetime = ? AND return_datetime = ? AND ABS(total_amount - ?) < 0.01 AND order_date >= DATE_SUB(NOW(), INTERVAL 60 MINUTE) ORDER BY order_id DESC LIMIT 1");
+                $stmt->execute([$guestEmail, $pickup, $return, $totalAmount]);
+                $orderId = $stmt->fetchColumn();
+                if ($orderId) {
+                    return (int)$orderId;
+                }
+            }
+
+            $stmt = $pdo->prepare("SELECT order_id FROM orders WHERE payment_method = 'card' AND guest_email = ? AND ABS(total_amount - ?) < 0.01 AND order_date >= DATE_SUB(NOW(), INTERVAL 60 MINUTE) ORDER BY order_id DESC LIMIT 1");
+            $stmt->execute([$guestEmail, $totalAmount]);
+            $orderId = $stmt->fetchColumn();
+            return $orderId ? (int)$orderId : null;
+        } catch (\Throwable $e) {
+            error_log('Finalize payment recovery lookup error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     public function __construct()
     {
         $PAYPAL_CLIENT_ID = getenv("PAYPAL_CLIENT_ID") ?: ($_ENV["PAYPAL_CLIENT_ID"] ?? '');
@@ -192,13 +270,13 @@ class OrderController extends Controller
     }
 
     public function cancelOrder() {
+        if (session_status() === PHP_SESSION_NONE) session_start();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 http_response_code(403);
                 die('Invalid CSRF token');
             }
         }
-        if (session_status() === PHP_SESSION_NONE) session_start();
 
         $orderId = isset($_POST['order_id']) ? intval($_POST['order_id']) : null;
         if (!$orderId) {
@@ -271,6 +349,12 @@ class OrderController extends Controller
             
             $orderModel = new OrderModel();
             $result = $orderModel->createStripePaymentIntent($_POST, $_SESSION);
+
+            // Store a fallback payload so finalize can continue even if Stripe metadata is missing/truncated.
+            if (!isset($result['error']) && !empty($result['paymentIntentId'])) {
+                $intentId = (string)$result['paymentIntentId'];
+                $_SESSION["stripe_intent_fallback_{$intentId}"] = $this->getStripeFallbackPayloadFromPost($_POST);
+            }
             
             // Clear any stray output and return JSON
             ob_end_clean();
@@ -300,12 +384,20 @@ class OrderController extends Controller
             if (session_status() === PHP_SESSION_NONE) session_start();
             
             // Get payment intent ID from JSON body or POST
-            $input = @json_decode(file_get_contents('php://input'), true) ?: [];
+            $input = $this->readJsonBody();
             $paymentIntentId = $input['payment_intent_id'] ?? $_POST['payment_intent_id'] ?? null;
+            $paymentIntentId = is_string($paymentIntentId) ? trim($paymentIntentId) : '';
             
             if (!$paymentIntentId) {
                 http_response_code(400);
                 echo json_encode(['error' => 'Payment intent ID missing']);
+                ob_end_flush();
+                exit;
+            }
+
+            if (strpos($paymentIntentId, 'pi_') !== 0) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid payment intent ID']);
                 ob_end_flush();
                 exit;
             }
@@ -316,7 +408,8 @@ class OrderController extends Controller
             // Clear any stray output and return JSON
             ob_end_clean();
             ob_start();
-            http_response_code(isset($result['error']) ? 400 : 200);
+            $statusCode = isset($result['error']) ? (int)($result['http_status'] ?? 400) : 200;
+            http_response_code($statusCode);
             echo json_encode($result);
             ob_end_flush();
         } catch (\Throwable $e) {
@@ -325,7 +418,7 @@ class OrderController extends Controller
             ob_start();
             http_response_code(500);
             error_log('Finalize payment exception: ' . $e->getMessage());
-            echo json_encode(['error' => 'Payment processing failed']);
+            echo json_encode(['error' => 'Payment processing failed. Please contact support if this persists.']);
             ob_end_flush();
         }
         exit;
@@ -347,11 +440,11 @@ class OrderController extends Controller
         try {
             $intent = \Stripe\PaymentIntent::retrieve($paymentIntentId);
         } catch (\Exception $e) {
-            return ['error' => 'Unable to verify Stripe payment: ' . $e->getMessage()];
+            return ['error' => 'Unable to verify Stripe payment: ' . $e->getMessage(), 'http_status' => 400];
         }
 
         if (($intent->status ?? '') !== 'succeeded') {
-            return ['error' => 'Payment is not completed yet.'];
+            return ['error' => 'Payment is not completed yet.', 'http_status' => 409];
         }
 
         $meta = [];
@@ -363,13 +456,23 @@ class OrderController extends Controller
             }
         }
 
+        // Fallback for metadata limits/truncation: use server-side session snapshot from intent creation.
+        $fallbackKey = "stripe_intent_fallback_{$paymentIntentId}";
+        $fallbackMeta = $_SESSION[$fallbackKey] ?? [];
+        if (!is_array($fallbackMeta)) {
+            $fallbackMeta = [];
+        }
+        if (!empty($fallbackMeta)) {
+            $meta = array_merge($fallbackMeta, $meta);
+        }
+
         $cart = json_decode($meta['cart_json'] ?? '[]', true);
         $guestEmail = filter_var(trim($meta['guest_email'] ?? ''), FILTER_VALIDATE_EMAIL);
         if (!is_array($cart) || empty($cart)) {
-            return ['error' => 'Missing Stripe cart details.'];
+            return ['error' => 'Missing Stripe cart details.', 'http_status' => 422];
         }
         if (!$guestEmail) {
-            return ['error' => 'Missing or invalid customer email for Stripe confirmation.'];
+            return ['error' => 'Missing or invalid customer email for Stripe confirmation.', 'http_status' => 422];
         }
 
         // Normalize cart shape so downstream order logic always has qty.
@@ -387,7 +490,13 @@ class OrderController extends Controller
         $intentOrderSessionKey = "stripe_order_by_intent_{$paymentIntentId}";
         $orderId = $_SESSION[$intentOrderSessionKey] ?? null;
 
-        $orderModel = new OrderModel();
+        try {
+            $orderModel = new OrderModel();
+        } catch (\Throwable $e) {
+            error_log('Finalize payment model init error: ' . $e->getMessage());
+            return ['error' => 'Order initialization failed after payment.', 'http_status' => 500];
+        }
+
         if (!$orderId) {
             $postData = [
                 'first_name' => $meta['first_name'] ?? '',
@@ -417,22 +526,49 @@ class OrderController extends Controller
                 'payment' => 'card',
             ];
 
-            $orderId = $orderModel->fullOrderProcess($postData, $cart, $_SESSION);
-            if (!$orderId) {
-                return ['error' => 'Could not store the Stripe order after payment.'];
+            try {
+                $orderId = $orderModel->fullOrderProcess($postData, $cart, $_SESSION);
+            } catch (\Throwable $e) {
+                error_log('Finalize payment fullOrderProcess error: ' . $e->getMessage());
+                $orderId = $this->findRecentlyCreatedStripeOrderId($guestEmail, $cart, $meta);
+                if (!$orderId) {
+                    return ['error' => 'Could not store the Stripe order after payment.', 'http_status' => 500];
+                }
             }
+
+            if (!$orderId) {
+                $orderId = $this->findRecentlyCreatedStripeOrderId($guestEmail, $cart, $meta);
+                if (!$orderId) {
+                    return ['error' => 'Could not store the Stripe order after payment.', 'http_status' => 500];
+                }
+            }
+
             $_SESSION[$intentOrderSessionKey] = $orderId;
-            $orderModel->markAsPaid($orderId);
+
+            try {
+                $orderModel->markAsPaid($orderId);
+            } catch (\Throwable $e) {
+                error_log('Finalize payment markAsPaid error: ' . $e->getMessage());
+                return ['error' => 'Order created, but payment status update failed.', 'http_status' => 500];
+            }
         }
 
         // Always ensure docs/email after finalize (safe to re-run).
-        $orderModel->ensureOrderDocumentsAndEmail($orderId, $cart);
+        try {
+            $orderModel->ensureOrderDocumentsAndEmail($orderId, $cart);
+        } catch (\Throwable $e) {
+            // Non-fatal: the order is already paid/created. Keep checkout success path alive.
+            error_log('Finalize payment post-processing warning: ' . $e->getMessage());
+        }
 
         $token = $_SESSION["order_token_$orderId"] ?? null;
         if (!$token) {
             $token = bin2hex(random_bytes(16));
             $_SESSION["order_token_$orderId"] = $token;
         }
+
+        // Cleanup fallback payload once finalization succeeds.
+        unset($_SESSION[$fallbackKey]);
 
         return [
             'success' => true,
@@ -851,7 +987,15 @@ class OrderController extends Controller
                     }
                 }
                 $itemsTable = $invoiceItemsTable;
-                $totalAmount = $subtotal;
+                $orderDate = date('Y-m-d H:i:s');
+                $totalAmountWithTax = round((float)$subtotal, 2);
+                $totalAmount = round($totalAmountWithTax / 1.08375, 2);
+                $tax = round(max(0, $totalAmountWithTax - $totalAmount), 2);
+                $discountAmount = 0.0;
+                $promoCode = (isset($meta) && is_object($meta)) ? (string)($meta->promo_code ?? '') : '';
+                $paymentMethod = 'card';
+                $pickupLocation = (string)($pickup_location ?? '');
+                $deliveryType = (string)($delivery_type ?? '');
                 ob_start();
                 include __DIR__ . '/../../Invoices/invoice-template.php';
                 $invoiceHtml = ob_get_clean();
@@ -880,7 +1024,16 @@ class OrderController extends Controller
                     ]
                 ];
                 $subject = 'Your Rental Booking Confirmation';
-                $body = "Thank you for your booking! Please find your rental contract and invoice attached.";
+                $body = buildBookingEmailTemplate([
+                    'customer_name' => $customerName,
+                    'order_id' => $orderId,
+                    'amount_due' => $totalAmountWithTax,
+                    'issued_at' => date('Y-m-d H:i:s'),
+                    'pickup_datetime' => $pickup_datetime ?? '',
+                    'return_datetime' => $return_datetime ?? '',
+                    'payment_method' => 'card',
+                    'note' => 'Thank you for your business! Your invoice is attached to this email.',
+                ]);
                 $result = sendBookingConfirmation($customerEmail, $customerName, $subject, $body, $attachments);
                 $debugMailFile = fopen("order-debug-log.txt", "a");
                 if ($result) {
@@ -1308,10 +1461,15 @@ class OrderController extends Controller
         if ($deliveryType === 'hotel') {
             $hotelId = $formData['hotel_id'] ?? null;
             if ($hotelId) {
-                $stmt = $pdo->prepare("SELECT address1, address2, state, zip FROM partner_hotels WHERE id = ?");
+                $stmt = $pdo->prepare("SELECT name, address1, address2, state, zip FROM partner_hotels WHERE id = ?");
                 $stmt->execute([$hotelId]);
                 $hotel = $stmt->fetch(\PDO::FETCH_ASSOC);
-                $address1 = $hotel['address1'] ?? '';
+                $hotelName = trim((string)($hotel['name'] ?? ''));
+                $hotelAddress1 = trim((string)($hotel['address1'] ?? ''));
+                $address1 = $hotelAddress1;
+                if ($hotelName !== '' && stripos($hotelAddress1, $hotelName) === false) {
+                    $address1 = trim($hotelAddress1 . ' (' . $hotelName . ')');
+                }
                 $address2 = $hotel['address2'] ?? '';
                 $state = $hotel['state'] ?? '';
                 $zip = $hotel['zip'] ?? '';
@@ -1546,7 +1704,15 @@ class OrderController extends Controller
             }
         }
         $itemsTable = $invoiceItemsTable;
-        $totalAmount = $subtotal;
+        $orderDate = date('Y-m-d H:i:s');
+        $totalAmountWithTax = round((float)$subtotal, 2);
+        $totalAmount = round($totalAmountWithTax / 1.08375, 2);
+        $tax = round(max(0, $totalAmountWithTax - $totalAmount), 2);
+        $discountAmount = 0.0;
+        $promoCode = '';
+        $paymentMethod = 'paypal';
+        $pickupLocation = (string)($pickupLocation ?? '');
+        $deliveryType = (string)($deliveryType ?? ($formData['delivery_type'] ?? ''));
 
         ob_start();
         include __DIR__ . '/../../Invoices/invoice-template.php';
@@ -1579,7 +1745,16 @@ class OrderController extends Controller
             ]
         ];
         $subject = 'Your Rental Booking Confirmation';
-        $body = "Thank you for your booking! Please find your rental contract and invoice attached.";
+        $body = buildBookingEmailTemplate([
+            'customer_name' => $customerName,
+            'order_id' => $orderId,
+            'amount_due' => $totalAmountWithTax,
+            'issued_at' => date('Y-m-d H:i:s'),
+            'pickup_datetime' => $pickup_datetime ?? '',
+            'return_datetime' => $return_datetime ?? '',
+            'payment_method' => 'paypal',
+            'note' => 'Thank you for your business! Your invoice is attached to this email.',
+        ]);
         $result = sendBookingConfirmation($customerEmail, $customerName, $subject, $body, $attachments);
         $debugMailFile = fopen("order-debug-log.txt", "a");
         if ($result) {

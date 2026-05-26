@@ -416,6 +416,24 @@ class AdminController extends Controller
         ];
         $cart = isset($_POST['cart']) ? json_decode($_POST['cart'], true) : [];
 
+        if (!isset($_POST['agree_policy']) || $_POST['agree_policy'] !== '1') {
+            $_SESSION['form_errors'] = ['You must agree to the rental policy and terms before creating a booking.'];
+            header('Location: ' . $newOrderRoute);
+            exit;
+        }
+
+        if (($orderData['client_weight_option'] ?? '') === '') {
+            $_SESSION['form_errors'] = ['Client weight range is required.'];
+            header('Location: ' . $newOrderRoute);
+            exit;
+        }
+
+        if (($orderData['client_weight_option'] ?? '') === 'other' && empty($orderData['client_weight_lbs'])) {
+            $_SESSION['form_errors'] = ['Please provide an exact client weight in lbs when selecting Other.'];
+            header('Location: ' . $newOrderRoute);
+            exit;
+        }
+
         $promoCodeInput = strtoupper(trim($_POST['promo_code'] ?? ''));
 
         if (!is_array($cart) || empty($cart)) {
@@ -624,11 +642,22 @@ class AdminController extends Controller
             </tr>";
         }
 
+        $orderDate = date('Y-m-d H:i:s');
+        $subtotal = (float)$cartSubtotal;
+        $discountAmount = (float)$discountAmount;
+        $promoCode = (string)($orderData['promo_code'] ?? '');
+        $paymentMethod = (string)($payment_method ?? '');
+        $pickupLocation = (string)($pickup_location ?? '');
+        $deliveryType = (string)($orderData['delivery_type'] ?? '');
+
         ob_start();
         include __DIR__ . '/../../Invoices/invoice-template.php';
         $invoiceHtml = ob_get_clean();
 
-        $invoiceDompdf = new Dompdf();
+        $invoiceOptions = new \Dompdf\Options();
+        $invoiceOptions->set('isRemoteEnabled', true);
+        $invoiceOptions->set('isHtml5ParserEnabled', true);
+        $invoiceDompdf = new Dompdf($invoiceOptions);
         $invoiceDompdf->loadHtml($invoiceHtml);
         $invoiceDompdf->setPaper('A4', 'portrait');
         $invoiceDompdf->render();
@@ -651,7 +680,16 @@ class AdminController extends Controller
             ]
         ];
         $subject = 'Your Rental Booking Confirmation';
-        $body = "Thank you for your booking! Please find your rental contract and invoice attached.";
+        $body = buildBookingEmailTemplate([
+            'customer_name' => $customerName,
+            'order_id' => $order_id,
+            'amount_due' => $total_amount,
+            'issued_at' => date('Y-m-d H:i:s'),
+            'pickup_datetime' => $pickup_datetime,
+            'return_datetime' => $return_datetime,
+            'payment_method' => $payment_method,
+            'note' => 'Thank you for your business! Your invoice is attached to this email.',
+        ]);
         $result = sendBookingConfirmation($customerEmail, $customerName, $subject, $body, $attachments);
         if (!$result) {
             error_log("Mailer Error: Booking confirmation email failed to send.");

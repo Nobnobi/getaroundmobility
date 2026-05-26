@@ -20,6 +20,10 @@ stripe-debug.txt
 stripe-webhook-logs.txt
 debug_*.txt
 public/*-debug-log.txt
+public/paypal-create-order-logs.txt
+public/paypal-order-logs.txt
+public/mail-debug-log.txt
+public/*-logs.txt
 
 # Temporary tooling artifacts
 .tmp-sri/

@@ -911,10 +911,15 @@ class OrderModel {
         if ($deliveryType === 'hotel') {
             $hotelId = $form['hotel_id'] ?? null;
             if ($hotelId) {
-                $stmt = $this->db->prepare("SELECT address1, address2, state, zip FROM partner_hotels WHERE id = ?");
+                $stmt = $this->db->prepare("SELECT name, address1, address2, state, zip FROM partner_hotels WHERE id = ?");
                 $stmt->execute([$hotelId]);
                 $hotel = $stmt->fetch(\PDO::FETCH_ASSOC);
-                $address1 = $hotel['address1'] ?? '';
+                $hotelName = trim((string)($hotel['name'] ?? ''));
+                $hotelAddress1 = trim((string)($hotel['address1'] ?? ''));
+                $address1 = $hotelAddress1;
+                if ($hotelName !== '' && stripos($hotelAddress1, $hotelName) === false) {
+                    $address1 = trim($hotelAddress1 . ' (' . $hotelName . ')');
+                }
                 $address2 = $hotel['address2'] ?? '';
                 $state = $hotel['state'] ?? '';
                 $zip = $hotel['zip'] ?? '';
@@ -1207,8 +1212,23 @@ class OrderModel {
                     $logoSrc = 'data:' . $mime . ';base64,' . base64_encode($data);
                 }
             }
+
+            $subtotal = 0.0;
+            foreach ($cart as $cartItem) {
+                $qtyValue = max(1, (int)($cartItem['qty'] ?? $cartItem['quantity'] ?? 1));
+                $subtotal += $qtyValue * (float)($cartItem['price'] ?? 0);
+            }
+            $discountAmount = isset($orderData['promo_discount']) ? (float)$orderData['promo_discount'] : 0.0;
+            $promoCode = (string)($orderData['promo_code'] ?? '');
+            $orderDate = date('Y-m-d H:i:s');
+            $paymentMethod = (string)($payment_method ?? '');
+            $pickupLocation = (string)($pickup_location ?? '');
+            $deliveryType = (string)($delivery_type ?? '');
+
             $itemsTable = $invoiceItemsTable;
-            $totalAmount = $totalAmount ?? 0;
+            $totalAmountWithTax = round(max(0, $subtotal - $discountAmount), 2);
+            $totalAmount = round($totalAmountWithTax / 1.08375, 2);
+            $tax = round(max(0, $totalAmountWithTax - $totalAmount), 2);
             ob_start();
             include __DIR__ . '/../../Invoices/invoice-template.php';
             $invoiceHtml = ob_get_clean();
@@ -1270,13 +1290,34 @@ class OrderModel {
                 $mail->Port = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
                 $mail->setFrom(getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? null), 'Get Around Mobility');
                 $mail->addAddress($finalEmail, $finalName);
+                $mail->isHTML(true);
                 $mail->Subject = 'Your Rental Booking Confirmation';
                 if ($pdfPath && is_file($pdfPath) && $invoicePath && is_file($invoicePath)) {
-                    $mail->Body = "Thank you for your booking! Please find your rental contract and invoice attached.";
+                    $mail->Body = buildBookingEmailTemplate([
+                        'customer_name' => $finalName,
+                        'order_id' => $orderId,
+                        'amount_due' => $totalAmountWithTax,
+                        'issued_at' => date('Y-m-d H:i:s'),
+                        'pickup_datetime' => $pickupDate ?? '',
+                        'return_datetime' => $returnDate ?? '',
+                        'payment_method' => (string)($payment_method ?? ''),
+                        'note' => 'Thank you for your business! Your invoice is attached to this email.',
+                    ]);
+                    $mail->AltBody = "Thank you for your booking! Please find your rental contract and invoice attached.";
                     $mail->addAttachment($pdfPath, "Rental-Contract-{$orderId}.pdf");
                     $mail->addAttachment($invoicePath, "Invoice-{$orderId}.pdf");
                 } else {
-                    $mail->Body = "Thank you for your booking! Your contract/invoice files are being prepared and will be sent shortly.";
+                    $mail->Body = buildBookingEmailTemplate([
+                        'customer_name' => $finalName,
+                        'order_id' => $orderId,
+                        'amount_due' => $totalAmountWithTax,
+                        'issued_at' => date('Y-m-d H:i:s'),
+                        'pickup_datetime' => $pickupDate ?? '',
+                        'return_datetime' => $returnDate ?? '',
+                        'payment_method' => (string)($payment_method ?? ''),
+                        'note' => 'Thank you for your booking. Your invoice files are being prepared and will be sent shortly.',
+                    ]);
+                    $mail->AltBody = "Thank you for your booking! Your contract/invoice files are being prepared and will be sent shortly.";
                 }
                 $mail->send();
                 if (is_resource($debugFile)) {
@@ -1430,6 +1471,18 @@ class OrderModel {
         }
 
         $itemsTable = $invoiceItemsTable;
+        $discountAmount = (float)($order['promo_discount'] ?? 0);
+        $promoCode = (string)($order['promo_code'] ?? '');
+        $orderDate = (string)($order['order_date'] ?? date('Y-m-d H:i:s'));
+        $paymentMethod = (string)($order['payment_method'] ?? '');
+        $pickupLocation = (string)($order['pickup_location'] ?? '');
+        $deliveryType = (string)($order['delivery_type'] ?? '');
+        $subtotal = (float)$subtotal;
+        $totalAmount = round(max(0, $subtotal - $discountAmount), 2);
+        if ($totalAmountWithTax <= 0) {
+            $totalAmountWithTax = $totalAmount;
+        }
+        $tax = round(max(0, $totalAmountWithTax - $totalAmount), 2);
         
         // WRAP INVOICE PDF GENERATION IN TRY-CATCH
         try {
@@ -1471,9 +1524,18 @@ class OrderModel {
             if ($invoicePath && file_exists($invoicePath)) {
                 $attachments[] = ['path' => $invoicePath, 'name' => "Invoice-{$orderId}.pdf"];
             }
-            $bodyHtml = !empty($attachments)
-                ? 'Thank you for your booking! Please find your rental contract and invoice attached.'
-                : 'Thank you for your booking! Your contract/invoice files are being prepared and will be sent shortly.';
+            $bodyHtml = buildBookingEmailTemplate([
+                'customer_name' => $customerName,
+                'order_id' => $orderId,
+                'amount_due' => $totalAmountWithTax,
+                'issued_at' => (string)($order['order_date'] ?? date('Y-m-d H:i:s')),
+                'pickup_datetime' => $pickupDate,
+                'return_datetime' => $returnDate,
+                'payment_method' => (string)($order['payment_method'] ?? ''),
+                'note' => !empty($attachments)
+                    ? 'Thank you for your business! Your invoice is attached to this email.'
+                    : 'Thank you for your booking. Your invoice files are being prepared and will be sent shortly.',
+            ]);
             $emailSent = \sendBookingConfirmation($customerEmail, $customerName, 'Your Rental Booking Confirmation', $bodyHtml, $attachments);
             if (is_resource($debugFile)) {
                 fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Recovery email send result for orderId {$orderId}: " . ($emailSent ? 'sent' : 'failed') . "\n");
@@ -1599,6 +1661,10 @@ class OrderModel {
         // Update order status to 'cancelled'
         $stmtOrder = $pdo->prepare("UPDATE orders SET status = 'cancelled' WHERE order_id = ?");
         $stmtOrder->execute([$orderId]);
+
+        // Keep reservation lifecycle in sync with order lifecycle.
+        $stmtReservations = $pdo->prepare("UPDATE reservations SET status = 'cancelled' WHERE order_id = ?");
+        $stmtReservations->execute([$orderId]);
 
         return "Order $orderId has been cancelled and inventory restored.";
     }
@@ -1922,7 +1988,10 @@ class OrderModel {
                     throw $e;
                 }
             }
-            return ['clientSecret' => $intent->client_secret];
+            return [
+                'clientSecret' => $intent->client_secret,
+                'paymentIntentId' => $intent->id,
+            ];
         } catch (\Exception $e) {
             error_log('Stripe PaymentIntent error: ' . $e->getMessage());
             return ['error' => $e->getMessage()];

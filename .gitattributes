@@ -1,0 +1,8 @@
+# Keep generated runtime logs out of line-ending normalization.
+public/mail-debug-log.txt -text
+public/paypal-create-order-logs.txt -text
+public/paypal-order-logs.txt -text
+public/stripe-webhook-logs.txt -text
+order-debug-log.txt -text
+stripe-debug.txt -text
+stripe-webhook-logs.txt -text

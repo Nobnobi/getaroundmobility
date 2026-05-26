@@ -49,7 +49,6 @@ $panelClass = $kioskMode
             <?php endif; ?>
             <form id="walkin-booking-form" method="post" action="<?= htmlspecialchars($formAction) ?>" class="space-y-6">
                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
-                <input type="hidden" name="agree_policy" value="1">
                 <input type="hidden" name="cart" id="cart-json">
                 <input type="hidden" name="promo_code" id="promo-code-input" value="">
                 <?php if ($kioskMode): ?>
@@ -85,8 +84,8 @@ $panelClass = $kioskMode
                             </div>
                             <div>
                                 <label class="mb-1 block text-sm font-medium text-slate-700">Client Weight Range <span class="text-red-500">*</span></label>
-                                <select name="client_weight_option" id="clientWeightOption" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
-                            <option value="">Not specified</option>
+                                <select name="client_weight_option" id="clientWeightOption" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            <option value="" selected disabled>Select weight range</option>
                             <option value="below120">Below 120 lbs</option>
                             <option value="120to200">120-200 lbs</option>
                             <option value="above200">Above 200 lbs</option>
@@ -153,7 +152,7 @@ $panelClass = $kioskMode
                             </div>
                             <div class="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <div id="rental-window-note" class="rounded-xl border border-[#b7d8ee] bg-[#e8f4fd] px-4 py-3 text-sm text-[#0079b6]">
-                                    Admin bookings support up to 31 rental days in this form.
+                                    Bookings support up to 31 rental days in this form.
                                 </div>
                                 <div id="rental-window-summary" class="text-sm font-medium text-slate-500">
                                     Select both dates to calculate tiered rental pricing.
@@ -172,6 +171,7 @@ $panelClass = $kioskMode
                     </div>
                     <div class="mb-3 rounded-lg border border-[#c8e2f3] bg-[#edf7ff] px-4 py-2">
                         <p id="order-items-tier-text" class="text-sm font-semibold text-[#0086C9]">Select dates first</p>
+                        <p id="order-items-availability-note" class="mt-1 text-xs text-[#0b5f8a]">Only products available for the selected pickup and return time are shown.</p>
                     </div>
                     <div id="products-list" class="space-y-2">
                         <div class="product-row rounded-xl border border-[#d5dde8] bg-transparent p-4 shadow-none transition-shadow hover:shadow-none">
@@ -268,6 +268,16 @@ $panelClass = $kioskMode
                         </div>
                     </div>
                     <input type="hidden" name="total_amount" id="total-amount-input" value="0">
+
+                    <div class="mt-5 rounded-lg border border-[#d8e0ea] bg-white px-4 py-3">
+                        <label class="flex items-start gap-2 text-sm text-slate-700">
+                            <input type="checkbox" name="agree_policy" value="1" id="walkinPolicyCheckbox" required class="mt-1 h-4 w-4 rounded border-gray-300 text-[#0086C9] focus:ring-[#0086C9]">
+                            <span>
+                                I agree to the rental policy and terms.
+                                <button type="button" onclick="openPolicyModal()" class="ml-1 text-[#0086C9] underline underline-offset-2 cursor-pointer">View policy</button>
+                            </span>
+                        </label>
+                    </div>
                 </section>
                 <div class="mt-8">
                     <?php if (!$kioskMode): ?>
@@ -278,6 +288,27 @@ $panelClass = $kioskMode
                     <button type="submit" class="w-full cursor-pointer rounded-lg border border-[#0086C9] bg-white px-6 py-3 text-sm font-semibold text-[#0086C9] transition-colors hover:bg-[#e8f4fd]">Create Booking</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <div id="policyModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+        <div class="w-full max-w-3xl rounded-md border border-gray-400 bg-[#fefbea] shadow-2xl">
+            <div class="relative border-b border-gray-400 px-6 py-4 text-center">
+                <button type="button" onclick="closePolicyModal()" class="absolute right-4 top-2 text-3xl leading-none text-gray-600 hover:text-black cursor-pointer">&times;</button>
+                <h2 class="text-xl font-bold tracking-wide">RENTAL AGREEMENT</h2>
+            </div>
+            <div class="border-b border-gray-400 bg-gray-300 py-2 text-center font-semibold tracking-wider">TERMS & CONDITIONS</div>
+            <div class="max-h-[60vh] overflow-y-auto px-6 py-5 text-[15px] leading-relaxed text-slate-800">
+                <p class="mb-3">By renting from Get Around Mobility, you agree to return the scooter in good condition and on time.</p>
+                <p class="mb-3">Renter is responsible for loss, theft, and damage while the scooter is in their possession.</p>
+                <p class="mb-3">Late returns may incur additional daily rental charges.</p>
+                <p class="mb-3">Do not operate while under the influence of alcohol or drugs. Ride safely and follow local laws.</p>
+                <p class="mb-3">All disputes are governed by the terms in the signed rental agreement.</p>
+                <p class="mb-0">If you do not agree with these terms, do not complete this booking.</p>
+            </div>
+            <div class="flex justify-center px-6 pb-5">
+                <button type="button" onclick="agreeAndClosePolicyModal()" class="cursor-pointer rounded bg-[#0086C9] px-6 py-2 font-bold text-white">I Agree</button>
+            </div>
         </div>
     </div>
     
@@ -317,6 +348,7 @@ const discountAmountEl = document.getElementById('discount-amount');
 const pretaxAmountEl = document.getElementById('pretax-amount');
 const taxAmountEl = document.getElementById('tax-amount');
 const orderItemsTierText = document.getElementById('order-items-tier-text');
+const walkinPolicyCheckbox = document.getElementById('walkinPolicyCheckbox');
 
 const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
 
@@ -339,6 +371,27 @@ function showBookingLoadingState() {
     bookingForm.querySelectorAll('button[type="button"]').forEach(button => {
         button.disabled = true;
     });
+}
+
+function openPolicyModal() {
+    const modal = document.getElementById('policyModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closePolicyModal() {
+    const modal = document.getElementById('policyModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function agreeAndClosePolicyModal() {
+    if (walkinPolicyCheckbox) {
+        walkinPolicyCheckbox.checked = true;
+    }
+    closePolicyModal();
 }
 
 function syncClientWeightInput() {
@@ -463,7 +516,8 @@ function syncProductOptionsToMode() {
             }
 
             const optionMode = option.getAttribute('data-sale-type') === 'sale' ? 'sale' : 'rental';
-            const showOption = optionMode === mode;
+            const stock = Number(option.getAttribute('data-stock') ?? 0);
+            const showOption = optionMode === mode && stock > 0;
             option.hidden = !showOption;
             option.disabled = !showOption;
 
@@ -606,7 +660,7 @@ function validateRentalWindow() {
     }
     const days = getRentalDays();
     if (days > 31) {
-        return { valid: false, message: 'Admin bookings in this form are limited to 31 days.' };
+        return { valid: false, message: 'Booking in this form are limited to 31 days.' };
     }
     return { valid: true, days: days };
 }
@@ -851,6 +905,7 @@ function updateProductRow(select) {
     if (variations && variations.length > 0) {
         setVariationOptions(variationSelect, variations);
         variationSelect.style.display = '';
+        variationSelect.required = true;
         variationSelect.onchange = function() {
             updateRowPrice(row);
             updateTotal();
@@ -858,6 +913,7 @@ function updateProductRow(select) {
     } else {
         variationSelect.innerHTML = '';
         variationSelect.style.display = 'none';
+        variationSelect.required = false;
         variationSelect.onchange = null;
     }
     updateTotal();
@@ -1016,7 +1072,14 @@ bookingForm.addEventListener('submit', function(e) {
         return;
     }
 
+    if (!walkinPolicyCheckbox || !walkinPolicyCheckbox.checked) {
+        e.preventDefault();
+        alert('You must agree to the rental policy and terms before proceeding.');
+        return;
+    }
+
     const cart = [];
+    let missingVariationSelection = false;
     document.querySelectorAll('.product-row').forEach(row => {
         const select = row.querySelector('select.product-select');
         const productId = select.value;
@@ -1031,7 +1094,14 @@ bookingForm.addEventListener('submit', function(e) {
         const variationSelect = row.querySelector('.variation-select');
         let variation_id = null;
         let variation_name = null;
-        if (variationSelect && variationSelect.style.display !== 'none' && variationSelect.value) {
+        const variationRequired = variationSelect && variationSelect.style.display !== 'none';
+        if (variationRequired && !variationSelect.value && productId) {
+            missingVariationSelection = true;
+            variationSelect.classList.add('border-red-500', 'bg-red-50');
+        } else if (variationSelect) {
+            variationSelect.classList.remove('border-red-500', 'bg-red-50');
+        }
+        if (variationRequired && variationSelect.value) {
             variation_id = variationSelect.value;
             variation_name = variationSelect.options[variationSelect.selectedIndex]?.textContent;
         }
@@ -1047,9 +1117,26 @@ bookingForm.addEventListener('submit', function(e) {
             });
         }
     });
+
+    if (missingVariationSelection) {
+        e.preventDefault();
+        alert('Please select a variation for all products that require one.');
+        return;
+    }
+
     document.getElementById('cart-json').value = JSON.stringify(cart);
 
     bookingForm.dataset.submitting = 'true';
     showBookingLoadingState();
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('policyModal');
+    if (!modal) return;
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            closePolicyModal();
+        }
+    });
 });
     </script>
