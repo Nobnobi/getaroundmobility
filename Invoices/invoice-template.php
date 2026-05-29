@@ -74,16 +74,27 @@ $discountAmount = isset($discountAmount)
     ? (float)$discountAmount
     : (isset($promo_discount) ? (float)$promo_discount : 0.0);
 
-$totalAmount = isset($totalAmount) ? (float)$totalAmount : max(0, $lineSubtotal - $discountAmount);
-$totalAmountWithTax = isset($totalAmountWithTax) ? (float)$totalAmountWithTax : $totalAmount;
-$tax = isset($tax) ? (float)$tax : round(max(0, $totalAmountWithTax - $totalAmount), 2);
+$productTotalWithTax = round(max(0, $lineSubtotal - $discountAmount), 2);
+
+$securityDeposit = isset($securityDeposit)
+    ? (float)$securityDeposit
+    : (isset($security_deposit) ? (float)$security_deposit : 0.0);
+
+if ($securityDeposit <= 0 && isset($totalAmountWithTax)) {
+    $securityDeposit = round(max(0, (float)$totalAmountWithTax - $productTotalWithTax), 2);
+}
+
+$productPreTaxSubtotal = round($productTotalWithTax / 1.08375, 2);
+$tax = isset($tax) ? (float)$tax : round(max(0, $productTotalWithTax - $productPreTaxSubtotal), 2);
+$totalAmount = isset($totalAmount) ? (float)$totalAmount : round($productPreTaxSubtotal + $securityDeposit, 2);
+$totalAmountWithTax = isset($totalAmountWithTax) ? (float)$totalAmountWithTax : round($productTotalWithTax + $securityDeposit, 2);
 
 if ($lineSubtotal <= 0) {
     // If line subtotal was not provided, infer it from amount fields.
     $lineSubtotal = round(max(0, $totalAmount + $discountAmount), 2);
 }
 
-$preTaxSubtotal = round(max(0, $totalAmount), 2);
+$preTaxSubtotal = round(max(0, $productPreTaxSubtotal), 2);
 $grandTotal = round(max(0, $totalAmountWithTax), 2);
 
 $esc = static function ($value): string {
@@ -211,6 +222,12 @@ $fmtDate = static function ($value): string {
                     <td>Subtotal (Pre-Tax)</td>
                     <td class="text-right"><?= $fmtMoney($preTaxSubtotal) ?></td>
                 </tr>
+                <?php if ($securityDeposit > 0): ?>
+                <tr class="line">
+                    <td>Refundable Security Deposit</td>
+                    <td class="text-right"><?= $fmtMoney($securityDeposit) ?></td>
+                </tr>
+                <?php endif; ?>
                 <tr class="line">
                     <td>Included NV Sales Tax</td>
                     <td class="text-right"><?= $fmtMoney($tax) ?></td>

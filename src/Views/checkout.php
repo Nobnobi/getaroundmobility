@@ -613,6 +613,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
     }
 
     function renderCheckoutSummary() {
+        const SECURITY_DEPOSIT = 100;
         const cart = loadCart();
         const summaryContainer = document.getElementById('checkoutSummary');
         if (!summaryContainer) return;
@@ -644,9 +645,10 @@ if (file_exists(__DIR__ . '/../../.env')) {
             </li>`;
         });
         itemsHtml += '</ul>';
-        const total = subtotal;
-        const pretaxSubtotal = total / 1.08375;
-        const tax = total - pretaxSubtotal;
+        const productTotalWithTax = subtotal;
+        const pretaxSubtotal = productTotalWithTax / 1.08375;
+        const tax = productTotalWithTax - pretaxSubtotal;
+        const total = productTotalWithTax + SECURITY_DEPOSIT;
         summaryContainer.innerHTML = `
             ${itemsHtml}
             <div class="flex justify-between mb-2">
@@ -656,6 +658,10 @@ if (file_exists(__DIR__ . '/../../.env')) {
             <div class="flex justify-between mb-2">
                 <span>Included NV sales tax</span>
                 <span>$${tax.toFixed(2)}</span>
+            </div>
+            <div class="flex justify-between mb-2">
+                <span>Refundable security deposit</span>
+                <span>$${SECURITY_DEPOSIT.toFixed(2)}</span>
             </div>
             <div class="flex justify-between font-bold text-lg mb-6">
                 <span>Total</span>
@@ -1377,7 +1383,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <?php if ($showConfirmation && $order): ?>
         document.addEventListener('DOMContentLoaded', () => {
             const o = <?= json_encode($order, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>;
-            console.log('Order confirmation data:', o);
+            
 
             let confName = '';
             if (o.guest_first_name || o.guest_last_name) {

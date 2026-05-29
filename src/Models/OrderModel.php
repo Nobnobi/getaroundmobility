@@ -8,6 +8,9 @@ use Dompdf\Dompdf;
 use Dompdf\Options;
 
 class OrderModel {
+            private const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
+            private const SECURITY_DEPOSIT = 100.00;
+
             private function sanitizeProductNameForStorage($name): string {
                 $value = trim((string)$name);
                 // Remove UI stock suffixes such as "(12 available)".
@@ -466,7 +469,8 @@ class OrderModel {
         $promoDiscount = round(min($promoDiscount, $trustedSubtotal), 2);
 
         $orderData['promo_discount'] = $promoDiscount > 0 ? $promoDiscount : null;
-        $orderData['total_amount'] = round(max(0, $trustedSubtotal - $promoDiscount), 2);
+        $productTotalWithTax = round(max(0, $trustedSubtotal - $promoDiscount), 2);
+        $orderData['total_amount'] = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
 
         $sql = "INSERT INTO orders (
             user_id, guest_first_name, guest_last_name, guest_email, guest_phone,
@@ -996,7 +1000,9 @@ class OrderModel {
         foreach ($cart as $item) {
             $totalAmount += $item['qty'] * $item['price'];
         }
-        $totalAmountWithTax = $totalAmount;
+        $productTotalWithTax = round($totalAmount, 2);
+        $securityDeposit = self::SECURITY_DEPOSIT;
+        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
         $pickup_datetime = $form['pickup_datetime'] ?? null;
         $return_datetime = $form['return_datetime'] ?? null;
         $bookingSource = htmlspecialchars(trim((string)($form['booking_source'] ?? 'online')));
@@ -1226,9 +1232,12 @@ class OrderModel {
             $deliveryType = (string)($delivery_type ?? '');
 
             $itemsTable = $invoiceItemsTable;
-            $totalAmountWithTax = round(max(0, $subtotal - $discountAmount), 2);
-            $totalAmount = round($totalAmountWithTax / 1.08375, 2);
-            $tax = round(max(0, $totalAmountWithTax - $totalAmount), 2);
+            $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
+            $securityDeposit = self::SECURITY_DEPOSIT;
+            $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
+            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
+            $totalAmount = round($productPreTax + $securityDeposit, 2);
+            $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
             ob_start();
             include __DIR__ . '/../../Invoices/invoice-template.php';
             $invoiceHtml = ob_get_clean();
@@ -1403,9 +1412,9 @@ class OrderModel {
         $itemsTable .= '</tbody></table>';
 
         if ($subtotal <= 0 && $totalAmountWithTax > 0) {
-            $subtotal = round($totalAmountWithTax / 1.08375, 2);
+            $fallbackDeposit = $totalAmountWithTax >= self::SECURITY_DEPOSIT ? self::SECURITY_DEPOSIT : 0.0;
+            $subtotal = round(max(0, $totalAmountWithTax - $fallbackDeposit), 2);
         }
-        $totalAmount = $subtotal;
         $pickup_datetime = $pickupDate;
         $return_datetime = $returnDate;
 
@@ -1478,11 +1487,18 @@ class OrderModel {
         $pickupLocation = (string)($order['pickup_location'] ?? '');
         $deliveryType = (string)($order['delivery_type'] ?? '');
         $subtotal = (float)$subtotal;
-        $totalAmount = round(max(0, $subtotal - $discountAmount), 2);
-        if ($totalAmountWithTax <= 0) {
-            $totalAmountWithTax = $totalAmount;
+        $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
+        $securityDeposit = 0.0;
+        if ($totalAmountWithTax > 0) {
+            $securityDeposit = round(max(0, $totalAmountWithTax - $productTotalWithTax), 2);
         }
-        $tax = round(max(0, $totalAmountWithTax - $totalAmount), 2);
+        if ($totalAmountWithTax <= 0) {
+            $securityDeposit = self::SECURITY_DEPOSIT;
+            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
+        }
+        $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
+        $totalAmount = round($productPreTax + $securityDeposit, 2);
+        $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
         
         // WRAP INVOICE PDF GENERATION IN TRY-CATCH
         try {
@@ -1682,42 +1698,36 @@ class OrderModel {
         $stmt = $pdo->prepare("SELECT * FROM order_items WHERE order_id = ?");
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        // Contract PDF (support both root and public fallback directories)
-        $contractPdf = null;
-        $contractCandidates = [
-            [
-                'url' => "/GetAroundMobility/Contracts/contract-{$orderId}.pdf",
-                'path' => __DIR__ . '/../../Contracts/contract-' . $orderId . '.pdf',
-            ],
-            [
-                'url' => "/GetAroundMobility/public/Contracts/contract-{$orderId}.pdf",
-                'path' => __DIR__ . '/../../public/Contracts/contract-' . $orderId . '.pdf',
-            ],
-        ];
-        foreach ($contractCandidates as $candidate) {
-            if (file_exists($candidate['path']) && is_readable($candidate['path'])) {
-                $contractPdf = $candidate['url'];
-                break;
-            }
+        $scriptDir = isset($_SERVER['SCRIPT_NAME']) ? rtrim(str_replace('\\', '/', dirname((string)$_SERVER['SCRIPT_NAME'])), '/') : '';
+        if ($scriptDir === '/' || $scriptDir === '.') {
+            $scriptDir = '';
         }
 
-        // Invoice PDF (support both root and public fallback directories)
+        // Build web URLs that are always public, and mirror legacy files if needed.
+        $contractPdf = null;
+        $contractPublicPath = __DIR__ . '/../../public/Contracts/contract-' . $orderId . '.pdf';
+        $contractLegacyPath = __DIR__ . '/../../Contracts/contract-' . $orderId . '.pdf';
+        if (!is_dir(dirname($contractPublicPath))) {
+            @mkdir(dirname($contractPublicPath), 0777, true);
+        }
+        if (!file_exists($contractPublicPath) && file_exists($contractLegacyPath) && is_readable($contractLegacyPath)) {
+            @copy($contractLegacyPath, $contractPublicPath);
+        }
+        if (file_exists($contractPublicPath) && is_readable($contractPublicPath)) {
+            $contractPdf = ($scriptDir !== '' ? $scriptDir : '') . '/Contracts/contract-' . $orderId . '.pdf';
+        }
+
         $invoicePdf = null;
-        $invoiceCandidates = [
-            [
-                'url' => "/GetAroundMobility/Invoices/invoice-{$orderId}.pdf",
-                'path' => __DIR__ . '/../../Invoices/invoice-' . $orderId . '.pdf',
-            ],
-            [
-                'url' => "/GetAroundMobility/public/Invoices/invoice-{$orderId}.pdf",
-                'path' => __DIR__ . '/../../public/Invoices/invoice-' . $orderId . '.pdf',
-            ],
-        ];
-        foreach ($invoiceCandidates as $candidate) {
-            if (file_exists($candidate['path']) && is_readable($candidate['path'])) {
-                $invoicePdf = $candidate['url'];
-                break;
-            }
+        $invoicePublicPath = __DIR__ . '/../../public/Invoices/invoice-' . $orderId . '.pdf';
+        $invoiceLegacyPath = __DIR__ . '/../../Invoices/invoice-' . $orderId . '.pdf';
+        if (!is_dir(dirname($invoicePublicPath))) {
+            @mkdir(dirname($invoicePublicPath), 0777, true);
+        }
+        if (!file_exists($invoicePublicPath) && file_exists($invoiceLegacyPath) && is_readable($invoiceLegacyPath)) {
+            @copy($invoiceLegacyPath, $invoicePublicPath);
+        }
+        if (file_exists($invoicePublicPath) && is_readable($invoicePublicPath)) {
+            $invoicePdf = ($scriptDir !== '' ? $scriptDir : '') . '/Invoices/invoice-' . $orderId . '.pdf';
         }
         return [
             'order' => $order,
@@ -1797,6 +1807,16 @@ class OrderModel {
             return ['error' => 'No valid items'];
         }
 
+        $lineItems[] = [
+            'price_data' => [
+                'currency' => 'usd',
+                'product_data' => ['name' => 'Refundable Security Deposit'],
+                'unit_amount' => (int) round(self::SECURITY_DEPOSIT * 100),
+            ],
+            'quantity' => 1,
+        ];
+        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT, 2);
+
         $pickup_location_id = $post['pickup_location'] ?? '';
         $pickup_location = '';
         $pickup_location_address = '';
@@ -1841,6 +1861,7 @@ class OrderModel {
             'sale_type' => htmlspecialchars(trim($post['sale_type'] ?? 'rental')),
             'cart_json' => json_encode($cart),
             'total_amount' => (string)$totalAmount,
+            'security_deposit' => (string)self::SECURITY_DEPOSIT,
             'logged_in_user_id' => (string)($session['user_id'] ?? ''),
             'created_by_admin_id' => (string)($session['admin_id'] ?? ''),
             'created_by_admin_role' => strtolower(trim((string)($session['admin_role'] ?? ''))),
@@ -1933,6 +1954,8 @@ class OrderModel {
             $totalAmount += $price * $qty;
         }
 
+        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT, 2);
+
         if ($totalAmount <= 0) {
             return ['error' => 'No valid items'];
         }
@@ -1944,6 +1967,7 @@ class OrderModel {
         }
 
         $metadata = [
+            'checkout_ref' => trim((string)($post['checkout_ref'] ?? '')),
             'first_name' => htmlspecialchars(trim($post['first_name'] ?? '')),
             'last_name' => htmlspecialchars(trim($post['last_name'] ?? '')),
             'guest_email' => $guestEmail,
@@ -1961,13 +1985,21 @@ class OrderModel {
             'pickup_location' => $pickup_location,
             'notes' => htmlspecialchars(trim($post['notes'] ?? '')),
             'sale_type' => htmlspecialchars(trim($post['sale_type'] ?? 'rental')),
-            'cart_json' => json_encode($cart),
             'total_amount' => (string)$totalAmount,
+            'security_deposit' => (string)self::SECURITY_DEPOSIT,
             'logged_in_user_id' => (string)($session['user_id'] ?? ''),
             'created_by_admin_id' => (string)($session['admin_id'] ?? ''),
             'created_by_admin_role' => strtolower(trim((string)($session['admin_role'] ?? ''))),
             'created_by_admin_name' => trim((string)($session['admin_username'] ?? '')),
         ];
+
+        // Stripe metadata values are limited to 500 chars each.
+        foreach ($metadata as $key => $value) {
+            $valueStr = (string)$value;
+            if (strlen($valueStr) > 500) {
+                $metadata[$key] = substr($valueStr, 0, 500);
+            }
+        }
 
         $intentParams = [
             'amount' => (int)round($totalAmount * 100),

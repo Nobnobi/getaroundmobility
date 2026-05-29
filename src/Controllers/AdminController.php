@@ -479,9 +479,11 @@ class AdminController extends Controller
             $appliedPromoId = (int)$validPromo['id'];
         }
 
-        $finalTotalAmount = round(max(0, $cartSubtotal - $discountAmount), 2);
-        $pretaxSubtotal = round($finalTotalAmount / 1.08375, 2);
-        $includedTaxAmount = round($finalTotalAmount - $pretaxSubtotal, 2);
+        $securityDeposit = 100.00;
+        $productTotalWithTax = round(max(0, $cartSubtotal - $discountAmount), 2);
+        $finalTotalAmount = round($productTotalWithTax + $securityDeposit, 2);
+        $pretaxSubtotal = round($productTotalWithTax / 1.08375, 2);
+        $includedTaxAmount = round($productTotalWithTax - $pretaxSubtotal, 2);
         $orderData['total_amount'] = $finalTotalAmount;
         if ($appliedPromoCode !== null) {
             $promoNote = sprintf('Promo applied: %s (-$%0.2f)', $appliedPromoCode, $discountAmount);
@@ -561,6 +563,7 @@ class AdminController extends Controller
         if ($appliedPromoCode !== null) {
             $orderSummary .= "Promo ({$appliedPromoCode}): -$" . number_format($discountAmount, 2) . "\n";
         }
+        $orderSummary .= "Security Deposit: $" . number_format($securityDeposit, 2) . "\n";
         $orderSummary .= "Subtotal (Pre-Tax): $" . number_format($pretaxSubtotal, 2) . "\n";
         $orderSummary .= "Included NV Sales Tax: $" . number_format($includedTaxAmount, 2) . "\n";
         $orderSummary .= "Total: $" . number_format($total_amount, 2) . "\n";
@@ -578,10 +581,10 @@ class AdminController extends Controller
         $zip = $zip ?? '';
 
         // compute totals (subtotal, tax, total with tax) used by templates
-        // total_amount is tax-inclusive in this flow; split it for display consistency.
+        // Product prices are tax-inclusive, while security deposit is non-taxable.
         $totalAmountWithTax = (float)$finalTotalAmount;
-        $totalAmount = round($totalAmountWithTax / 1.08375, 2);
-        $tax = round($totalAmountWithTax - $totalAmount, 2);
+        $totalAmount = round($pretaxSubtotal + $securityDeposit, 2);
+        $tax = round($includedTaxAmount, 2);
 
         $customerName = $name;
         $customerEmail = $email;

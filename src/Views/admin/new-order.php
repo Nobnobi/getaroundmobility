@@ -255,6 +255,10 @@ $panelClass = $kioskMode
                             <span id="discount-amount">-$0.00</span>
                         </div>
                         <div class="flex items-center justify-between text-sm text-slate-600">
+                            <span>Refundable Security Deposit</span>
+                            <span id="security-deposit-amount">$100.00</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm text-slate-600">
                             <span>Subtotal (Pre-Tax)</span>
                             <span id="pretax-amount">$0.00</span>
                         </div>
@@ -345,12 +349,14 @@ const applyPromoBtn = document.getElementById('apply-promo-btn');
 const promoFeedback = document.getElementById('promo-feedback');
 const subtotalAmountEl = document.getElementById('subtotal-amount');
 const discountAmountEl = document.getElementById('discount-amount');
+const securityDepositAmountEl = document.getElementById('security-deposit-amount');
 const pretaxAmountEl = document.getElementById('pretax-amount');
 const taxAmountEl = document.getElementById('tax-amount');
 const orderItemsTierText = document.getElementById('order-items-tier-text');
 const walkinPolicyCheckbox = document.getElementById('walkinPolicyCheckbox');
 
 const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
+const SECURITY_DEPOSIT = 100;
 
 const WALKIN_PROMO_RULES = window.WALKIN_PROMO_RULES || {};
 let activePromoCode = '';
@@ -944,12 +950,14 @@ function updateTotal() {
     });
 
     const discount = calculatePromoDiscount(subtotal);
-    const total = Math.max(0, subtotal - discount);
-    const pretaxSubtotal = total > 0 ? (total / NV_TAX_INCLUSIVE_FACTOR) : 0;
-    const taxIncluded = Math.max(0, total - pretaxSubtotal);
+    const productTotalWithTax = Math.max(0, subtotal - discount);
+    const total = productTotalWithTax + SECURITY_DEPOSIT;
+    const pretaxSubtotal = productTotalWithTax > 0 ? (productTotalWithTax / NV_TAX_INCLUSIVE_FACTOR) : 0;
+    const taxIncluded = Math.max(0, productTotalWithTax - pretaxSubtotal);
 
     if (subtotalAmountEl) subtotalAmountEl.textContent = formatMoney(subtotal);
     if (discountAmountEl) discountAmountEl.textContent = `-$${Number(discount).toFixed(2)}`;
+    if (securityDepositAmountEl) securityDepositAmountEl.textContent = formatMoney(SECURITY_DEPOSIT);
     if (pretaxAmountEl) pretaxAmountEl.textContent = formatMoney(pretaxSubtotal);
     if (taxAmountEl) taxAmountEl.textContent = formatMoney(taxIncluded);
     document.getElementById('total-amount').textContent = `$${total.toFixed(2)}`;

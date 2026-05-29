@@ -51,6 +51,8 @@ use PaypalServerSdkLib\Models\CallbackEvents;
 
 class OrderController extends Controller
 {   
+    private const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
+    private const SECURITY_DEPOSIT = 100.00;
 
     private $paypalClient;
 
@@ -80,6 +82,7 @@ class OrderController extends Controller
     private function getStripeFallbackPayloadFromPost(array $post): array
     {
         return [
+            'checkout_ref' => trim((string)($post['checkout_ref'] ?? '')),
             'first_name' => trim((string)($post['first_name'] ?? '')),
             'last_name' => trim((string)($post['last_name'] ?? '')),
             'guest_email' => trim((string)($post['email'] ?? '')),
@@ -107,19 +110,25 @@ class OrderController extends Controller
     private function findRecentlyCreatedStripeOrderId(string $guestEmail, array $cart, array $meta): ?int
     {
         try {
-            $totalAmount = 0.0;
+            $productAmount = 0.0;
             foreach ($cart as $item) {
                 $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
                 $price = (float)($item['price'] ?? 0);
                 if ($price <= 0) {
                     continue;
                 }
-                $totalAmount += ($qty * $price);
+                $productAmount += ($qty * $price);
             }
 
-            if ($totalAmount <= 0) {
+            if ($productAmount <= 0) {
                 return null;
             }
+
+            // Prefer metadata total when available, otherwise derive by adding mandatory deposit.
+            $metaTotal = (float)($meta['total_amount'] ?? 0);
+            $totalAmount = $metaTotal > 0
+                ? round($metaTotal, 2)
+                : round($productAmount + self::SECURITY_DEPOSIT, 2);
 
             $pickup = trim((string)($meta['pickup_datetime'] ?? ''));
             $return = trim((string)($meta['return_datetime'] ?? ''));
@@ -136,6 +145,14 @@ class OrderController extends Controller
 
             $stmt = $pdo->prepare("SELECT order_id FROM orders WHERE payment_method = 'card' AND guest_email = ? AND ABS(total_amount - ?) < 0.01 AND order_date >= DATE_SUB(NOW(), INTERVAL 60 MINUTE) ORDER BY order_id DESC LIMIT 1");
             $stmt->execute([$guestEmail, $totalAmount]);
+            $orderId = $stmt->fetchColumn();
+            if ($orderId) {
+                return (int)$orderId;
+            }
+
+            // Backward-compatible fallback for pre-deposit rows.
+            $stmt = $pdo->prepare("SELECT order_id FROM orders WHERE payment_method = 'card' AND guest_email = ? AND ABS(total_amount - ?) < 0.01 AND order_date >= DATE_SUB(NOW(), INTERVAL 60 MINUTE) ORDER BY order_id DESC LIMIT 1");
+            $stmt->execute([$guestEmail, round($productAmount, 2)]);
             $orderId = $stmt->fetchColumn();
             return $orderId ? (int)$orderId : null;
         } catch (\Throwable $e) {
@@ -346,14 +363,22 @@ class OrderController extends Controller
         
         try {
             if (session_status() === PHP_SESSION_NONE) session_start();
+
+            $checkoutRef = bin2hex(random_bytes(8));
+            $postData = $_POST;
+            $postData['checkout_ref'] = $checkoutRef;
+
+            // Keep full checkout payload server-side; Stripe metadata stays compact.
+            $_SESSION["stripe_checkout_payload_{$checkoutRef}"] = $this->getStripeFallbackPayloadFromPost($postData);
             
             $orderModel = new OrderModel();
-            $result = $orderModel->createStripePaymentIntent($_POST, $_SESSION);
+            $result = $orderModel->createStripePaymentIntent($postData, $_SESSION);
 
             // Store a fallback payload so finalize can continue even if Stripe metadata is missing/truncated.
             if (!isset($result['error']) && !empty($result['paymentIntentId'])) {
                 $intentId = (string)$result['paymentIntentId'];
-                $_SESSION["stripe_intent_fallback_{$intentId}"] = $this->getStripeFallbackPayloadFromPost($_POST);
+                $_SESSION["stripe_intent_fallback_{$intentId}"] = $this->getStripeFallbackPayloadFromPost($postData);
+                $_SESSION["stripe_checkout_ref_by_intent_{$intentId}"] = $checkoutRef;
             }
             
             // Clear any stray output and return JSON
@@ -466,6 +491,19 @@ class OrderController extends Controller
             $meta = array_merge($fallbackMeta, $meta);
         }
 
+        // Resolve full checkout payload via compact metadata reference token.
+        $checkoutRef = trim((string)($meta['checkout_ref'] ?? ''));
+        if ($checkoutRef === '') {
+            $mappedRef = $_SESSION["stripe_checkout_ref_by_intent_{$paymentIntentId}"] ?? '';
+            $checkoutRef = is_string($mappedRef) ? trim($mappedRef) : '';
+        }
+        if ($checkoutRef !== '') {
+            $sessionPayload = $_SESSION["stripe_checkout_payload_{$checkoutRef}"] ?? [];
+            if (is_array($sessionPayload) && !empty($sessionPayload)) {
+                $meta = array_merge($sessionPayload, $meta);
+            }
+        }
+
         $cart = json_decode($meta['cart_json'] ?? '[]', true);
         $guestEmail = filter_var(trim($meta['guest_email'] ?? ''), FILTER_VALIDATE_EMAIL);
         if (!is_array($cart) || empty($cart)) {
@@ -569,6 +607,10 @@ class OrderController extends Controller
 
         // Cleanup fallback payload once finalization succeeds.
         unset($_SESSION[$fallbackKey]);
+        unset($_SESSION["stripe_checkout_ref_by_intent_{$paymentIntentId}"]);
+        if ($checkoutRef !== '') {
+            unset($_SESSION["stripe_checkout_payload_{$checkoutRef}"]);
+        }
 
         return [
             'success' => true,
@@ -726,7 +768,9 @@ class OrderController extends Controller
             foreach ($cart as $item) {
                 $totalAmount += $item['qty'] * $item['price'];
             }
-            $totalAmountWithTax = $totalAmount;
+            $productTotalWithTax = round($totalAmount, 2);
+            $totalAmountWithTax = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
+            $totalAmount = $totalAmountWithTax;
 
             
             if (isset($myfile) && is_resource($myfile)) {
@@ -949,7 +993,8 @@ class OrderController extends Controller
                 $itemsTable .= '</tbody></table>';
                 $pickupDate = $pickup_datetime ?? '';
                 $returnDate = $return_datetime ?? '';
-                $totalAmountWithTax = $subtotal;
+                $productTotalWithTax = round((float)$subtotal, 2);
+                $totalAmountWithTax = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
                 ob_start();
                 include __DIR__ . '/../../Contracts/contract-template.php';
                 $html = ob_get_clean();
@@ -988,9 +1033,12 @@ class OrderController extends Controller
                 }
                 $itemsTable = $invoiceItemsTable;
                 $orderDate = date('Y-m-d H:i:s');
-                $totalAmountWithTax = round((float)$subtotal, 2);
-                $totalAmount = round($totalAmountWithTax / 1.08375, 2);
-                $tax = round(max(0, $totalAmountWithTax - $totalAmount), 2);
+                $productTotalWithTax = round((float)$subtotal, 2);
+                $securityDeposit = self::SECURITY_DEPOSIT;
+                $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
+                $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
+                $totalAmount = round($productPreTax + $securityDeposit, 2);
+                $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
                 $discountAmount = 0.0;
                 $promoCode = (isset($meta) && is_object($meta)) ? (string)($meta->promo_code ?? '') : '';
                 $paymentMethod = 'card';
@@ -1167,6 +1215,18 @@ class OrderController extends Controller
                 'category' => 'PHYSICAL_GOODS'
             ];
         }
+
+        $items[] = [
+            'name' => 'Refundable Security Deposit',
+            'unit_amount' => [
+                'currency_code' => 'USD',
+                'value' => number_format(self::SECURITY_DEPOSIT, 2, '.', '')
+            ],
+            'quantity' => '1',
+            'category' => 'PHYSICAL_GOODS'
+        ];
+        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT, 2);
+
         if (is_resource($myfile)) {
             fwrite($myfile,"Items array: \n" . print_r($items, true) . "\n");
         }
@@ -1511,7 +1571,8 @@ class OrderController extends Controller
         foreach ($cart as $item) {
             $totalAmount += ($item['quantity'] ?? 1) * ($item['price'] ?? 0);
         }
-        $totalAmountWithTax = $totalAmount;
+        $productTotalWithTax = round($totalAmount, 2);
+        $totalAmountWithTax = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
 
         // Insert order
         // Extract first and last name from formData (PayPal checkout)
@@ -1655,7 +1716,8 @@ class OrderController extends Controller
         $itemsTable .= '</tbody></table>';
         $pickupDate = $pickup_datetime ?? '';
         $returnDate = $return_datetime ?? '';
-        $totalAmountWithTax = $subtotal;
+        $productTotalWithTax = round((float)$subtotal, 2);
+        $totalAmountWithTax = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
 
         ob_start();
         include __DIR__ . '/../../Contracts/contract-template.php';
@@ -1705,9 +1767,12 @@ class OrderController extends Controller
         }
         $itemsTable = $invoiceItemsTable;
         $orderDate = date('Y-m-d H:i:s');
-        $totalAmountWithTax = round((float)$subtotal, 2);
-        $totalAmount = round($totalAmountWithTax / 1.08375, 2);
-        $tax = round(max(0, $totalAmountWithTax - $totalAmount), 2);
+        $productTotalWithTax = round((float)$subtotal, 2);
+        $securityDeposit = self::SECURITY_DEPOSIT;
+        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
+        $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
+        $totalAmount = round($productPreTax + $securityDeposit, 2);
+        $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
         $discountAmount = 0.0;
         $promoCode = '';
         $paymentMethod = 'paypal';
