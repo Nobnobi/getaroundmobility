@@ -251,6 +251,26 @@ class OrderModel {
         if (!$createdByAdminNameCol || !$createdByAdminNameCol->fetch(\PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE orders ADD COLUMN created_by_admin_name VARCHAR(120) NULL AFTER created_by_admin_role");
         }
+
+        $securityDepositCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit'");
+        if (!$securityDepositCol || !$securityDepositCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit DECIMAL(10,2) NULL AFTER total_amount");
+        }
+
+        $securityDepositReasonCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_reason'");
+        if (!$securityDepositReasonCol || !$securityDepositReasonCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_reason TEXT NULL AFTER security_deposit");
+        }
+
+        $securityDepositUpdatedByCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_updated_by_admin_id'");
+        if (!$securityDepositUpdatedByCol || !$securityDepositUpdatedByCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_updated_by_admin_id INT NULL AFTER security_deposit_reason");
+        }
+
+        $securityDepositUpdatedAtCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_updated_at'");
+        if (!$securityDepositUpdatedAtCol || !$securityDepositUpdatedAtCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_updated_at DATETIME NULL AFTER security_deposit_updated_by_admin_id");
+        }
     }
 
     private function ensureOrderAssignments($orderId, $cart, $pickupDatetime, $returnDatetime, &$assignedScooters, $debugFile = null)
@@ -471,18 +491,21 @@ class OrderModel {
         $orderData['promo_discount'] = $promoDiscount > 0 ? $promoDiscount : null;
         $productTotalWithTax = round(max(0, $trustedSubtotal - $promoDiscount), 2);
         $orderData['total_amount'] = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
+        $orderData['security_deposit'] = isset($orderData['security_deposit'])
+            ? round(max(0, (float)$orderData['security_deposit']), 2)
+            : self::SECURITY_DEPOSIT;
 
         $sql = "INSERT INTO orders (
             user_id, guest_first_name, guest_last_name, guest_email, guest_phone,
             client_weight_option, client_weight_lbs,
             address1, address2, state, zip,
             pickup_datetime, return_datetime, delivery_type, hotel_id, pickup_location,
-            notes, payment_method, total_amount, status, customer_type, booking_source,
+            notes, payment_method, total_amount, security_deposit, status, customer_type, booking_source,
             promo_code, promo_discount, promo_applied_by_admin_id, promo_applied_by_admin_role, promo_applied_by_admin_name,
             created_by_admin_id, created_by_admin_role, created_by_admin_name,
             sale_type
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )";
 
         $stmt = $this->db->prepare($sql);
@@ -506,6 +529,7 @@ class OrderModel {
             $orderData['notes'] ?? null,
             $orderData['payment_method'],
             $orderData['total_amount'],
+            $orderData['security_deposit'],
             $orderData['customer_type'],
             $orderData['booking_source'] ?? null,
             $orderData['promo_code'] ?? null,
@@ -860,6 +884,58 @@ class OrderModel {
         $stmt = $this->db->prepare("UPDATE orders SET status = 'paid' WHERE order_id = ?");
         return $stmt->execute([$orderId]);
     }
+
+    public function updateOrderSecurityDeposit($orderId, $securityDeposit, $reason, $updatedByAdminId = null)
+    {
+        $orderId = (int)$orderId;
+        if ($orderId <= 0) {
+            return null;
+        }
+
+        $newDeposit = round(max(0, (float)$securityDeposit), 2);
+        $reasonText = trim((string)$reason);
+        if ($reasonText === '') {
+            return null;
+        }
+        $updatedByAdminId = $updatedByAdminId !== null ? (int)$updatedByAdminId : null;
+        if ($updatedByAdminId !== null && $updatedByAdminId <= 0) {
+            $updatedByAdminId = null;
+        }
+
+        $orderStmt = $this->db->prepare("SELECT order_id, total_amount, promo_discount, security_deposit FROM orders WHERE order_id = ? LIMIT 1");
+        $orderStmt->execute([$orderId]);
+        $order = $orderStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$order) {
+            return null;
+        }
+
+        $itemsStmt = $this->db->prepare("SELECT COALESCE(SUM(price * quantity), 0) FROM order_items WHERE order_id = ?");
+        $itemsStmt->execute([$orderId]);
+        $itemsSubtotal = round((float)$itemsStmt->fetchColumn(), 2);
+
+        $promoDiscount = max(0, round((float)($order['promo_discount'] ?? 0), 2));
+        $productTotalWithTax = round(max(0, $itemsSubtotal - $promoDiscount), 2);
+
+        if ($productTotalWithTax <= 0) {
+            $existingTotal = round((float)($order['total_amount'] ?? 0), 2);
+            $existingDeposit = max(0, round((float)($order['security_deposit'] ?? 0), 2));
+            $productTotalWithTax = round(max(0, $existingTotal - $existingDeposit), 2);
+        }
+
+        $newTotalAmount = round($productTotalWithTax + $newDeposit, 2);
+
+        $updateStmt = $this->db->prepare("UPDATE orders SET security_deposit = ?, total_amount = ?, security_deposit_reason = ?, security_deposit_updated_by_admin_id = ?, security_deposit_updated_at = NOW() WHERE order_id = ?");
+        $updateStmt->execute([$newDeposit, $newTotalAmount, $reasonText, $updatedByAdminId, $orderId]);
+
+        return [
+            'order_id' => $orderId,
+            'security_deposit' => $newDeposit,
+            'total_amount' => $newTotalAmount,
+            'product_total_with_tax' => $productTotalWithTax,
+            'security_deposit_reason' => $reasonText,
+            'security_deposit_updated_by_admin_id' => $updatedByAdminId,
+        ];
+    }
     
     // Analytics methods
     public function getCompletedOrdersCount() {
@@ -1034,6 +1110,7 @@ class OrderModel {
                     $notes,
                     $payment,
                     $totalAmountWithTax,
+                    $securityDeposit,
                     $customerType,
                     $bookingSource,
                     $createdByAdminId,
@@ -1049,8 +1126,8 @@ class OrderModel {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, security_deposit, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
@@ -1166,7 +1243,7 @@ class OrderModel {
         
         // WRAP PDF & EMAIL GENERATION IN TRY-CATCH TO PREVENT BREAKING PAYMENT RESPONSE
         $pdfPath = null;
-        $invoicePath = null;
+        $proformaPath = null;
         try {
             ob_start();
             $debugFile = @fopen("order-debug-log.txt", "a");
@@ -1197,7 +1274,7 @@ class OrderModel {
             }
             $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
             
-            // --- INVOICE PDF GENERATION ---
+            // --- PRO-FORMA PDF GENERATION ---
             $invoiceItemsTable = '';
             foreach ($cart as $item) {
                 $qty = htmlspecialchars($item['qty']);
@@ -1239,7 +1316,7 @@ class OrderModel {
             $totalAmount = round($productPreTax + $securityDeposit, 2);
             $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
             ob_start();
-            include __DIR__ . '/../../Invoices/invoice-template.php';
+            include __DIR__ . '/../../Proformas/proforma-template.php';
             $invoiceHtml = ob_get_clean();
             $invoiceOptions = new Options();
             $invoiceOptions->set('isRemoteEnabled', true);
@@ -1248,23 +1325,23 @@ class OrderModel {
             $invoiceDompdf->loadHtml($invoiceHtml);
             $invoiceDompdf->setPaper('A4', 'portrait');
             $invoiceDompdf->render();
-            $invoiceDir = __DIR__ . '/../../Invoices/';
-            if ((!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) || !is_writable($invoiceDir)) {
-                $invoiceDir = __DIR__ . '/../../public/Invoices/';
-                if (!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) {
-                    throw new \RuntimeException('Unable to create Invoices directory.');
+            $proformaDir = __DIR__ . '/../../Proformas/';
+            if ((!is_dir($proformaDir) && !@mkdir($proformaDir, 0777, true)) || !is_writable($proformaDir)) {
+                $proformaDir = __DIR__ . '/../../public/Proformas/';
+                if (!is_dir($proformaDir) && !@mkdir($proformaDir, 0777, true)) {
+                    throw new \RuntimeException('Unable to create Proformas directory.');
                 }
             }
-            $invoiceTarget = $invoiceDir . "invoice-{$orderId}.pdf";
+            $invoiceTarget = $proformaDir . "proforma-{$orderId}.pdf";
             $written = @file_put_contents($invoiceTarget, $invoiceDompdf->output());
             if ($written === false || !is_file($invoiceTarget) || filesize($invoiceTarget) === 0) {
-                throw new \RuntimeException('Failed to write invoice PDF.');
+                throw new \RuntimeException('Failed to write pro-forma PDF.');
             }
-            $invoicePath = $invoiceDir . "invoice-{$orderId}.pdf";
+            $proformaPath = $proformaDir . "proforma-{$orderId}.pdf";
         } catch (\Throwable $e) {
             // PDF generation failed, but order is already created - log it and continue
             @ob_end_clean();
-            error_log("PDF/Invoice generation failed for order {$orderId}: " . $e->getMessage());
+            error_log("Contract/Pro-forma generation failed for order {$orderId}: " . $e->getMessage());
             $debugFile = @fopen("order-debug-log.txt", "a");
             if (is_resource($debugFile)) {
                 fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] PDF generation error: " . $e->getMessage() . "\n");
@@ -1288,7 +1365,7 @@ class OrderModel {
                 $mail = new PHPMailer(true);
                 $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
                 if (is_resource($debugFile)) {
-                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Preparing to send contract/invoice email to: $finalEmail\n");
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Preparing to send contract/pro-forma email to: $finalEmail\n");
                 }
                 $mail->isSMTP();
                 $mail->Host = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
@@ -1301,7 +1378,7 @@ class OrderModel {
                 $mail->addAddress($finalEmail, $finalName);
                 $mail->isHTML(true);
                 $mail->Subject = 'Your Rental Booking Confirmation';
-                if ($pdfPath && is_file($pdfPath) && $invoicePath && is_file($invoicePath)) {
+                if ($pdfPath && is_file($pdfPath) && $proformaPath && is_file($proformaPath)) {
                     $mail->Body = buildBookingEmailTemplate([
                         'customer_name' => $finalName,
                         'order_id' => $orderId,
@@ -1310,11 +1387,11 @@ class OrderModel {
                         'pickup_datetime' => $pickupDate ?? '',
                         'return_datetime' => $returnDate ?? '',
                         'payment_method' => (string)($payment_method ?? ''),
-                        'note' => 'Thank you for your business! Your invoice is attached to this email.',
+                        'note' => 'Your booking is confirmed. A pro-forma invoice is attached. Final invoice will be issued after order completion.',
                     ]);
-                    $mail->AltBody = "Thank you for your booking! Please find your rental contract and invoice attached.";
+                    $mail->AltBody = "Thank you for your booking! Please find your rental contract and pro-forma invoice attached.";
                     $mail->addAttachment($pdfPath, "Rental-Contract-{$orderId}.pdf");
-                    $mail->addAttachment($invoicePath, "Invoice-{$orderId}.pdf");
+                    $mail->addAttachment($proformaPath, "Proforma-Invoice-{$orderId}.pdf");
                 } else {
                     $mail->Body = buildBookingEmailTemplate([
                         'customer_name' => $finalName,
@@ -1324,18 +1401,18 @@ class OrderModel {
                         'pickup_datetime' => $pickupDate ?? '',
                         'return_datetime' => $returnDate ?? '',
                         'payment_method' => (string)($payment_method ?? ''),
-                        'note' => 'Thank you for your booking. Your invoice files are being prepared and will be sent shortly.',
+                        'note' => 'Thank you for your booking. Your pro-forma files are being prepared and will be sent shortly.',
                     ]);
-                    $mail->AltBody = "Thank you for your booking! Your contract/invoice files are being prepared and will be sent shortly.";
+                    $mail->AltBody = "Thank you for your booking! Your contract/pro-forma files are being prepared and will be sent shortly.";
                 }
                 $mail->send();
                 if (is_resource($debugFile)) {
-                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Contract/invoice email sent successfully to: $finalEmail\n");
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Contract/pro-forma email sent successfully to: $finalEmail\n");
                 }
             } catch (MailException $e) {
                 $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
                 if (is_resource($debugFile)) {
-                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Contract/invoice email failed: " . $mail->ErrorInfo . "\nException: " . $e->getMessage() . "\n");
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Contract/pro-forma email failed: " . $mail->ErrorInfo . "\nException: " . $e->getMessage() . "\n");
                     fclose($debugFile);
                 }
                 error_log("Mailer Error: {$mail->ErrorInfo}");
@@ -1419,7 +1496,7 @@ class OrderModel {
         $return_datetime = $returnDate;
 
         $contractDir = __DIR__ . '/../../Contracts/';
-        $invoiceDir = __DIR__ . '/../../Invoices/';
+        $invoiceDir = __DIR__ . '/../../Proformas/';
         if ((!is_dir($contractDir) && !@mkdir($contractDir, 0777, true)) || !is_writable($contractDir)) {
             $contractDir = __DIR__ . '/../../public/Contracts/';
             if (!is_dir($contractDir) && !@mkdir($contractDir, 0777, true)) {
@@ -1427,14 +1504,14 @@ class OrderModel {
             }
         }
         if ((!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) || !is_writable($invoiceDir)) {
-            $invoiceDir = __DIR__ . '/../../public/Invoices/';
+            $invoiceDir = __DIR__ . '/../../public/Proformas/';
             if (!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) {
                 $invoiceDir = null;
             }
         }
 
         $pdfPath = $contractDir ? $contractDir . "contract-{$orderId}.pdf" : null;
-        $invoicePath = $invoiceDir ? $invoiceDir . "invoice-{$orderId}.pdf" : null;
+        $invoicePath = $invoiceDir ? $invoiceDir . "proforma-{$orderId}.pdf" : null;
 
         // WRAP PDF GENERATION IN TRY-CATCH
         try {
@@ -1482,14 +1559,19 @@ class OrderModel {
         $itemsTable = $invoiceItemsTable;
         $discountAmount = (float)($order['promo_discount'] ?? 0);
         $promoCode = (string)($order['promo_code'] ?? '');
+        $securityDepositReason = (string)($order['security_deposit_reason'] ?? '');
+        $securityDepositBaseline = self::SECURITY_DEPOSIT;
         $orderDate = (string)($order['order_date'] ?? date('Y-m-d H:i:s'));
         $paymentMethod = (string)($order['payment_method'] ?? '');
         $pickupLocation = (string)($order['pickup_location'] ?? '');
         $deliveryType = (string)($order['delivery_type'] ?? '');
         $subtotal = (float)$subtotal;
         $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
-        $securityDeposit = 0.0;
-        if ($totalAmountWithTax > 0) {
+        $storedSecurityDeposit = isset($order['security_deposit']) ? (float)$order['security_deposit'] : null;
+        $securityDeposit = $storedSecurityDeposit !== null && $storedSecurityDeposit >= 0
+            ? round($storedSecurityDeposit, 2)
+            : 0.0;
+        if ($securityDeposit <= 0 && $totalAmountWithTax > 0) {
             $securityDeposit = round(max(0, $totalAmountWithTax - $productTotalWithTax), 2);
         }
         if ($totalAmountWithTax <= 0) {
@@ -1500,11 +1582,11 @@ class OrderModel {
         $totalAmount = round($productPreTax + $securityDeposit, 2);
         $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
         
-        // WRAP INVOICE PDF GENERATION IN TRY-CATCH
+        // WRAP PRO-FORMA PDF GENERATION IN TRY-CATCH
         try {
             if ($invoicePath && (!file_exists($invoicePath) || filesize($invoicePath) === 0)) {
                 ob_start();
-                include __DIR__ . '/../../Invoices/invoice-template.php';
+            include __DIR__ . '/../../Proformas/proforma-template.php';
                 $invoiceHtml = ob_get_clean();
                 $invoiceOptions = new Options();
                 $invoiceOptions->set('isRemoteEnabled', true);
@@ -1515,17 +1597,17 @@ class OrderModel {
                 $invoiceDompdf->render();
                 $written = @file_put_contents($invoicePath, $invoiceDompdf->output());
                 if ($written === false || !is_file($invoicePath) || filesize($invoicePath) === 0) {
-                    throw new \RuntimeException('Failed to write recovery invoice PDF.');
+                    throw new \RuntimeException('Failed to write recovery pro-forma PDF.');
                 }
                 if (is_resource($debugFile)) {
-                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Invoice PDF generated for orderId: {$orderId}\n");
+                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Pro-forma PDF generated for orderId: {$orderId}\n");
                 }
             }
         } catch (\Throwable $e) {
             @ob_end_clean();
-            error_log("Invoice PDF generation failed for order {$orderId}: " . $e->getMessage());
+            error_log("Pro-forma PDF generation failed for order {$orderId}: " . $e->getMessage());
             if (is_resource($debugFile)) {
-                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Invoice PDF error: " . $e->getMessage() . "\n");
+                fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Pro-forma PDF error: " . $e->getMessage() . "\n");
             }
             $invoicePath = null;
         }
@@ -1538,7 +1620,7 @@ class OrderModel {
                 $attachments[] = ['path' => $pdfPath, 'name' => "Rental-Contract-{$orderId}.pdf"];
             }
             if ($invoicePath && file_exists($invoicePath)) {
-                $attachments[] = ['path' => $invoicePath, 'name' => "Invoice-{$orderId}.pdf"];
+                $attachments[] = ['path' => $invoicePath, 'name' => "Proforma-Invoice-{$orderId}.pdf"];
             }
             $bodyHtml = buildBookingEmailTemplate([
                 'customer_name' => $customerName,
@@ -1549,8 +1631,8 @@ class OrderModel {
                 'return_datetime' => $returnDate,
                 'payment_method' => (string)($order['payment_method'] ?? ''),
                 'note' => !empty($attachments)
-                    ? 'Thank you for your business! Your invoice is attached to this email.'
-                    : 'Thank you for your booking. Your invoice files are being prepared and will be sent shortly.',
+                    ? 'Your booking is confirmed. Your pro-forma invoice is attached. Final invoice is issued after completion.'
+                    : 'Thank you for your booking. Your pro-forma files are being prepared and will be sent shortly.',
             ]);
             $emailSent = \sendBookingConfirmation($customerEmail, $customerName, 'Your Rental Booking Confirmation', $bodyHtml, $attachments);
             if (is_resource($debugFile)) {
@@ -1571,6 +1653,150 @@ class OrderModel {
             'invoicePath' => $invoicePath,
             'emailSent' => $emailSent,
         ];
+    }
+
+    private function generateAndSendFinalInvoiceForCompletedOrder($orderId): bool {
+        $stmt = $this->db->prepare("SELECT * FROM orders WHERE order_id = ? LIMIT 1");
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$order) {
+            return false;
+        }
+
+        $itemsStmt = $this->db->prepare("SELECT product_name, variation_name, quantity, price FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC");
+        $itemsStmt->execute([$orderId]);
+        $items = $itemsStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $groupedItems = [];
+        foreach ($items as $item) {
+            $qty = max(1, (int)($item['quantity'] ?? 1));
+            $name = trim((string)($item['product_name'] ?? 'Item') . (!empty($item['variation_name']) ? ' - ' . (string)$item['variation_name'] : ''));
+            $price = (float)($item['price'] ?? 0);
+            $groupKey = $name . '||' . number_format($price, 2, '.', '');
+            if (!isset($groupedItems[$groupKey])) {
+                $groupedItems[$groupKey] = [
+                    'name' => $name,
+                    'price' => $price,
+                    'qty' => 0,
+                ];
+            }
+            $groupedItems[$groupKey]['qty'] += $qty;
+        }
+
+        $invoiceItemsTable = '';
+        $subtotal = 0.0;
+        foreach ($groupedItems as $group) {
+            $lineQty = (int)$group['qty'];
+            $linePrice = (float)$group['price'];
+            $lineTotalValue = $lineQty * $linePrice;
+            $subtotal += $lineTotalValue;
+
+            $safeQty = htmlspecialchars((string)$lineQty);
+            $safeName = htmlspecialchars((string)$group['name']);
+            $unitPrice = number_format($linePrice, 2);
+            $lineTotal = number_format($lineTotalValue, 2);
+            $invoiceItemsTable .= "<tr><td class='border p-2'>{$safeQty}</td><td class='border p-2'>{$safeName}</td><td class='border p-2'>\${$unitPrice}</td><td class='border p-2'>\${$lineTotal}</td></tr>";
+        }
+
+        $logoSrc = '';
+        if (extension_loaded('gd')) {
+            $logoPath = __DIR__ . '/../../public/img/Original logo.png';
+            if (!file_exists($logoPath)) {
+                $logoPath = __DIR__ . '/../../public/img/Original logo.svg';
+            }
+            if (file_exists($logoPath)) {
+                $mime = mime_content_type($logoPath);
+                $data = file_get_contents($logoPath);
+                $logoSrc = 'data:' . $mime . ';base64,' . base64_encode($data);
+            }
+        }
+
+        $itemsTable = $invoiceItemsTable;
+        $orderDate = (string)($order['order_date'] ?? date('Y-m-d H:i:s'));
+        $pickup_datetime = (string)($order['pickup_datetime'] ?? '');
+        $return_datetime = (string)($order['return_datetime'] ?? '');
+        $customerName = trim((string)($order['guest_first_name'] ?? '') . ' ' . (string)($order['guest_last_name'] ?? ''));
+        $customerEmail = filter_var(trim((string)($order['guest_email'] ?? '')), FILTER_VALIDATE_EMAIL);
+        if ((!$customerEmail || $customerName === '') && !empty($order['user_id'])) {
+            $userStmt = $this->db->prepare("SELECT first_name, last_name, email FROM users WHERE user_id = ? LIMIT 1");
+            $userStmt->execute([$order['user_id']]);
+            $user = $userStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $userEmail = filter_var(trim((string)($user['email'] ?? '')), FILTER_VALIDATE_EMAIL);
+            if ($userEmail) {
+                $customerEmail = $userEmail;
+            }
+            if ($customerName === '') {
+                $customerName = trim((string)($user['first_name'] ?? '') . ' ' . (string)($user['last_name'] ?? ''));
+            }
+        }
+        $customerPhone = (string)($order['guest_phone'] ?? '');
+        $customerAddress = trim((string)($order['address1'] ?? '') . ' ' . (string)($order['address2'] ?? ''));
+        $discountAmount = (float)($order['promo_discount'] ?? 0);
+        $promoCode = (string)($order['promo_code'] ?? '');
+        $securityDepositReason = (string)($order['security_deposit_reason'] ?? '');
+        $securityDepositBaseline = self::SECURITY_DEPOSIT;
+        $paymentMethod = (string)($order['payment_method'] ?? '');
+        $pickupLocation = (string)($order['pickup_location'] ?? '');
+        $deliveryType = (string)($order['delivery_type'] ?? '');
+
+        $totalAmountWithTax = (float)($order['total_amount'] ?? 0);
+        $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
+        $storedSecurityDeposit = isset($order['security_deposit']) ? (float)$order['security_deposit'] : null;
+        $securityDeposit = $storedSecurityDeposit !== null && $storedSecurityDeposit >= 0
+            ? round($storedSecurityDeposit, 2)
+            : 0.0;
+        if ($securityDeposit <= 0 && $totalAmountWithTax > 0) {
+            $securityDeposit = round(max(0, $totalAmountWithTax - $productTotalWithTax), 2);
+        }
+        $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
+        $totalAmount = round($productPreTax + $securityDeposit, 2);
+        $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
+
+        $invoiceDir = __DIR__ . '/../../Invoices/';
+        if ((!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) || !is_writable($invoiceDir)) {
+            $invoiceDir = __DIR__ . '/../../public/Invoices/';
+            if (!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) {
+                return false;
+            }
+        }
+        $invoicePath = $invoiceDir . "invoice-{$orderId}.pdf";
+
+        ob_start();
+        include __DIR__ . '/../../Invoices/invoice-template.php';
+        $invoiceHtml = ob_get_clean();
+
+        $invoiceOptions = new Options();
+        $invoiceOptions->set('isRemoteEnabled', true);
+        $invoiceOptions->set('isHtml5ParserEnabled', true);
+
+        $invoiceDompdf = new Dompdf($invoiceOptions);
+        $invoiceDompdf->loadHtml($invoiceHtml);
+        $invoiceDompdf->setPaper('A4', 'portrait');
+        $invoiceDompdf->render();
+        $written = @file_put_contents($invoicePath, $invoiceDompdf->output());
+        if ($written === false || !is_file($invoicePath) || filesize($invoicePath) === 0) {
+            return false;
+        }
+
+        if ($customerEmail) {
+            require_once __DIR__ . '/../Utils/Mailer.php';
+            $subject = 'Your Final Invoice - Completed Order';
+            $body = buildBookingEmailTemplate([
+                'customer_name' => $customerName,
+                'order_id' => $orderId,
+                'amount_due' => $totalAmountWithTax,
+                'issued_at' => date('Y-m-d H:i:s'),
+                'pickup_datetime' => $pickup_datetime,
+                'return_datetime' => $return_datetime,
+                'payment_method' => $paymentMethod,
+                'note' => 'Your order has been completed. Your final invoice is attached.',
+            ]);
+            @sendBookingConfirmation($customerEmail, $customerName, $subject, $body, [
+                ['path' => $invoicePath, 'name' => "Final-Invoice-{$orderId}.pdf"],
+            ]);
+        }
+
+        return true;
     }
 
     /**
@@ -1614,6 +1840,12 @@ class OrderModel {
         // Update all reservations for this order to 'completed'
         $stmtReservations = $pdo->prepare("UPDATE reservations SET status = 'completed' WHERE order_id = ?");
         $stmtReservations->execute([$orderId]);
+
+        if ($this->generateAndSendFinalInvoiceForCompletedOrder($orderId)) {
+            $messages[] = "Final invoice generated and emailed for order {$orderId}.";
+        } else {
+            $messages[] = "Order completed, but final invoice generation/email needs manual follow-up.";
+        }
 
         // Get customer info for this order
         // Try to get user info if user_id exists, else use guest info
@@ -1729,11 +1961,25 @@ class OrderModel {
         if (file_exists($invoicePublicPath) && is_readable($invoicePublicPath)) {
             $invoicePdf = ($scriptDir !== '' ? $scriptDir : '') . '/Invoices/invoice-' . $orderId . '.pdf';
         }
+
+        $proformaPdf = null;
+        $proformaPublicPath = __DIR__ . '/../../public/Proformas/proforma-' . $orderId . '.pdf';
+        $proformaLegacyPath = __DIR__ . '/../../Proformas/proforma-' . $orderId . '.pdf';
+        if (!is_dir(dirname($proformaPublicPath))) {
+            @mkdir(dirname($proformaPublicPath), 0777, true);
+        }
+        if (!file_exists($proformaPublicPath) && file_exists($proformaLegacyPath) && is_readable($proformaLegacyPath)) {
+            @copy($proformaLegacyPath, $proformaPublicPath);
+        }
+        if (file_exists($proformaPublicPath) && is_readable($proformaPublicPath)) {
+            $proformaPdf = ($scriptDir !== '' ? $scriptDir : '') . '/Proformas/proforma-' . $orderId . '.pdf';
+        }
         return [
             'order' => $order,
             'items' => $items,
             'contract_pdf' => $contractPdf,
-            'invoice_pdf' => $invoicePdf
+            'invoice_pdf' => $invoicePdf,
+            'proforma_pdf' => $proformaPdf
         ];
     }
 

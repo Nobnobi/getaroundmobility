@@ -58,6 +58,11 @@ $paymentMethod = $paymentMethod ?? ($payment_method ?? '');
 $deliveryType = $deliveryType ?? ($delivery_type ?? '');
 $promoCode = $promoCode ?? ($promo_code ?? '');
 $itemsTable = $itemsTable ?? '';
+$documentTitle = trim((string)($documentTitle ?? 'INVOICE'));
+$documentDisclaimer = trim((string)($documentDisclaimer ?? ''));
+$footerLine1 = $footerLine1 ?? 'USED ITEMS SOLD AS IS/ALL SALES ARE FINAL FOR ITEMS PURCHASED (RENTALS NOT INCLUDED)';
+$footerLine2 = $footerLine2 ?? 'Get Around Mobility Terms and Conditions - Get Around Mobility Online Retail Agreement';
+$footerLine3 = $footerLine3 ?? 'Thank you for your business!';
 
 if (stripos((string)$itemsTable, '<table') !== false) {
     $extractedRows = '';
@@ -80,6 +85,20 @@ $securityDeposit = isset($securityDeposit)
     ? (float)$securityDeposit
     : (isset($security_deposit) ? (float)$security_deposit : 0.0);
 
+$securityDepositReason = isset($securityDepositReason)
+    ? trim((string)$securityDepositReason)
+    : (isset($security_deposit_reason)
+        ? trim((string)$security_deposit_reason)
+        : (isset($order['security_deposit_reason']) ? trim((string)$order['security_deposit_reason']) : ''));
+
+$securityDepositBaseline = isset($securityDepositBaseline)
+    ? (float)$securityDepositBaseline
+    : 100.0;
+
+if ($securityDepositBaseline < 0) {
+    $securityDepositBaseline = 0.0;
+}
+
 if ($securityDeposit <= 0 && isset($totalAmountWithTax)) {
     $securityDeposit = round(max(0, (float)$totalAmountWithTax - $productTotalWithTax), 2);
 }
@@ -96,6 +115,12 @@ if ($lineSubtotal <= 0) {
 
 $preTaxSubtotal = round(max(0, $productPreTaxSubtotal), 2);
 $grandTotal = round(max(0, $totalAmountWithTax), 2);
+$securityDepositDelta = round($securityDeposit - $securityDepositBaseline, 2);
+$addedSecurityDeposit = $securityDepositDelta > 0 ? $securityDepositDelta : 0.0;
+$displayedSecurityDeposit = $securityDeposit;
+if ($addedSecurityDeposit > 0) {
+    $displayedSecurityDeposit = $securityDepositBaseline;
+}
 
 $esc = static function ($value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -118,7 +143,7 @@ $fmtDate = static function ($value): string {
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Invoice</title>
+    <title><?= $esc($documentTitle) ?></title>
     <link href="/css/output.css" rel="stylesheet">
     <style>
         body { font-family: DejaVu Sans, sans-serif; color: #111827; font-size: 12px; }
@@ -163,7 +188,10 @@ $fmtDate = static function ($value): string {
                 <div>(702) 637-008 | gio@getaroundmobility.com</div>
             </div>
             <div class="right">
-                <div class="invoice-title">INVOICE</div>
+                <div class="invoice-title"><?= $esc($documentTitle) ?></div>
+                <?php if ($documentDisclaimer !== ''): ?>
+                <div class="muted" style="font-size:11px;margin-top:-2px;margin-bottom:6px;"><?= $esc($documentDisclaimer) ?></div>
+                <?php endif; ?>
                 <div><span class="label">Order #:</span> <?= $esc($orderId) ?></div>
                 <div><span class="label">Issued:</span> <?= $esc($fmtDate($orderDate)) ?></div>
                 <div><span class="label">Pickup:</span> <?= $esc($fmtDate($pickup_datetime)) ?></div>
@@ -214,18 +242,31 @@ $fmtDate = static function ($value): string {
                     <td>Items Subtotal</td>
                     <td class="text-right"><?= $fmtMoney($lineSubtotal) ?></td>
                 </tr>
+                <?php if ($discountAmount > 0.0001): ?>
                 <tr class="line">
                     <td>Discount<?= !empty($promoCode) ? ' (' . $esc($promoCode) . ')' : '' ?></td>
                     <td class="text-right">-<?= $fmtMoney($discountAmount) ?></td>
                 </tr>
+                <?php endif; ?>
                 <tr class="line">
                     <td>Subtotal (Pre-Tax)</td>
                     <td class="text-right"><?= $fmtMoney($preTaxSubtotal) ?></td>
                 </tr>
-                <?php if ($securityDeposit > 0): ?>
+                <?php if ($displayedSecurityDeposit > 0): ?>
                 <tr class="line">
-                    <td>Refundable Security Deposit</td>
-                    <td class="text-right"><?= $fmtMoney($securityDeposit) ?></td>
+                    <td>Security Deposit</td>
+                    <td class="text-right"><?= $fmtMoney($displayedSecurityDeposit) ?></td>
+                </tr>
+                <?php endif; ?>
+                <?php if ($addedSecurityDeposit > 0): ?>
+                <tr class="line">
+                    <td>
+                        Added security deposit
+                        <?php if ($securityDepositReason !== ''): ?>
+                            <span class="muted">(<?= $esc($securityDepositReason) ?>)</span>
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-right"><?= $fmtMoney($addedSecurityDeposit) ?></td>
                 </tr>
                 <?php endif; ?>
                 <tr class="line">
@@ -240,9 +281,9 @@ $fmtDate = static function ($value): string {
         </div>
 
         <div class="footer text-center">
-            USED ITEMS SOLD AS IS/ALL SALES ARE FINAL FOR ITEMS PURCHASED (RENTALS NOT INCLUDED)<br><br>
-            Get Around Mobility Terms and Conditions - Get Around Mobility Online Retail Agreement<br>
-            Thank you for your business!<br>
+            <?= $esc($footerLine1) ?><br><br>
+            <?= $esc($footerLine2) ?><br>
+            <?= $esc($footerLine3) ?><br>
             getaroundmobility.com
         </div>
         <div class="text-center footer">

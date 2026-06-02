@@ -630,7 +630,7 @@ class AdminController extends Controller
         file_put_contents($pdfDir . "contract-{$order_id}.pdf", $dompdf->output());
         $pdfPath = $pdfDir . "contract-{$order_id}.pdf";
 
-        // --- INVOICE PDF GENERATION ---
+        // --- PRO-FORMA PDF GENERATION ---
         $invoiceItemsTable = '';
         foreach ($cart as $item) {
             $qty = htmlspecialchars($item['qty']);
@@ -654,7 +654,7 @@ class AdminController extends Controller
         $deliveryType = (string)($orderData['delivery_type'] ?? '');
 
         ob_start();
-        include __DIR__ . '/../../Invoices/invoice-template.php';
+        include __DIR__ . '/../../Proformas/proforma-template.php';
         $invoiceHtml = ob_get_clean();
 
         $invoiceOptions = new \Dompdf\Options();
@@ -665,10 +665,10 @@ class AdminController extends Controller
         $invoiceDompdf->setPaper('A4', 'portrait');
         $invoiceDompdf->render();
 
-        $invoiceDir = __DIR__ . '/../../Invoices/';
+        $invoiceDir = __DIR__ . '/../../Proformas/';
         if (!is_dir($invoiceDir)) mkdir($invoiceDir, 0777, true);
-        file_put_contents($invoiceDir . "invoice-{$order_id}.pdf", $invoiceDompdf->output());
-        $invoicePath = $invoiceDir . "invoice-{$order_id}.pdf";
+        file_put_contents($invoiceDir . "proforma-{$order_id}.pdf", $invoiceDompdf->output());
+        $invoicePath = $invoiceDir . "proforma-{$order_id}.pdf";
 
         // --- EMAIL SENDING ---
         require_once __DIR__ . '/../Utils/Mailer.php';
@@ -679,7 +679,7 @@ class AdminController extends Controller
             ],
             [
                 'path' => $invoicePath,
-                'name' => "Invoice-{$order_id}.pdf"
+                'name' => "Proforma-Invoice-{$order_id}.pdf"
             ]
         ];
         $subject = 'Your Rental Booking Confirmation';
@@ -691,7 +691,7 @@ class AdminController extends Controller
             'pickup_datetime' => $pickup_datetime,
             'return_datetime' => $return_datetime,
             'payment_method' => $payment_method,
-            'note' => 'Thank you for your business! Your invoice is attached to this email.',
+            'note' => 'Your booking is confirmed. A pro-forma invoice is attached. Final invoice is issued after completion.',
         ]);
         $result = sendBookingConfirmation($customerEmail, $customerName, $subject, $body, $attachments);
         if (!$result) {
@@ -738,6 +738,84 @@ class AdminController extends Controller
             $orderModel->markAsPaid($orderId);
         }
         header('Location: /admin/orders');
+        exit;
+    }
+
+    public function updateSecurityDeposit() {
+        $this->requireAdmin();
+        header('Content-Type: application/json; charset=utf-8');
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'Method not allowed']);
+            exit;
+        }
+
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $orderId = isset($_POST['order_id']) ? (int)$_POST['order_id'] : 0;
+        $depositRaw = trim((string)($_POST['security_deposit'] ?? ''));
+        $reason = trim((string)($_POST['security_deposit_reason'] ?? ''));
+
+        if ($orderId <= 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Invalid order ID']);
+            exit;
+        }
+
+        if ($depositRaw === '' || !is_numeric($depositRaw)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Security deposit must be a valid number']);
+            exit;
+        }
+
+        $securityDeposit = round((float)$depositRaw, 2);
+        if ($securityDeposit < 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Security deposit cannot be negative']);
+            exit;
+        }
+
+        if ($securityDeposit > 10000) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Security deposit is too high']);
+            exit;
+        }
+
+        if ($reason === '' || strlen($reason) < 5) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Please provide a brief reason (at least 5 characters).']);
+            exit;
+        }
+
+        if (strlen($reason) > 1000) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Reason is too long.']);
+            exit;
+        }
+
+        $orderModel = new \App\Models\OrderModel();
+        $result = $orderModel->updateOrderSecurityDeposit(
+            $orderId,
+            $securityDeposit,
+            $reason,
+            isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null
+        );
+        if (!$result) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Order not found']);
+            exit;
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Security deposit updated.',
+            'order' => $result,
+        ]);
         exit;
     }
 

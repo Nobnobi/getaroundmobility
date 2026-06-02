@@ -373,19 +373,21 @@ $formatDateTime = function ($value) {
     </div>
 
     <!-- Order Details Modal -->
-    <div id="orderModal" class="fixed inset-0 flex items-center justify-center z-50 hidden" style="background: rgba(0,0,0,0.7);">
-        <div class="bg-white rounded-lg shadow p-6 w-full max-w-2xl" id="orderModalBox">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-bold" id="orderModalTitle">Order Details</h3>
-                <button onclick="closeOrderModal()" class="text-gray-500 hover:text-gray-700 text-2xl font-bold cursor-pointer">&times;</button>
+    <div id="orderModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 px-4">
+        <div id="orderModalBox" class="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-xl font-bold text-[#062B41]" id="orderModalTitle">Order Details</h3>
+                <button onclick="closeOrderModal()" class="text-2xl font-bold text-gray-400 hover:text-gray-700 cursor-pointer">&times;</button>
             </div>
-            <div id="orderModalContent">
-                <div class="text-center text-gray-500">Loading...</div>
+            <div id="orderModalContent" class="max-h-[70vh] overflow-y-auto text-sm text-gray-700">
+                <div class="py-8 text-center text-gray-500">Loading...</div>
             </div>
         </div>
     </div>
 
     <script>
+    const ADMIN_CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token'] ?? '') ?>;
+
     function showOrderActionLoadingState(title, message) {
         const overlay = document.getElementById('order-action-loading-overlay');
         const titleNode = document.getElementById('order-action-loading-title');
@@ -415,7 +417,9 @@ $formatDateTime = function ($value) {
     }
 
     function openOrderModal(orderId) {
-        document.getElementById('orderModal').classList.remove('hidden');
+        const modal = document.getElementById('orderModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
         const content = document.getElementById('orderModalContent');
         const esc = (value) => {
             return String(value ?? '')
@@ -425,7 +429,7 @@ $formatDateTime = function ($value) {
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
         };
-        content.innerHTML = '<div class="text-center text-gray-500">Loading...</div>';
+        content.innerHTML = '<div class="py-8 text-center text-gray-500">Loading...</div>';
         fetch(`/admin/orders/details?order_id=${orderId}`)
             .then(res => {
                 if (!res.ok) {
@@ -439,34 +443,31 @@ $formatDateTime = function ($value) {
                     return;
                 }
 
+                const order = data.order || {};
+                const items = Array.isArray(data.items) ? data.items : [];
+                const customerName = [order.guest_first_name || '', order.guest_last_name || ''].join(' ').trim() || order.customer_name || 'N/A';
+                const customerEmail = order.guest_email || order.customer_email || 'N/A';
+                const customerPhone = order.guest_phone || order.customer_phone || 'N/A';
+
                 let html = `
-                    <div class="mb-4">
-                        <span class="font-semibold">Order ID:</span> ${esc(data.order.order_id)}<br>
-                                                <span class="font-semibold">Customer:</span> ${
-                                                    (data.order.guest_first_name && data.order.guest_last_name)
-                                                        ? esc(data.order.guest_first_name + ' ' + data.order.guest_last_name)
-                                                        : esc(data.order.customer_name || '')
-                                                }<br>
-                        <span class="font-semibold">Email:</span> ${esc(data.order.guest_email || data.order.customer_email)}<br>
-                        <span class="font-semibold">Status:</span> ${esc(data.order.status)}<br>
-                        <span class="font-semibold">Date:</span> ${toOrdinaryTime(data.order.order_date)}<br>
-                        <span class="font-semibold">Pickup:</span> ${toOrdinaryTime(data.order.pickup_datetime)}<br>
-                        <span class="font-semibold">Return:</span> ${toOrdinaryTime(data.order.return_datetime)}<br>
+                    <div class="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-2">
+                        <div><span class="font-semibold text-[#062B41]">Order ID:</span> ${esc(order.order_id || '')}</div>
+                        <div><span class="font-semibold text-[#062B41]">Status:</span> ${esc(order.status || '')}</div>
+                        <div><span class="font-semibold text-[#062B41]">Customer:</span> ${esc(customerName)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Email:</span> ${esc(customerEmail)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method || 'N/A')}</div>
+                        <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${toOrdinaryTime(order.pickup_datetime)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Return:</span> ${toOrdinaryTime(order.return_datetime)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Total:</span> $${Number(order.total_amount || 0).toFixed(2)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Ordered At:</span> ${toOrdinaryTime(order.order_date)}</div>
                     </div>
-                    <div class="mb-4">
-                        <span class="font-semibold">Items:</span>
-                        <table class="w-full border mt-2 text-sm">
-                            <thead>
-                                <tr>
-                                    <th class="border px-2 py-1">Item</th>
-                                    <th class="border px-2 py-1">Variation</th>
-                                    <th class="border px-2 py-1">Price</th>
-                                    <th class="border px-2 py-1">Qty</th>
-                                    <th class="border px-2 py-1">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
                 `;
+
+                if (order.notes) {
+                    html += `<div class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-3"><span class="font-semibold text-[#062B41]">Order Notes:</span><div class="mt-1 whitespace-pre-wrap">${esc(order.notes)}</div></div>`;
+                }
+
                 // Group items by product name, variation, and price
                 const grouped = {};
                 (data.items || []).forEach(function(item) {
@@ -479,26 +480,119 @@ $formatDateTime = function ($value) {
                             name: name,
                             variation: variation,
                             price: price,
-                            quantity: 0
+                            quantity: 0,
+                            scooterIds: []
                         };
                     }
                     grouped[key].quantity += parseInt(item.quantity || 1);
+                    const sid = Number(item.scooter_id || 0);
+                    if (sid > 0 && !grouped[key].scooterIds.includes(sid)) {
+                        grouped[key].scooterIds.push(sid);
+                    }
                 });
+
+                const uniqueScooters = Array.from(new Set(
+                    items
+                        .map(item => Number(item.scooter_id || 0))
+                        .filter(id => id > 0)
+                ));
+
+                if (uniqueScooters.length > 0) {
+                    html += `
+                        <div class="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                            <div class="mb-2 font-semibold text-[#062B41]">Assigned Scooter IDs</div>
+                            <div class="flex flex-wrap gap-2">
+                                ${uniqueScooters.map(id => `<span class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200">#${id}</span>`).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                let groupedSubtotal = 0;
+                html += `
+                    <div class="mt-4">
+                        <h4 class="mb-2 font-semibold text-[#062B41]">Items</h4>
+                        <table class="w-full border border-gray-200 text-sm">
+                            <thead class="bg-blue-50 text-[#062B41]">
+                                <tr>
+                                    <th class="border border-gray-200 px-2 py-1 text-left">Product</th>
+                                    <th class="border border-gray-200 px-2 py-1 text-left">Variation</th>
+                                    <th class="border border-gray-200 px-2 py-1 text-center">Scooter #</th>
+                                    <th class="border border-gray-200 px-2 py-1 text-right">Qty</th>
+                                    <th class="border border-gray-200 px-2 py-1 text-right">Unit Price</th>
+                                    <th class="border border-gray-200 px-2 py-1 text-right">Line Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
                 Object.values(grouped).forEach(function(item) {
                     const total = (parseFloat(item.price) * item.quantity).toFixed(2);
+                    groupedSubtotal += Number(total);
+                    const scooterCell = item.scooterIds.length > 0
+                        ? item.scooterIds.map(id => `#${id}`).join(', ')
+                        : '—';
                     html += `<tr>
-                        <td class="border px-2 py-1">${esc(item.name)}</td>
-                        <td class="border px-2 py-1">${item.variation ? `<span class='border border-gray-300 rounded px-2 py-0.5 text-xs bg-gray-50'>${esc(item.variation)}</span>` : ''}</td>
-                        <td class="border px-2 py-1">$${item.price}</td>
-                        <td class="border px-2 py-1">${item.quantity}</td>
-                        <td class="border px-2 py-1 font-semibold">$${total}</td>
+                        <td class="border border-gray-200 px-2 py-1">${esc(item.name)}</td>
+                        <td class="border border-gray-200 px-2 py-1">${item.variation ? `<span class='border border-gray-300 rounded px-2 py-0.5 text-xs bg-gray-50'>${esc(item.variation)}</span>` : ''}</td>
+                        <td class="border border-gray-200 px-2 py-1 text-center">${esc(scooterCell)}</td>
+                        <td class="border border-gray-200 px-2 py-1 text-right">${item.quantity}</td>
+                        <td class="border border-gray-200 px-2 py-1 text-right">$${item.price}</td>
+                        <td class="border border-gray-200 px-2 py-1 text-right font-semibold">$${total}</td>
                     </tr>`;
                 });
                 html += `</tbody></table></div>`;
 
+                const orderTotal = Number(order.total_amount || 0);
+                const discount = Number(order.promo_discount || 0);
+                const productTotalWithTax = Math.max(0, groupedSubtotal - discount);
+                const dbSecurityDeposit = Number(order.security_deposit);
+                const securityDeposit = Number.isFinite(dbSecurityDeposit) && dbSecurityDeposit >= 0
+                    ? dbSecurityDeposit
+                    : Math.max(0, orderTotal - productTotalWithTax);
+                const depositReason = String(order.security_deposit_reason || '').trim();
+                const depositUpdatedAt = String(order.security_deposit_updated_at || '').trim();
+                html += `
+                    <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                        <div class="font-semibold text-[#7c3e00]">Security Deposit</div>
+                        <div class="mt-1 text-sm text-[#7c3e00]">Current deposit: <span class="font-semibold">$${securityDeposit.toFixed(2)}</span></div>
+                        <div class="mt-1 text-xs text-[#7c3e00]">Adjust this amount for damage hold or when the default deposit is not enough. Order total will be recalculated automatically.</div>
+                        ${depositReason ? `<div class="mt-2 rounded-md border border-amber-300 bg-white/70 p-2 text-xs text-[#7c3e00]"><span class="font-semibold">Latest reason:</span> ${esc(depositReason)}${depositUpdatedAt ? ` <span class="text-[#9a5310]">(${esc(toOrdinaryTime(depositUpdatedAt))})</span>` : ''}</div>` : ''}
+                        <form class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-12 md:items-end" data-security-deposit-form>
+                            <input type="hidden" name="order_id" value="${Number(order.order_id || orderId)}">
+                            <div class="md:col-span-3">
+                                <label class="block text-xs font-semibold text-[#7c3e00]">New Deposit ($)</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    max="10000"
+                                    name="security_deposit"
+                                    value="${securityDeposit.toFixed(2)}"
+                                    class="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00] focus:border-[#b45309] focus:outline-none focus:ring-2 focus:ring-amber-300/60"
+                                    required
+                                >
+                            </div>
+                            <div class="md:col-span-7">
+                                <label class="block text-xs font-semibold text-[#7c3e00]">Reason (required)</label>
+                                <textarea
+                                    name="security_deposit_reason"
+                                    rows="2"
+                                    minlength="5"
+                                    maxlength="1000"
+                                    placeholder="Example: Increased hold due to broken equipment risk"
+                                    class="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00] focus:border-[#b45309] focus:outline-none focus:ring-2 focus:ring-amber-300/60"
+                                    required
+                                ></textarea>
+                            </div>
+                            <button type="submit" class="md:col-span-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 cursor-pointer">Save Deposit</button>
+                        </form>
+                        <div class="mt-2 text-xs" data-security-deposit-feedback></div>
+                    </div>
+                `;
+
                 if (data.contract_pdf) {
                     html += `
-                        <div class="mb-2">
+                        <div class="mb-2 mt-4">
                             <a href="${esc(data.contract_pdf)}" target="_blank" class="bg-gray-500 text-white px-2 py-1 rounded text-xs hover:bg-gray-700">Open Contract PDF</a>
                         </div>
                     `;
@@ -516,7 +610,105 @@ $formatDateTime = function ($value) {
                     html += `<div class="mb-4 text-red-500 text-xs">Invoice not found</div>`;
                 }
 
+                if (data.proforma_pdf) {
+                    html += `
+                        <div class="mb-4">
+                            <a href="${esc(data.proforma_pdf)}" target="_blank" class="bg-indigo-600 text-white px-2 py-1 rounded text-xs hover:bg-indigo-800">Open Pro-forma PDF</a>
+                        </div>
+                    `;
+                }
+
                 content.innerHTML = html;
+
+                const depositForm = content.querySelector('[data-security-deposit-form]');
+                if (depositForm) {
+                    depositForm.addEventListener('submit', function (event) {
+                        event.preventDefault();
+
+                        const feedback = content.querySelector('[data-security-deposit-feedback]');
+                        const submitButton = depositForm.querySelector('button[type="submit"]');
+                        const depositInput = depositForm.querySelector('input[name="security_deposit"]');
+                        const reasonInput = depositForm.querySelector('textarea[name="security_deposit_reason"]');
+
+                        const parsed = Number(depositInput ? depositInput.value : NaN);
+                        if (!Number.isFinite(parsed) || parsed < 0) {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-red-700';
+                                feedback.textContent = 'Enter a valid non-negative amount.';
+                            }
+                            return;
+                        }
+
+                        const reason = String(reasonInput ? reasonInput.value : '').trim();
+                        if (reason.length < 5) {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-red-700';
+                                feedback.textContent = 'Please provide a reason of at least 5 characters.';
+                            }
+                            return;
+                        }
+
+                        const confirmMessage = `Change security deposit from $${securityDeposit.toFixed(2)} to $${parsed.toFixed(2)}?\n\nReason:\n${reason}`;
+                        const confirmed = window.confirm(confirmMessage);
+                        if (!confirmed) {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-amber-800';
+                                feedback.textContent = 'Deposit update cancelled.';
+                            }
+                            return;
+                        }
+
+                        if (submitButton) {
+                            submitButton.disabled = true;
+                            submitButton.textContent = 'Saving...';
+                        }
+                        if (feedback) {
+                            feedback.className = 'mt-2 text-xs text-amber-800';
+                            feedback.textContent = 'Updating security deposit...';
+                        }
+
+                        const payload = new URLSearchParams();
+                        payload.set('order_id', String(Number(order.order_id || orderId)));
+                        payload.set('security_deposit', parsed.toFixed(2));
+                        payload.set('security_deposit_reason', reason);
+                        payload.set('csrf_token', ADMIN_CSRF_TOKEN);
+
+                        fetch('/admin/orders/security-deposit', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: payload.toString()
+                        })
+                        .then(async (response) => {
+                            const body = await response.json().catch(() => ({}));
+                            if (!response.ok || body.error) {
+                                throw new Error(body.error || 'Failed to update security deposit.');
+                            }
+                            return body;
+                        })
+                        .then(() => {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-green-700';
+                                feedback.textContent = 'Security deposit updated.';
+                            }
+                            openOrderModal(Number(order.order_id || orderId));
+                        })
+                        .catch((error) => {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-red-700';
+                                feedback.textContent = error.message || 'Failed to update security deposit.';
+                            }
+                        })
+                        .finally(() => {
+                            if (submitButton) {
+                                submitButton.disabled = false;
+                                submitButton.textContent = 'Save Deposit';
+                            }
+                        });
+                    });
+                }
             })
             .catch(error => {
                 console.error('Error loading order details:', error);
@@ -525,7 +717,9 @@ $formatDateTime = function ($value) {
 
     }
     function closeOrderModal() {
-        document.getElementById('orderModal').classList.add('hidden');
+        const modal = document.getElementById('orderModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
     }
 
     // Close modal when clicking outside the modal box

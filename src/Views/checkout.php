@@ -660,7 +660,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                 <span>$${tax.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
-                <span>Refundable security deposit</span>
+                <span>Security deposit</span>
                 <span>$${SECURITY_DEPOSIT.toFixed(2)}</span>
             </div>
             <div class="flex justify-between font-bold text-lg mb-6">

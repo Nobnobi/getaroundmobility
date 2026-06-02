@@ -729,6 +729,7 @@ class OrderController extends Controller
             $notes = htmlspecialchars(trim($meta->notes ?? ''));
             $saleType = htmlspecialchars(trim($meta->sale_type ?? 'rental'));
             $totalAmount = (float)($meta->total_amount ?? 0);
+            $metadataSecurityDeposit = isset($meta->security_deposit) ? (float)$meta->security_deposit : null;
             $clientWeightOption = htmlspecialchars(trim($meta->client_weight_option ?? ''));
             $clientWeightLbsRaw = $meta->client_weight_lbs ?? null;
             $clientWeightLbs = is_numeric($clientWeightLbsRaw) ? (int) $clientWeightLbsRaw : null;
@@ -769,7 +770,10 @@ class OrderController extends Controller
                 $totalAmount += $item['qty'] * $item['price'];
             }
             $productTotalWithTax = round($totalAmount, 2);
-            $totalAmountWithTax = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
+            $securityDeposit = $metadataSecurityDeposit !== null
+                ? round(max(0, $metadataSecurityDeposit), 2)
+                : self::SECURITY_DEPOSIT;
+            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
             $totalAmount = $totalAmountWithTax;
 
             
@@ -809,12 +813,13 @@ class OrderController extends Controller
             // --- CREATE ORDER USING NEW SCHEMA ---
             try {
                 fwrite($myfile, "[DEBUG] About to begin transaction and insert order\n");
+                new \App\Models\OrderModel();
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, total_amount, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, total_amount, security_deposit, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', :total_amount, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', :total_amount, :security_deposit, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
                     )"
                 );
                 $params = [
@@ -834,6 +839,7 @@ class OrderController extends Controller
                     ':pickup_location' => $pickupLocation,
                     ':notes' => $notes,
                     ':total_amount' => $totalAmount,
+                    ':security_deposit' => $securityDeposit,
                     ':customer_type' => $loggedInUserId ? 'user' : 'guest',
                     ':booking_source' => 'online',
                     ':created_by_admin_id' => $createdByAdminId,
@@ -1010,7 +1016,7 @@ class OrderController extends Controller
                 file_put_contents($pdfDir . "contract-{$orderId}.pdf", $dompdf->output());
                 $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
 
-                // Invoice PDF
+                // Pro-forma PDF
                 $invoiceItemsTable = '';
                 foreach ($cart as $item) {
                     $qty = htmlspecialchars($item['quantity'] ?? 1);
@@ -1045,7 +1051,7 @@ class OrderController extends Controller
                 $pickupLocation = (string)($pickup_location ?? '');
                 $deliveryType = (string)($delivery_type ?? '');
                 ob_start();
-                include __DIR__ . '/../../Invoices/invoice-template.php';
+                include __DIR__ . '/../../Proformas/proforma-template.php';
                 $invoiceHtml = ob_get_clean();
                 $invoiceOptions = new \Dompdf\Options();
                 $invoiceOptions->set('isRemoteEnabled', true);
@@ -1054,10 +1060,10 @@ class OrderController extends Controller
                 $invoiceDompdf->loadHtml($invoiceHtml);
                 $invoiceDompdf->setPaper('A4', 'portrait');
                 $invoiceDompdf->render();
-                $invoiceDir = __DIR__ . '/../../Invoices/';
+                $invoiceDir = __DIR__ . '/../../Proformas/';
                 if (!is_dir($invoiceDir)) mkdir($invoiceDir, 0777, true);
-                file_put_contents($invoiceDir . "invoice-{$orderId}.pdf", $invoiceDompdf->output());
-                $invoicePath = $invoiceDir . "invoice-{$orderId}.pdf";
+                file_put_contents($invoiceDir . "proforma-{$orderId}.pdf", $invoiceDompdf->output());
+                $invoicePath = $invoiceDir . "proforma-{$orderId}.pdf";
 
                 // --- EMAIL SENDING ---
                 require_once __DIR__ . '/../Utils/Mailer.php';
@@ -1068,7 +1074,7 @@ class OrderController extends Controller
                     ],
                     [
                         'path' => $invoicePath,
-                        'name' => "Invoice-{$orderId}.pdf"
+                        'name' => "Proforma-Invoice-{$orderId}.pdf"
                     ]
                 ];
                 $subject = 'Your Rental Booking Confirmation';
@@ -1080,7 +1086,7 @@ class OrderController extends Controller
                     'pickup_datetime' => $pickup_datetime ?? '',
                     'return_datetime' => $return_datetime ?? '',
                     'payment_method' => 'card',
-                    'note' => 'Thank you for your business! Your invoice is attached to this email.',
+                    'note' => 'Your booking is confirmed. A pro-forma invoice is attached. Final invoice is issued after completion.',
                 ]);
                 $result = sendBookingConfirmation($customerEmail, $customerName, $subject, $body, $attachments);
                 $debugMailFile = fopen("order-debug-log.txt", "a");
@@ -1572,20 +1578,22 @@ class OrderController extends Controller
             $totalAmount += ($item['quantity'] ?? 1) * ($item['price'] ?? 0);
         }
         $productTotalWithTax = round($totalAmount, 2);
-        $totalAmountWithTax = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
+        $securityDeposit = self::SECURITY_DEPOSIT;
+        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
 
         // Insert order
         // Extract first and last name from formData (PayPal checkout)
         $first_name = $formData['first_name'] ?? '';
         $last_name = $formData['last_name'] ?? '';
+        new \App\Models\OrderModel();
         $stmt = $pdo->prepare(
             "INSERT INTO orders (
-                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, order_date, status, address1, address2, state, zip, pickup_location, notes, payment_method, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, security_deposit, order_date, status, address1, address2, state, zip, pickup_location, notes, payment_method, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs,
-            $totalAmountWithTax, date('Y-m-d H:i:s'), 'paid',
+            $totalAmountWithTax, $securityDeposit, date('Y-m-d H:i:s'), 'paid',
             $address1, $address2, $state, $zip, $pickupLocation, $notes,
             'paypal', $customerType, $formData['sale_type'] ?? 'rental',
             $pickup_datetime, $return_datetime, $formData['delivery_type'] ?? 'preferred', $formData['hotel_id'] ?? null
@@ -1737,7 +1745,7 @@ class OrderController extends Controller
         file_put_contents($pdfDir . "contract-{$orderId}.pdf", $dompdf->output());
         $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
 
-        // --- INVOICE PDF GENERATION ---
+        // --- PRO-FORMA PDF GENERATION ---
         $invoiceItemsTable = '';
         foreach ($cart as $item) {
             $qty = htmlspecialchars($item['quantity'] ?? 1);
@@ -1780,7 +1788,7 @@ class OrderController extends Controller
         $deliveryType = (string)($deliveryType ?? ($formData['delivery_type'] ?? ''));
 
         ob_start();
-        include __DIR__ . '/../../Invoices/invoice-template.php';
+        include __DIR__ . '/../../Proformas/proforma-template.php';
         $invoiceHtml = ob_get_clean();
 
         $invoiceOptions = new \Dompdf\Options();
@@ -1792,10 +1800,10 @@ class OrderController extends Controller
         $invoiceDompdf->setPaper('A4', 'portrait');
         $invoiceDompdf->render();
 
-        $invoiceDir = __DIR__ . '/../../Invoices/';
+        $invoiceDir = __DIR__ . '/../../Proformas/';
         if (!is_dir($invoiceDir)) mkdir($invoiceDir, 0777, true);
-        file_put_contents($invoiceDir . "invoice-{$orderId}.pdf", $invoiceDompdf->output());
-        $invoicePath = $invoiceDir . "invoice-{$orderId}.pdf";
+        file_put_contents($invoiceDir . "proforma-{$orderId}.pdf", $invoiceDompdf->output());
+        $invoicePath = $invoiceDir . "proforma-{$orderId}.pdf";
 
         // --- EMAIL SENDING ---
         require_once __DIR__ . '/../Utils/Mailer.php';
@@ -1806,7 +1814,7 @@ class OrderController extends Controller
             ],
             [
                 'path' => $invoicePath,
-                'name' => "Invoice-{$orderId}.pdf"
+                'name' => "Proforma-Invoice-{$orderId}.pdf"
             ]
         ];
         $subject = 'Your Rental Booking Confirmation';
@@ -1818,7 +1826,7 @@ class OrderController extends Controller
             'pickup_datetime' => $pickup_datetime ?? '',
             'return_datetime' => $return_datetime ?? '',
             'payment_method' => 'paypal',
-            'note' => 'Thank you for your business! Your invoice is attached to this email.',
+            'note' => 'Your booking is confirmed. A pro-forma invoice is attached. Final invoice is issued after completion.',
         ]);
         $result = sendBookingConfirmation($customerEmail, $customerName, $subject, $body, $attachments);
         $debugMailFile = fopen("order-debug-log.txt", "a");
