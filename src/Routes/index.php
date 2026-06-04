@@ -118,6 +118,7 @@ $router->post('/admin/orders/paid', AdminController::class, 'markAsPaid');
 $router->post('/admin/orders/complete', OrderController::class, 'completeOrder');
 $router->post('/admin/orders/cancel', OrderController::class, 'cancelOrder');
 $router->post('/admin/orders/security-deposit', AdminController::class, 'updateSecurityDeposit');
+$router->post('/admin/orders/security-deposit/refund', AdminController::class, 'refundSecurityDeposit');
 
 $router->post('/admin/orders/new', AdminController::class, 'processNewOrder');
 

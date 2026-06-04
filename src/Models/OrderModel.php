@@ -193,6 +193,7 @@ class OrderModel {
     {
         $this->db = Database::getInstance();
         $this->ensureOrderColumns();
+        $this->ensureRefundTables();
     }
 
     private function ensureOrderColumns(): void
@@ -271,6 +272,382 @@ class OrderModel {
         if (!$securityDepositUpdatedAtCol || !$securityDepositUpdatedAtCol->fetch(\PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_updated_at DATETIME NULL AFTER security_deposit_updated_by_admin_id");
         }
+
+        $paymentProviderCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'payment_provider'");
+        if (!$paymentProviderCol || !$paymentProviderCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN payment_provider VARCHAR(20) NULL AFTER payment_method");
+        }
+
+        $stripeIntentCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'provider_payment_intent_id'");
+        if (!$stripeIntentCol || !$stripeIntentCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN provider_payment_intent_id VARCHAR(80) NULL AFTER payment_provider");
+        }
+
+        $stripeChargeCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'provider_charge_id'");
+        if (!$stripeChargeCol || !$stripeChargeCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN provider_charge_id VARCHAR(80) NULL AFTER provider_payment_intent_id");
+        }
+
+        $paypalOrderCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'provider_paypal_order_id'");
+        if (!$paypalOrderCol || !$paypalOrderCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN provider_paypal_order_id VARCHAR(80) NULL AFTER provider_charge_id");
+        }
+
+        $paypalCaptureCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'provider_paypal_capture_id'");
+        if (!$paypalCaptureCol || !$paypalCaptureCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN provider_paypal_capture_id VARCHAR(80) NULL AFTER provider_paypal_order_id");
+        }
+
+        $depositRefundedCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_refunded_amount'");
+        if (!$depositRefundedCol || !$depositRefundedCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_refunded_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER security_deposit_updated_at");
+        }
+
+        $lastRefundAtCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'last_security_deposit_refund_at'");
+        if (!$lastRefundAtCol || !$lastRefundAtCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN last_security_deposit_refund_at DATETIME NULL AFTER security_deposit_refunded_amount");
+        }
+    }
+
+    private function ensureRefundTables(): void
+    {
+        $this->db->exec(
+            "CREATE TABLE IF NOT EXISTS order_refunds (
+                refund_id INT AUTO_INCREMENT PRIMARY KEY,
+                order_id INT NOT NULL,
+                payment_provider VARCHAR(20) NOT NULL,
+                requested_amount DECIMAL(10,2) NOT NULL,
+                approved_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                reason TEXT NOT NULL,
+                admin_id INT NULL,
+                provider_refund_id VARCHAR(100) NULL,
+                provider_transaction_reference VARCHAR(100) NULL,
+                status VARCHAR(30) NOT NULL DEFAULT 'pending',
+                provider_response_snapshot LONGTEXT NULL,
+                idempotency_key VARCHAR(120) NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_order_refunds_order_id (order_id),
+                INDEX idx_order_refunds_provider_refund (provider_refund_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+    }
+
+    public function saveOrderPaymentProviderReferences(int $orderId, array $refs): bool
+    {
+        if ($orderId <= 0) {
+            return false;
+        }
+
+        $provider = strtolower(trim((string)($refs['payment_provider'] ?? '')));
+        if ($provider === '') {
+            $provider = strtolower(trim((string)($refs['provider'] ?? '')));
+        }
+        if (!in_array($provider, ['stripe', 'paypal'], true)) {
+            return false;
+        }
+
+        $stmt = $this->db->prepare(
+            "UPDATE orders
+             SET payment_provider = ?,
+                 provider_payment_intent_id = ?,
+                 provider_charge_id = ?,
+                 provider_paypal_order_id = ?,
+                 provider_paypal_capture_id = ?
+             WHERE order_id = ?"
+        );
+
+        return $stmt->execute([
+            $provider,
+            $refs['provider_payment_intent_id'] ?? null,
+            $refs['provider_charge_id'] ?? null,
+            $refs['provider_paypal_order_id'] ?? null,
+            $refs['provider_paypal_capture_id'] ?? null,
+            $orderId,
+        ]);
+    }
+
+    public function refundSecurityDeposit(int $orderId, float $amount, string $reason, ?int $adminId = null): array
+    {
+        if ($orderId <= 0) {
+            return ['success' => false, 'error' => 'Invalid order ID'];
+        }
+
+        $requestedAmount = round($amount, 2);
+        if ($requestedAmount <= 0) {
+            return ['success' => false, 'error' => 'Refund amount must be greater than zero'];
+        }
+
+        $reasonText = trim($reason);
+        if ($reasonText === '' || strlen($reasonText) < 5) {
+            return ['success' => false, 'error' => 'Please provide a refund reason (at least 5 characters).'];
+        }
+
+        $orderStmt = $this->db->prepare("SELECT * FROM orders WHERE order_id = ? LIMIT 1");
+        $orderStmt->execute([$orderId]);
+        $order = $orderStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$order) {
+            return ['success' => false, 'error' => 'Order not found'];
+        }
+
+        $provider = strtolower(trim((string)($order['payment_provider'] ?? '')));
+        if ($provider === '') {
+            $method = strtolower(trim((string)($order['payment_method'] ?? '')));
+            if ($method === 'card') {
+                $provider = 'stripe';
+            } elseif ($method === 'paypal') {
+                $provider = 'paypal';
+            }
+        }
+
+        if (!in_array($provider, ['stripe', 'paypal'], true)) {
+            return ['success' => false, 'error' => 'This order does not support automated provider refunds.'];
+        }
+
+        $depositCharged = max(0, round((float)($order['security_deposit'] ?? 0), 2));
+        $alreadyRefunded = max(0, round((float)($order['security_deposit_refunded_amount'] ?? 0), 2));
+        $remaining = round(max(0, $depositCharged - $alreadyRefunded), 2);
+        if ($requestedAmount > $remaining) {
+            return ['success' => false, 'error' => 'Refund amount exceeds refundable deposit balance.'];
+        }
+
+        $adminId = $adminId !== null ? (int)$adminId : null;
+        if ($adminId !== null && $adminId <= 0) {
+            $adminId = null;
+        }
+
+        $idempotencyKey = 'dep_refund_' . $orderId . '_' . str_replace('.', '', (string)$requestedAmount) . '_' . time();
+        $providerResult = [];
+        if ($provider === 'stripe') {
+            $providerResult = $this->issueStripeSecurityDepositRefund($order, $requestedAmount, $reasonText, $idempotencyKey);
+        } else {
+            $providerResult = $this->issuePaypalSecurityDepositRefund($order, $requestedAmount, $reasonText, $idempotencyKey);
+        }
+
+        if (!($providerResult['success'] ?? false)) {
+            return [
+                'success' => false,
+                'error' => (string)($providerResult['error'] ?? 'Refund failed'),
+            ];
+        }
+
+        $approvedAmount = round((float)($providerResult['approved_amount'] ?? $requestedAmount), 2);
+        $status = (string)($providerResult['status'] ?? 'succeeded');
+        $providerRefundId = (string)($providerResult['provider_refund_id'] ?? '');
+        $providerTxnRef = (string)($providerResult['provider_transaction_reference'] ?? '');
+        $snapshot = json_encode($providerResult['raw_response'] ?? [], JSON_UNESCAPED_SLASHES);
+
+        $this->db->beginTransaction();
+        try {
+            $insertRefundStmt = $this->db->prepare(
+                "INSERT INTO order_refunds (
+                    order_id, payment_provider, requested_amount, approved_amount, reason, admin_id,
+                    provider_refund_id, provider_transaction_reference, status, provider_response_snapshot, idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            );
+            $insertRefundStmt->execute([
+                $orderId,
+                $provider,
+                $requestedAmount,
+                $approvedAmount,
+                $reasonText,
+                $adminId,
+                $providerRefundId !== '' ? $providerRefundId : null,
+                $providerTxnRef !== '' ? $providerTxnRef : null,
+                $status,
+                $snapshot !== false ? $snapshot : null,
+                $idempotencyKey,
+            ]);
+
+            $updatedRefunded = round($alreadyRefunded + $approvedAmount, 2);
+            $updateOrderStmt = $this->db->prepare(
+                "UPDATE orders
+                 SET security_deposit_refunded_amount = ?, last_security_deposit_refund_at = NOW()
+                 WHERE order_id = ?"
+            );
+            $updateOrderStmt->execute([$updatedRefunded, $orderId]);
+
+            $this->db->commit();
+
+            return [
+                'success' => true,
+                'order_id' => $orderId,
+                'payment_provider' => $provider,
+                'requested_amount' => $requestedAmount,
+                'approved_amount' => $approvedAmount,
+                'status' => $status,
+                'provider_refund_id' => $providerRefundId,
+                'security_deposit_refunded_amount' => $updatedRefunded,
+                'security_deposit_refundable_remaining' => round(max(0, $depositCharged - $updatedRefunded), 2),
+            ];
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            return ['success' => false, 'error' => 'Refund was processed but local tracking failed: ' . $e->getMessage()];
+        }
+    }
+
+    private function issueStripeSecurityDepositRefund(array $order, float $amount, string $reason, string $idempotencyKey): array
+    {
+        $intentId = trim((string)($order['provider_payment_intent_id'] ?? ''));
+        if ($intentId === '') {
+            return ['success' => false, 'error' => 'Missing Stripe payment intent reference for this order.'];
+        }
+
+        $stripeSecret = $_ENV['STRIPE_SECRET_KEY'] ?? null;
+        if (!$stripeSecret) {
+            return ['success' => false, 'error' => 'Stripe secret not configured.'];
+        }
+
+        \Stripe\Stripe::setApiKey($stripeSecret);
+
+        try {
+            $refund = \Stripe\Refund::create([
+                'payment_intent' => $intentId,
+                'amount' => (int)round($amount * 100),
+                'reason' => 'requested_by_customer',
+                'metadata' => [
+                    'order_id' => (string)($order['order_id'] ?? ''),
+                    'security_deposit_refund_reason' => $reason,
+                ],
+            ], [
+                'idempotency_key' => $idempotencyKey,
+            ]);
+
+            $status = strtolower((string)($refund->status ?? 'succeeded'));
+            $approvedAmount = isset($refund->amount) ? ((float)$refund->amount / 100) : $amount;
+            return [
+                'success' => in_array($status, ['succeeded', 'pending'], true),
+                'approved_amount' => round($approvedAmount, 2),
+                'status' => $status,
+                'provider_refund_id' => (string)($refund->id ?? ''),
+                'provider_transaction_reference' => $intentId,
+                'raw_response' => method_exists($refund, 'toArray') ? $refund->toArray() : (array)$refund,
+            ];
+        } catch (\Throwable $e) {
+            return ['success' => false, 'error' => 'Stripe refund error: ' . $e->getMessage()];
+        }
+    }
+
+    private function issuePaypalSecurityDepositRefund(array $order, float $amount, string $reason, string $idempotencyKey): array
+    {
+        $captureId = trim((string)($order['provider_paypal_capture_id'] ?? ''));
+        if ($captureId === '') {
+            return ['success' => false, 'error' => 'Missing PayPal capture reference for this order.'];
+        }
+
+        $clientId = getenv('PAYPAL_CLIENT_ID') ?: ($_ENV['PAYPAL_CLIENT_ID'] ?? '');
+        $clientSecret = getenv('PAYPAL_CLIENT_SECRET') ?: ($_ENV['PAYPAL_CLIENT_SECRET'] ?? '');
+        if ($clientId === '' || $clientSecret === '') {
+            return ['success' => false, 'error' => 'PayPal credentials are not configured.'];
+        }
+
+        $baseUrl = 'https://api-m.sandbox.paypal.com';
+
+        $ch = curl_init($baseUrl . '/v1/oauth2/token');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
+            CURLOPT_USERPWD => $clientId . ':' . $clientSecret,
+            CURLOPT_POSTFIELDS => 'grant_type=client_credentials',
+            CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        $authBody = curl_exec($ch);
+        $authHttp = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $authErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($authErr !== '') {
+            return ['success' => false, 'error' => 'PayPal auth request failed: ' . $authErr];
+        }
+
+        $authData = json_decode((string)$authBody, true);
+        $accessToken = is_array($authData) ? (string)($authData['access_token'] ?? '') : '';
+        if ($authHttp < 200 || $authHttp >= 300 || $accessToken === '') {
+            return ['success' => false, 'error' => 'PayPal auth failed.'];
+        }
+
+        $currency = strtoupper((string)($order['currency_code'] ?? 'USD'));
+        if ($currency === '') {
+            $currency = 'USD';
+        }
+
+        $payload = [
+            'amount' => [
+                'value' => number_format($amount, 2, '.', ''),
+                'currency_code' => $currency,
+            ],
+            'note_to_payer' => $reason,
+        ];
+
+        $ch = curl_init($baseUrl . '/v2/payments/captures/' . rawurlencode($captureId) . '/refund');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $accessToken,
+                'PayPal-Request-Id: ' . $idempotencyKey,
+            ],
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        $refundBody = curl_exec($ch);
+        $refundHttp = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $refundErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($refundErr !== '') {
+            return ['success' => false, 'error' => 'PayPal refund request failed: ' . $refundErr];
+        }
+
+        $refundData = json_decode((string)$refundBody, true);
+        if ($refundHttp < 200 || $refundHttp >= 300 || !is_array($refundData)) {
+            return ['success' => false, 'error' => 'PayPal refund rejected.'];
+        }
+
+        $status = strtolower((string)($refundData['status'] ?? 'completed'));
+        $approvedAmount = isset($refundData['amount']['value']) ? (float)$refundData['amount']['value'] : $amount;
+        return [
+            'success' => in_array($status, ['completed', 'pending'], true),
+            'approved_amount' => round($approvedAmount, 2),
+            'status' => $status,
+            'provider_refund_id' => (string)($refundData['id'] ?? ''),
+            'provider_transaction_reference' => $captureId,
+            'raw_response' => $refundData,
+        ];
+    }
+
+    public function getOrderRefundData(int $orderId): array
+    {
+        $orderStmt = $this->db->prepare(
+            "SELECT order_id, security_deposit, security_deposit_refunded_amount, payment_provider, provider_payment_intent_id, provider_paypal_capture_id
+             FROM orders WHERE order_id = ? LIMIT 1"
+        );
+        $orderStmt->execute([$orderId]);
+        $order = $orderStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+        $depositCharged = max(0, round((float)($order['security_deposit'] ?? 0), 2));
+        $refunded = max(0, round((float)($order['security_deposit_refunded_amount'] ?? 0), 2));
+        $remaining = round(max(0, $depositCharged - $refunded), 2);
+
+        $refundStmt = $this->db->prepare(
+            "SELECT refund_id, payment_provider, requested_amount, approved_amount, reason, admin_id, provider_refund_id, status, created_at
+             FROM order_refunds WHERE order_id = ? ORDER BY refund_id DESC"
+        );
+        $refundStmt->execute([$orderId]);
+
+        return [
+            'summary' => [
+                'payment_provider' => (string)($order['payment_provider'] ?? ''),
+                'deposit_charged' => $depositCharged,
+                'refunded_total' => $refunded,
+                'refundable_remaining' => $remaining,
+                'can_refund' => $remaining > 0,
+            ],
+            'refunds' => $refundStmt->fetchAll(\PDO::FETCH_ASSOC),
+        ];
     }
 
     private function ensureOrderAssignments($orderId, $cart, $pickupDatetime, $returnDatetime, &$assignedScooters, $debugFile = null)
@@ -500,12 +877,12 @@ class OrderModel {
             client_weight_option, client_weight_lbs,
             address1, address2, state, zip,
             pickup_datetime, return_datetime, delivery_type, hotel_id, pickup_location,
-            notes, payment_method, total_amount, security_deposit, status, customer_type, booking_source,
+            notes, payment_method, payment_provider, total_amount, security_deposit, status, customer_type, booking_source,
             promo_code, promo_discount, promo_applied_by_admin_id, promo_applied_by_admin_role, promo_applied_by_admin_name,
             created_by_admin_id, created_by_admin_role, created_by_admin_name,
             sale_type
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )";
 
         $stmt = $this->db->prepare($sql);
@@ -528,6 +905,7 @@ class OrderModel {
             $orderData['pickup_location'] ?? null,
             $orderData['notes'] ?? null,
             $orderData['payment_method'],
+            strtolower((string)($orderData['payment_method'] ?? '')) === 'paypal' ? 'paypal' : (strtolower((string)($orderData['payment_method'] ?? '')) === 'card' ? 'stripe' : null),
             $orderData['total_amount'],
             $orderData['security_deposit'],
             $orderData['customer_type'],
@@ -733,7 +1111,22 @@ class OrderModel {
     // Get paginated orders for admin orders page
     public function getOrdersPaginated($page = 1, $perPage = 10) {
         $offset = ($page - 1) * $perPage;
-        $stmt = $this->db->prepare("SELECT * FROM orders ORDER BY order_id DESC LIMIT :limit OFFSET :offset");
+        $stmt = $this->db->prepare(
+            "SELECT
+                o.*,
+                ROUND(GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.security_deposit, 0)), 2) AS sales_amount,
+                COALESCE(refunds.refund_amount, 0) AS refund_amount
+             FROM orders o
+             LEFT JOIN (
+                SELECT order_id, ROUND(SUM(approved_amount), 2) AS refund_amount
+                FROM order_refunds
+                WHERE approved_amount > 0
+                  AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')
+                GROUP BY order_id
+             ) refunds ON refunds.order_id = o.order_id
+             ORDER BY o.order_id DESC
+             LIMIT :limit OFFSET :offset"
+        );
         $stmt->bindValue(':limit', (int)$perPage, \PDO::PARAM_INT);
         $stmt->bindValue(':offset', (int)$offset, \PDO::PARAM_INT);
         $stmt->execute();
@@ -748,7 +1141,21 @@ class OrderModel {
 
     public function searchOrdersByOrderIdPaginated($searchTerm, $page = 1, $perPage = 10, &$total = null) {
         $offset = ($page - 1) * $perPage;
-        $sql = "SELECT * FROM orders WHERE order_id LIKE ? ORDER BY order_id DESC LIMIT ? OFFSET ?";
+                $sql = "SELECT
+                                        o.*,
+                                        ROUND(GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.security_deposit, 0)), 2) AS sales_amount,
+                                        COALESCE(refunds.refund_amount, 0) AS refund_amount
+                                FROM orders o
+                                LEFT JOIN (
+                                        SELECT order_id, ROUND(SUM(approved_amount), 2) AS refund_amount
+                                        FROM order_refunds
+                                        WHERE approved_amount > 0
+                                            AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')
+                                        GROUP BY order_id
+                                ) refunds ON refunds.order_id = o.order_id
+                                WHERE CAST(o.order_id AS CHAR) LIKE ?
+                                ORDER BY o.order_id DESC
+                                LIMIT ? OFFSET ?";
         $stmt = $this->db->prepare($sql);
         $stmt->bindValue(1, '%' . $searchTerm . '%', \PDO::PARAM_STR);
         $stmt->bindValue(2, (int)$perPage, \PDO::PARAM_INT);
@@ -772,72 +1179,97 @@ class OrderModel {
 
         $searchTerm = trim((string)($filters['order_id_search'] ?? ''));
         if ($searchTerm !== '') {
-            $where[] = 'CAST(order_id AS CHAR) LIKE ?';
+            $where[] = 'CAST(o.order_id AS CHAR) LIKE ?';
             $params[] = '%' . $searchTerm . '%';
         }
 
         $status = strtolower(trim((string)($filters['status'] ?? '')));
         if ($status !== '') {
-            $where[] = 'LOWER(status) = ?';
+            $where[] = 'LOWER(o.status) = ?';
             $params[] = $status;
         }
 
         $customerType = strtolower(trim((string)($filters['customer_type'] ?? '')));
         if ($customerType !== '') {
-            $where[] = 'LOWER(customer_type) = ?';
+            $where[] = 'LOWER(o.customer_type) = ?';
             $params[] = $customerType;
         }
 
         $saleType = strtolower(trim((string)($filters['sale_type'] ?? '')));
         if ($saleType !== '') {
-            $where[] = 'LOWER(sale_type) = ?';
+            $where[] = 'LOWER(o.sale_type) = ?';
             $params[] = $saleType;
         }
 
         $bookingSource = strtolower(trim((string)($filters['booking_source'] ?? '')));
         if ($bookingSource === 'walk-in') {
-            $where[] = "(LOWER(COALESCE(booking_source, '')) = 'walk-in' OR LOWER(COALESCE(pickup_location, '')) = 'walk-in booking')";
+            $where[] = "(LOWER(COALESCE(o.booking_source, '')) = 'walk-in' OR LOWER(COALESCE(o.pickup_location, '')) = 'walk-in booking')";
         } elseif ($bookingSource === 'online') {
-            $where[] = "(LOWER(COALESCE(booking_source, 'online')) = 'online' AND LOWER(COALESCE(pickup_location, '')) <> 'walk-in booking')";
+            $where[] = "(LOWER(COALESCE(o.booking_source, 'online')) = 'online' AND LOWER(COALESCE(o.pickup_location, '')) <> 'walk-in booking')";
         }
 
         $promoUsage = strtolower(trim((string)($filters['promo_usage'] ?? '')));
         if ($promoUsage === 'with') {
-            $where[] = "(promo_code IS NOT NULL AND promo_code <> '')";
+            $where[] = "(o.promo_code IS NOT NULL AND o.promo_code <> '')";
         } elseif ($promoUsage === 'without') {
-            $where[] = "(promo_code IS NULL OR promo_code = '')";
+            $where[] = "(o.promo_code IS NULL OR o.promo_code = '')";
         }
 
         $creatorRole = strtolower(trim((string)($filters['creator_role'] ?? '')));
         if ($creatorRole !== '') {
-            $where[] = "LOWER(COALESCE(created_by_admin_role, '')) = ?";
+            $where[] = "LOWER(COALESCE(o.created_by_admin_role, '')) = ?";
             $params[] = $creatorRole;
         }
 
         $dateFrom = trim((string)($filters['date_from'] ?? ''));
         if ($dateFrom !== '') {
-            $where[] = 'DATE(order_date) >= ?';
+            $where[] = 'DATE(o.order_date) >= ?';
             $params[] = $dateFrom;
         }
 
         $dateTo = trim((string)($filters['date_to'] ?? ''));
         if ($dateTo !== '') {
-            $where[] = 'DATE(order_date) <= ?';
+            $where[] = 'DATE(o.order_date) <= ?';
             $params[] = $dateTo;
         }
 
         $whereSql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
 
-        $allowedSortColumns = ['order_id', 'sale_type', 'total_amount', 'status', 'order_date', 'pickup_datetime', 'return_datetime'];
+        $sortExpressions = [
+            'order_id' => 'o.order_id',
+            'sale_type' => 'o.sale_type',
+            'total_amount' => 'o.total_amount',
+            'sales_amount' => '(COALESCE(o.total_amount, 0) - COALESCE(o.security_deposit, 0))',
+            'refund_amount' => 'COALESCE(refunds.refund_amount, 0)',
+            'status' => 'o.status',
+            'order_date' => 'o.order_date',
+            'pickup_datetime' => 'o.pickup_datetime',
+            'return_datetime' => 'o.return_datetime',
+        ];
         $sortBy = $filters['sort_by'] ?? 'order_id';
-        if (!in_array($sortBy, $allowedSortColumns, true)) {
+        if (!array_key_exists($sortBy, $sortExpressions)) {
             $sortBy = 'order_id';
         }
+        $sortColumnSql = $sortExpressions[$sortBy];
 
         $sortDir = strtolower((string)($filters['sort_dir'] ?? 'desc'));
         $sortDir = $sortDir === 'asc' ? 'ASC' : 'DESC';
 
-        $sql = "SELECT * FROM orders" . $whereSql . " ORDER BY {$sortBy} {$sortDir} LIMIT ? OFFSET ?";
+                $sql =
+                        "SELECT
+                                o.*,
+                                ROUND(GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.security_deposit, 0)), 2) AS sales_amount,
+                                COALESCE(refunds.refund_amount, 0) AS refund_amount
+                         FROM orders o
+                         LEFT JOIN (
+                                SELECT order_id, ROUND(SUM(approved_amount), 2) AS refund_amount
+                                FROM order_refunds
+                                WHERE approved_amount > 0
+                                    AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')
+                                GROUP BY order_id
+                         ) refunds ON refunds.order_id = o.order_id" .
+                        $whereSql .
+                        " ORDER BY {$sortColumnSql} {$sortDir} LIMIT ? OFFSET ?";
         $stmt = $this->db->prepare($sql);
 
         $idx = 1;
@@ -849,7 +1281,7 @@ class OrderModel {
         $stmt->execute();
         $results = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-        $countSql = "SELECT COUNT(*) FROM orders" . $whereSql;
+        $countSql = "SELECT COUNT(*) FROM orders o" . $whereSql;
         $countStmt = $this->db->prepare($countSql);
         $idx = 1;
         foreach ($params as $param) {
@@ -954,19 +1386,219 @@ class OrderModel {
         return (int)$stmt->fetchColumn();
     }
 
-    public function getOrdersByStatus() {
-        $stmt = $this->db->query("SELECT status, COUNT(*) as count FROM orders GROUP BY status");
+    private function normalizeAnalyticsDays($days): ?int
+    {
+        if ($days === null || $days === '') {
+            return null;
+        }
+
+        $value = (int)$days;
+        return $value > 0 ? $value : null;
+    }
+
+    public function getAnalyticsSummary($days = 30): array
+    {
+        $days = $this->normalizeAnalyticsDays($days);
+
+        $orderWhere = "WHERE status = 'completed'";
+        $orderParams = [];
+        if ($days !== null) {
+            $orderWhere .= " AND order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+            $orderParams[] = $days;
+        }
+
+        $summarySql = "
+            SELECT
+                COALESCE(SUM(total_amount), 0) AS total_amount,
+                COALESCE(SUM(GREATEST(0, COALESCE(total_amount, 0) - COALESCE(security_deposit, 0))), 0) AS sales_after_tax,
+                COALESCE(SUM(GREATEST(0, COALESCE(total_amount, 0) - COALESCE(security_deposit, 0)) / 1.08375), 0) AS sales_before_tax,
+                COALESCE(SUM(COALESCE(security_deposit, 0)), 0) AS security_deposit_collected,
+                COUNT(*) AS completed_orders
+            FROM orders
+            {$orderWhere}
+        ";
+        $summaryStmt = $this->db->prepare($summarySql);
+        foreach ($orderParams as $idx => $param) {
+            $summaryStmt->bindValue($idx + 1, $param, \PDO::PARAM_INT);
+        }
+        $summaryStmt->execute();
+        $summary = $summaryStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+        $ordersWhere = '';
+        $ordersParams = [];
+        if ($days !== null) {
+            $ordersWhere = "WHERE order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+            $ordersParams[] = $days;
+        }
+
+        $totalOrdersSql = "SELECT COUNT(*) FROM orders {$ordersWhere}";
+        $totalOrdersStmt = $this->db->prepare($totalOrdersSql);
+        foreach ($ordersParams as $idx => $param) {
+            $totalOrdersStmt->bindValue($idx + 1, $param, \PDO::PARAM_INT);
+        }
+        $totalOrdersStmt->execute();
+        $totalOrders = (int)$totalOrdersStmt->fetchColumn();
+
+        $pendingWhere = "WHERE status = 'pending'";
+        $pendingParams = [];
+        if ($days !== null) {
+            $pendingWhere .= " AND order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+            $pendingParams[] = $days;
+        }
+        $pendingSql = "SELECT COUNT(*) FROM orders {$pendingWhere}";
+        $pendingStmt = $this->db->prepare($pendingSql);
+        foreach ($pendingParams as $idx => $param) {
+            $pendingStmt->bindValue($idx + 1, $param, \PDO::PARAM_INT);
+        }
+        $pendingStmt->execute();
+        $pendingOrders = (int)$pendingStmt->fetchColumn();
+
+        $refundWhere = "WHERE approved_amount > 0 AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')";
+        $refundParams = [];
+        if ($days !== null) {
+            $refundWhere .= " AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+            $refundParams[] = $days;
+        }
+        $refundSql = "SELECT COALESCE(SUM(approved_amount), 0) FROM order_refunds {$refundWhere}";
+        $refundStmt = $this->db->prepare($refundSql);
+        foreach ($refundParams as $idx => $param) {
+            $refundStmt->bindValue($idx + 1, $param, \PDO::PARAM_INT);
+        }
+        $refundStmt->execute();
+        $refundedAmount = (float)$refundStmt->fetchColumn();
+
+        $salesAfterTax = (float)($summary['sales_after_tax'] ?? 0);
+        $salesBeforeTax = (float)($summary['sales_before_tax'] ?? 0);
+
+        return [
+            'total_orders' => $totalOrders,
+            'completed_orders' => (int)($summary['completed_orders'] ?? 0),
+            'pending_orders' => $pendingOrders,
+            'total_amount' => (float)($summary['total_amount'] ?? 0),
+            'sales_after_tax' => $salesAfterTax,
+            'sales_before_tax' => $salesBeforeTax,
+            'tax_collected' => max(0, $salesAfterTax - $salesBeforeTax),
+            'security_deposit_collected' => (float)($summary['security_deposit_collected'] ?? 0),
+            'security_deposit_refunded' => $refundedAmount,
+            'net_sales_after_refunds' => max(0, $salesAfterTax - $refundedAmount),
+        ];
+    }
+
+    public function getOrdersByStatus($days = null) {
+        $days = $this->normalizeAnalyticsDays($days);
+        if ($days === null) {
+            $stmt = $this->db->query("SELECT status, COUNT(*) as count FROM orders GROUP BY status");
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT status, COUNT(*) as count
+             FROM orders
+             WHERE order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+             GROUP BY status"
+        );
+        $stmt->execute([$days]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
     public function getSalesByDate($days = 30) {
-        $stmt = $this->db->prepare("SELECT DATE(order_date) as date, SUM(total_amount) as total FROM orders WHERE status = 'completed' AND order_date >= DATE_SUB(NOW(), INTERVAL ? DAY) GROUP BY DATE(order_date) ORDER BY date ASC");
+        $days = $this->normalizeAnalyticsDays($days);
+        if ($days === null) {
+            $stmt = $this->db->query(
+                "SELECT DATE(order_date) as date,
+                        SUM(GREATEST(0, COALESCE(total_amount, 0) - COALESCE(security_deposit, 0))) as total
+                 FROM orders
+                 WHERE status = 'completed'
+                 GROUP BY DATE(order_date)
+                 ORDER BY date ASC"
+            );
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT DATE(order_date) as date,
+                    SUM(GREATEST(0, COALESCE(total_amount, 0) - COALESCE(security_deposit, 0))) as total
+             FROM orders
+             WHERE status = 'completed'
+               AND order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+             GROUP BY DATE(order_date)
+             ORDER BY date ASC"
+        );
         $stmt->execute([$days]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
     public function getOrderCountByDate($days = 30) {
-        $stmt = $this->db->prepare("SELECT DATE(order_date) as date, COUNT(*) as count FROM orders WHERE order_date >= DATE_SUB(NOW(), INTERVAL ? DAY) GROUP BY DATE(order_date) ORDER BY date ASC");
+        $days = $this->normalizeAnalyticsDays($days);
+        if ($days === null) {
+            $stmt = $this->db->query(
+                "SELECT DATE(order_date) as date, COUNT(*) as count
+                 FROM orders
+                 GROUP BY DATE(order_date)
+                 ORDER BY date ASC"
+            );
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT DATE(order_date) as date, COUNT(*) as count
+             FROM orders
+             WHERE order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+             GROUP BY DATE(order_date)
+             ORDER BY date ASC"
+        );
+        $stmt->execute([$days]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function getRefundsByDate($days = 30): array
+    {
+        $days = $this->normalizeAnalyticsDays($days);
+        if ($days === null) {
+            $stmt = $this->db->query(
+                "SELECT DATE(created_at) as date, SUM(approved_amount) as total
+                 FROM order_refunds
+                 WHERE approved_amount > 0
+                   AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')
+                 GROUP BY DATE(created_at)
+                 ORDER BY date ASC"
+            );
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT DATE(created_at) as date, SUM(approved_amount) as total
+             FROM order_refunds
+             WHERE approved_amount > 0
+               AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')
+               AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+             GROUP BY DATE(created_at)
+             ORDER BY date ASC"
+        );
+        $stmt->execute([$days]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function getPaymentProviderBreakdown($days = 30): array
+    {
+        $days = $this->normalizeAnalyticsDays($days);
+        if ($days === null) {
+            $stmt = $this->db->query(
+                "SELECT COALESCE(NULLIF(LOWER(TRIM(payment_provider)), ''), 'unknown') AS provider, COUNT(*) AS count
+                 FROM orders
+                 GROUP BY provider
+                 ORDER BY count DESC"
+            );
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT COALESCE(NULLIF(LOWER(TRIM(payment_provider)), ''), 'unknown') AS provider, COUNT(*) AS count
+             FROM orders
+             WHERE order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+             GROUP BY provider
+             ORDER BY count DESC"
+        );
         $stmt->execute([$days]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
@@ -1109,6 +1741,7 @@ class OrderModel {
                     $pickup_location,
                     $notes,
                     $payment,
+                    strtolower((string)$payment) === 'paypal' ? 'paypal' : (strtolower((string)$payment) === 'card' ? 'stripe' : null),
                     $totalAmountWithTax,
                     $securityDeposit,
                     $customerType,
@@ -1126,8 +1759,8 @@ class OrderModel {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, total_amount, security_deposit, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, total_amount, security_deposit, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
@@ -1734,6 +2367,17 @@ class OrderModel {
         $discountAmount = (float)($order['promo_discount'] ?? 0);
         $promoCode = (string)($order['promo_code'] ?? '');
         $securityDepositReason = (string)($order['security_deposit_reason'] ?? '');
+        $securityDepositRefundReason = '';
+        try {
+            $refundReasonStmt = $this->db->prepare("SELECT reason FROM order_refunds WHERE order_id = ? AND approved_amount > 0 AND status IN ('succeeded','completed','pending') ORDER BY refund_id DESC LIMIT 1");
+            $refundReasonStmt->execute([$orderId]);
+            $latestRefundReason = $refundReasonStmt->fetchColumn();
+            if ($latestRefundReason !== false && $latestRefundReason !== null) {
+                $securityDepositRefundReason = trim((string)$latestRefundReason);
+            }
+        } catch (\Throwable $e) {
+            $securityDepositRefundReason = '';
+        }
         $securityDepositBaseline = self::SECURITY_DEPOSIT;
         $paymentMethod = (string)($order['payment_method'] ?? '');
         $pickupLocation = (string)($order['pickup_location'] ?? '');
@@ -1974,12 +2618,16 @@ class OrderModel {
         if (file_exists($proformaPublicPath) && is_readable($proformaPublicPath)) {
             $proformaPdf = ($scriptDir !== '' ? $scriptDir : '') . '/Proformas/proforma-' . $orderId . '.pdf';
         }
+
+        $refundData = $this->getOrderRefundData((int)$orderId);
         return [
             'order' => $order,
             'items' => $items,
             'contract_pdf' => $contractPdf,
             'invoice_pdf' => $invoicePdf,
-            'proforma_pdf' => $proformaPdf
+            'proforma_pdf' => $proformaPdf,
+            'refund_summary' => $refundData['summary'] ?? [],
+            'refunds' => $refundData['refunds'] ?? []
         ];
     }
 

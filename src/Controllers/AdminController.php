@@ -149,7 +149,7 @@ class AdminController extends Controller
             $dateToFilter = '';
         }
 
-        $allowedSortBy = ['order_id', 'sale_type', 'total_amount', 'status', 'order_date', 'pickup_datetime', 'return_datetime'];
+        $allowedSortBy = ['order_id', 'sale_type', 'total_amount', 'sales_amount', 'refund_amount', 'status', 'order_date', 'pickup_datetime', 'return_datetime'];
         if (!in_array($sortBy, $allowedSortBy, true)) {
             $sortBy = 'order_id';
         }
@@ -229,23 +229,41 @@ class AdminController extends Controller
             exit;
         }
 
+        $period = strtolower(trim((string)($_GET['period'] ?? 'month')));
+        $periodOptions = [
+            'week' => ['days' => 7, 'label' => 'Past Week'],
+            'month' => ['days' => 30, 'label' => 'Past Month'],
+            '3_months' => ['days' => 90, 'label' => 'Past 3 Months'],
+            '6_months' => ['days' => 180, 'label' => 'Past 6 Months'],
+            'year' => ['days' => 365, 'label' => 'Past Year'],
+            '2_years' => ['days' => 730, 'label' => 'Past 2 Years'],
+            'all' => ['days' => null, 'label' => 'All Time'],
+        ];
+        if (!isset($periodOptions[$period])) {
+            $period = 'month';
+        }
+
+        $periodDays = $periodOptions[$period]['days'];
+        $periodLabel = $periodOptions[$period]['label'];
+
         $orderModel = new OrderModel();
-        $totalOrders = $orderModel->getTotalOrdersCount();
-        $completedOrders = $orderModel->getCompletedOrdersCount();
-        $totalSales = $orderModel->getTotalSales();
-        $pendingOrders = $orderModel->getPendingOrdersCount();
-        $ordersByStatus = $orderModel->getOrdersByStatus();
-        $salesByDate = $orderModel->getSalesByDate(30);
-        $orderCountByDate = $orderModel->getOrderCountByDate(30);
+        $analyticsSummary = $orderModel->getAnalyticsSummary($periodDays);
+        $ordersByStatus = $orderModel->getOrdersByStatus($periodDays);
+        $salesByDate = $orderModel->getSalesByDate($periodDays);
+        $orderCountByDate = $orderModel->getOrderCountByDate($periodDays);
+        $refundsByDate = $orderModel->getRefundsByDate($periodDays);
+        $paymentProviderBreakdown = $orderModel->getPaymentProviderBreakdown($periodDays);
 
         $this->renderAdmin('admin/orders-analytics', [
-            'totalOrders' => $totalOrders,
-            'completedOrders' => $completedOrders,
-            'totalSales' => $totalSales,
-            'pendingOrders' => $pendingOrders,
+            'period' => $period,
+            'periodLabel' => $periodLabel,
+            'periodOptions' => $periodOptions,
+            'analyticsSummary' => $analyticsSummary,
             'ordersByStatus' => $ordersByStatus,
             'salesByDate' => $salesByDate,
-            'orderCountByDate' => $orderCountByDate
+            'orderCountByDate' => $orderCountByDate,
+            'refundsByDate' => $refundsByDate,
+            'paymentProviderBreakdown' => $paymentProviderBreakdown,
         ]);
     }
 
@@ -815,6 +833,85 @@ class AdminController extends Controller
             'success' => true,
             'message' => 'Security deposit updated.',
             'order' => $result,
+        ]);
+        exit;
+    }
+
+    public function refundSecurityDeposit() {
+        $this->requireAdmin();
+        header('Content-Type: application/json; charset=utf-8');
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'Method not allowed']);
+            exit;
+        }
+
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $orderId = isset($_POST['order_id']) ? (int)$_POST['order_id'] : 0;
+        $amountRaw = trim((string)($_POST['refund_amount'] ?? ''));
+        $reason = trim((string)($_POST['refund_reason'] ?? ''));
+
+        if ($orderId <= 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Invalid order ID']);
+            exit;
+        }
+
+        if ($amountRaw === '' || !is_numeric($amountRaw)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Refund amount must be a valid number']);
+            exit;
+        }
+
+        $refundAmount = round((float)$amountRaw, 2);
+        if ($refundAmount <= 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Refund amount must be greater than zero']);
+            exit;
+        }
+
+        if ($refundAmount > 10000) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Refund amount is too high']);
+            exit;
+        }
+
+        if ($reason === '' || strlen($reason) < 5) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Please provide a reason (at least 5 characters).']);
+            exit;
+        }
+
+        if (strlen($reason) > 1000) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Reason is too long.']);
+            exit;
+        }
+
+        $orderModel = new \App\Models\OrderModel();
+        $result = $orderModel->refundSecurityDeposit(
+            $orderId,
+            $refundAmount,
+            $reason,
+            isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null
+        );
+
+        if (!($result['success'] ?? false)) {
+            http_response_code(422);
+            echo json_encode(['error' => (string)($result['error'] ?? 'Refund failed')]);
+            exit;
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Security deposit refund processed.',
+            'refund' => $result,
         ]);
         exit;
     }

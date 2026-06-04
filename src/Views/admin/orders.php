@@ -228,7 +228,7 @@ $formatDateTime = function ($value) {
                                 <th class="px-4 py-2">Type</th> <!-- New: Customer Type -->
                                 <th class="px-4 py-2">Email</th>
                                 <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('sale_type')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Sale Type <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'sale_type') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th> <!-- New: Sale Type -->
-                                <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('total_amount')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Total Amount <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'total_amount') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
+                                <th class="px-4 py-2 text-left min-w-[210px]"><a href="<?= htmlspecialchars($buildSortLink('total_amount')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Amounts <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'total_amount') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
                                 <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('status')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Status <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'status') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
                                 <th class="px-4 py-2">Source</th>
                                 <th class="px-4 py-2">Booked By</th>
@@ -256,7 +256,22 @@ $formatDateTime = function ($value) {
                                 <td class="px-4 py-2">
                                     <?= $order['sale_type'] === 'sale' ? '<span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">Sale</span>' : '<span class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs">Rental</span>' ?>
                                 </td>
-                                <td class="px-4 py-2">$<?= number_format($order['total_amount'], 2) ?></td>
+                                <?php
+                                    $totalAmount = (float)($order['total_amount'] ?? 0);
+                                    $salesAmount = isset($order['sales_amount'])
+                                        ? (float)$order['sales_amount']
+                                        : max(0, (float)($order['total_amount'] ?? 0) - (float)($order['security_deposit'] ?? 0));
+                                    $refundAmount = isset($order['refund_amount'])
+                                        ? (float)$order['refund_amount']
+                                        : (float)($order['security_deposit_refunded_amount'] ?? 0);
+                                ?>
+                                <td class="px-4 py-2 align-top">
+                                    <div class="leading-5">
+                                        <div class="text-base font-semibold text-[#062B41]">Total: $<?= number_format($totalAmount, 2) ?></div>
+                                        <div class="text-sm text-gray-700">Sales: $<?= number_format($salesAmount, 2) ?></div>
+                                        <div class="text-sm text-gray-700">Refund: $<?= number_format($refundAmount, 2) ?></div>
+                                    </div>
+                                </td>
                                 <td class="px-4 py-2"><?= htmlspecialchars($order['status']) ?></td>
                                 <td class="px-4 py-2">
                                     <?php $isWalkIn = (strtolower((string)($order['booking_source'] ?? '')) === 'walk-in') || (strtolower((string)($order['pickup_location'] ?? '')) === 'walk-in booking'); ?>
@@ -317,6 +332,8 @@ $formatDateTime = function ($value) {
                                         <form method="post" action="/admin/orders/complete" class="inline order-complete-form">
                                             <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                            <input type="hidden" name="security_deposit" value="<?= htmlspecialchars((string)($order['security_deposit'] ?? '0')) ?>">
+                                            <input type="hidden" name="security_deposit_refunded_amount" value="<?= htmlspecialchars((string)($order['security_deposit_refunded_amount'] ?? '0')) ?>">
                                             <button type="submit" class="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600 cursor-pointer">Complete</button>
                                         </form>
                                     <?php endif; ?>
@@ -445,9 +462,12 @@ $formatDateTime = function ($value) {
 
                 const order = data.order || {};
                 const items = Array.isArray(data.items) ? data.items : [];
+                const refundSummary = data.refund_summary || {};
+                const refunds = Array.isArray(data.refunds) ? data.refunds : [];
                 const customerName = [order.guest_first_name || '', order.guest_last_name || ''].join(' ').trim() || order.customer_name || 'N/A';
                 const customerEmail = order.guest_email || order.customer_email || 'N/A';
                 const customerPhone = order.guest_phone || order.customer_phone || 'N/A';
+                const paymentPlatform = order.payment_provider || refundSummary.payment_provider || (order.payment_method === 'paypal' ? 'paypal' : (order.payment_method === 'card' ? 'stripe' : 'unknown'));
 
                 let html = `
                     <div class="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-2">
@@ -457,6 +477,7 @@ $formatDateTime = function ($value) {
                         <div><span class="font-semibold text-[#062B41]">Email:</span> ${esc(customerEmail)}</div>
                         <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
                         <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method || 'N/A')}</div>
+                        <div><span class="font-semibold text-[#062B41]">Platform:</span> ${esc(String(paymentPlatform).toUpperCase())}</div>
                         <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${toOrdinaryTime(order.pickup_datetime)}</div>
                         <div><span class="font-semibold text-[#062B41]">Return:</span> ${toOrdinaryTime(order.return_datetime)}</div>
                         <div><span class="font-semibold text-[#062B41]">Total:</span> $${Number(order.total_amount || 0).toFixed(2)}</div>
@@ -549,12 +570,15 @@ $formatDateTime = function ($value) {
                 const securityDeposit = Number.isFinite(dbSecurityDeposit) && dbSecurityDeposit >= 0
                     ? dbSecurityDeposit
                     : Math.max(0, orderTotal - productTotalWithTax);
+                const refundedTotal = Number(refundSummary.refunded_total || order.security_deposit_refunded_amount || 0);
+                const refundableRemaining = Number(refundSummary.refundable_remaining ?? Math.max(0, securityDeposit - refundedTotal));
                 const depositReason = String(order.security_deposit_reason || '').trim();
                 const depositUpdatedAt = String(order.security_deposit_updated_at || '').trim();
                 html += `
                     <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
                         <div class="font-semibold text-[#7c3e00]">Security Deposit</div>
                         <div class="mt-1 text-sm text-[#7c3e00]">Current deposit: <span class="font-semibold">$${securityDeposit.toFixed(2)}</span></div>
+                        <div class="mt-1 text-xs text-[#7c3e00]">Refunded so far: <span class="font-semibold">$${refundedTotal.toFixed(2)}</span> | Remaining refundable: <span class="font-semibold">$${refundableRemaining.toFixed(2)}</span></div>
                         <div class="mt-1 text-xs text-[#7c3e00]">Adjust this amount for damage hold or when the default deposit is not enough. Order total will be recalculated automatically.</div>
                         ${depositReason ? `<div class="mt-2 rounded-md border border-amber-300 bg-white/70 p-2 text-xs text-[#7c3e00]"><span class="font-semibold">Latest reason:</span> ${esc(depositReason)}${depositUpdatedAt ? ` <span class="text-[#9a5310]">(${esc(toOrdinaryTime(depositUpdatedAt))})</span>` : ''}</div>` : ''}
                         <form class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-12 md:items-end" data-security-deposit-form>
@@ -587,6 +611,63 @@ $formatDateTime = function ($value) {
                             <button type="submit" class="md:col-span-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 cursor-pointer">Save Deposit</button>
                         </form>
                         <div class="mt-2 text-xs" data-security-deposit-feedback></div>
+
+                        <div class="mt-4 border-t border-amber-200 pt-3">
+                            <div class="font-semibold text-[#7c3e00]">Return Security Deposit</div>
+                            <div class="mt-1 text-xs text-[#7c3e00]">Refunds go back to the original ${esc(String(paymentPlatform).toUpperCase())} payment source.</div>
+                            <form class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-12 md:items-end" data-security-deposit-refund-form>
+                                <input type="hidden" name="order_id" value="${Number(order.order_id || orderId)}">
+                                <div class="md:col-span-3">
+                                    <label class="block text-xs font-semibold text-[#7c3e00]">Refund Amount ($)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0.01"
+                                        max="${Math.max(0.01, refundableRemaining).toFixed(2)}"
+                                        name="refund_amount"
+                                        value="${Math.max(0, refundableRemaining).toFixed(2)}"
+                                        class="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00] focus:border-[#b45309] focus:outline-none focus:ring-2 focus:ring-amber-300/60"
+                                        ${refundableRemaining > 0 ? 'required' : 'disabled'}
+                                    >
+                                </div>
+                                <div class="md:col-span-7">
+                                    <label class="block text-xs font-semibold text-[#7c3e00]">Refund Reason (required)</label>
+                                    <textarea
+                                        name="refund_reason"
+                                        rows="2"
+                                        minlength="5"
+                                        maxlength="1000"
+                                        placeholder="Example: Returned unused deposit after inspection"
+                                        class="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00] focus:border-[#b45309] focus:outline-none focus:ring-2 focus:ring-amber-300/60"
+                                        ${refundableRemaining > 0 ? 'required' : 'disabled'}
+                                    ></textarea>
+                                </div>
+                                <button type="submit" class="md:col-span-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 cursor-pointer" ${refundableRemaining > 0 ? '' : 'disabled'}>${refundableRemaining > 0 ? 'Refund Deposit' : 'No Balance'}</button>
+                            </form>
+                            <div class="mt-2 text-xs" data-security-deposit-refund-feedback></div>
+
+                            <div class="mt-3 rounded-md border border-amber-300 bg-white/70 p-2">
+                                <div class="text-xs font-semibold text-[#7c3e00] mb-1">Refund History</div>
+                                ${refunds.length > 0 ? `
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-xs">
+                                            <thead>
+                                                <tr class="text-left text-[#7c3e00]">
+                                                    <th class="py-1 pr-2">Date</th>
+                                                    <th class="py-1 pr-2">Platform</th>
+                                                    <th class="py-1 pr-2">Amount</th>
+                                                    <th class="py-1 pr-2">Status</th>
+                                                    <th class="py-1">Reason</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                ${refunds.map(r => `<tr class="border-t border-amber-100"><td class="py-1 pr-2">${esc(toOrdinaryTime(r.created_at))}</td><td class="py-1 pr-2">${esc(String(r.payment_provider || '').toUpperCase())}</td><td class="py-1 pr-2">$${Number(r.approved_amount || r.requested_amount || 0).toFixed(2)}</td><td class="py-1 pr-2">${esc(r.status || '')}</td><td class="py-1">${esc(r.reason || '')}</td></tr>`).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ` : `<div class="text-xs text-[#9a5310]">No refunds yet.</div>`}
+                            </div>
+                        </div>
                     </div>
                 `;
 
@@ -709,6 +790,99 @@ $formatDateTime = function ($value) {
                         });
                     });
                 }
+
+                const refundForm = content.querySelector('[data-security-deposit-refund-form]');
+                if (refundForm) {
+                    refundForm.addEventListener('submit', function (event) {
+                        event.preventDefault();
+
+                        const feedback = content.querySelector('[data-security-deposit-refund-feedback]');
+                        const submitButton = refundForm.querySelector('button[type="submit"]');
+                        const amountInput = refundForm.querySelector('input[name="refund_amount"]');
+                        const reasonInput = refundForm.querySelector('textarea[name="refund_reason"]');
+
+                        const amount = Number(amountInput ? amountInput.value : NaN);
+                        if (!Number.isFinite(amount) || amount <= 0) {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-red-700';
+                                feedback.textContent = 'Enter a valid refund amount.';
+                            }
+                            return;
+                        }
+
+                        if (amount > refundableRemaining + 0.0001) {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-red-700';
+                                feedback.textContent = 'Refund amount exceeds remaining refundable balance.';
+                            }
+                            return;
+                        }
+
+                        const reason = String(reasonInput ? reasonInput.value : '').trim();
+                        if (reason.length < 5) {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-red-700';
+                                feedback.textContent = 'Please provide a reason of at least 5 characters.';
+                            }
+                            return;
+                        }
+
+                        const confirmed = window.confirm(`Refund $${amount.toFixed(2)} to the customer via ${String(paymentPlatform).toUpperCase()}?\n\nReason:\n${reason}`);
+                        if (!confirmed) {
+                            return;
+                        }
+
+                        if (submitButton) {
+                            submitButton.disabled = true;
+                            submitButton.textContent = 'Refunding...';
+                        }
+                        if (feedback) {
+                            feedback.className = 'mt-2 text-xs text-amber-800';
+                            feedback.textContent = 'Processing refund...';
+                        }
+
+                        const payload = new URLSearchParams();
+                        payload.set('order_id', String(Number(order.order_id || orderId)));
+                        payload.set('refund_amount', amount.toFixed(2));
+                        payload.set('refund_reason', reason);
+                        payload.set('csrf_token', ADMIN_CSRF_TOKEN);
+
+                        fetch('/admin/orders/security-deposit/refund', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: payload.toString()
+                        })
+                        .then(async (response) => {
+                            const body = await response.json().catch(() => ({}));
+                            if (!response.ok || body.error) {
+                                throw new Error(body.error || 'Refund failed.');
+                            }
+                            return body;
+                        })
+                        .then(() => {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-green-700';
+                                feedback.textContent = 'Refund processed successfully.';
+                            }
+                            openOrderModal(Number(order.order_id || orderId));
+                        })
+                        .catch((error) => {
+                            if (feedback) {
+                                feedback.className = 'mt-2 text-xs text-red-700';
+                                feedback.textContent = error.message || 'Refund failed.';
+                            }
+                        })
+                        .finally(() => {
+                            if (submitButton) {
+                                submitButton.disabled = false;
+                                submitButton.textContent = 'Refund Deposit';
+                            }
+                        });
+                    });
+                }
             })
             .catch(error => {
                 console.error('Error loading order details:', error);
@@ -745,6 +919,22 @@ $formatDateTime = function ($value) {
                 if (!confirmed) {
                     e.preventDefault();
                     return;
+                }
+
+                const depositValue = Number((form.querySelector('input[name="security_deposit"]') || {}).value || 0);
+                const refundedValue = Number((form.querySelector('input[name="security_deposit_refunded_amount"]') || {}).value || 0);
+                const refundableRemaining = Math.max(0, depositValue - refundedValue);
+                const noRefundInitiated = depositValue > 0 && refundedValue <= 0;
+                if (noRefundInitiated && refundableRemaining > 0) {
+                    const refundCta = window.confirm(
+                        `No security deposit refund has been initiated for this order.\n` +
+                        `Refundable balance: $${refundableRemaining.toFixed(2)}\n\n` +
+                        `Click OK to complete anyway, or Cancel to review refund first.`
+                    );
+                    if (!refundCta) {
+                        e.preventDefault();
+                        return;
+                    }
                 }
 
                 form.dataset.submitting = 'true';

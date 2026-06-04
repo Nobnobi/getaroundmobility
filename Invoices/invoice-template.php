@@ -91,6 +91,20 @@ $securityDepositReason = isset($securityDepositReason)
         ? trim((string)$security_deposit_reason)
         : (isset($order['security_deposit_reason']) ? trim((string)$order['security_deposit_reason']) : ''));
 
+$securityDepositRefundedAmount = isset($securityDepositRefundedAmount)
+    ? (float)$securityDepositRefundedAmount
+    : (isset($security_deposit_refunded_amount)
+        ? (float)$security_deposit_refunded_amount
+        : (isset($order['security_deposit_refunded_amount']) ? (float)$order['security_deposit_refunded_amount'] : 0.0));
+
+$securityDepositRefundReason = isset($securityDepositRefundReason)
+    ? trim((string)$securityDepositRefundReason)
+    : (isset($security_deposit_refund_reason)
+        ? trim((string)$security_deposit_refund_reason)
+        : (isset($order['security_deposit_refund_reason'])
+            ? trim((string)$order['security_deposit_refund_reason'])
+            : $securityDepositReason));
+
 $securityDepositBaseline = isset($securityDepositBaseline)
     ? (float)$securityDepositBaseline
     : 100.0;
@@ -114,7 +128,16 @@ if ($lineSubtotal <= 0) {
 }
 
 $preTaxSubtotal = round(max(0, $productPreTaxSubtotal), 2);
-$grandTotal = round(max(0, $totalAmountWithTax), 2);
+$isProformaDocument = stripos($documentTitle, 'PRO-FORMA') !== false;
+$refundedDepositForDisplay = 0.0;
+if (!$isProformaDocument) {
+    $refundedDepositForDisplay = round(max(0, min($securityDeposit, $securityDepositRefundedAmount)), 2);
+}
+$showRefundReasonForPartial = !$isProformaDocument
+    && $refundedDepositForDisplay > 0
+    && abs($refundedDepositForDisplay - $securityDepositBaseline) > 0.0001
+    && $securityDepositRefundReason !== '';
+$grandTotal = round(max(0, $totalAmountWithTax - $refundedDepositForDisplay), 2);
 $securityDepositDelta = round($securityDeposit - $securityDepositBaseline, 2);
 $addedSecurityDeposit = $securityDepositDelta > 0 ? $securityDepositDelta : 0.0;
 $displayedSecurityDeposit = $securityDeposit;
@@ -267,6 +290,17 @@ $fmtDate = static function ($value): string {
                         <?php endif; ?>
                     </td>
                     <td class="text-right"><?= $fmtMoney($addedSecurityDeposit) ?></td>
+                </tr>
+                <?php endif; ?>
+                <?php if ($refundedDepositForDisplay > 0): ?>
+                <tr class="line">
+                    <td>
+                        Security deposit refunded
+                        <?php if ($showRefundReasonForPartial): ?>
+                            <span class="muted">(<?= $esc($securityDepositRefundReason) ?>)</span>
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-right">-<?= $fmtMoney($refundedDepositForDisplay) ?></td>
                 </tr>
                 <?php endif; ?>
                 <tr class="line">

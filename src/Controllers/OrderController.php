@@ -589,6 +589,25 @@ class OrderController extends Controller
                 error_log('Finalize payment markAsPaid error: ' . $e->getMessage());
                 return ['error' => 'Order created, but payment status update failed.', 'http_status' => 500];
             }
+
+        }
+
+        try {
+            $chargeId = null;
+            if (isset($intent->latest_charge)) {
+                if (is_string($intent->latest_charge)) {
+                    $chargeId = $intent->latest_charge;
+                } elseif (is_object($intent->latest_charge) && isset($intent->latest_charge->id)) {
+                    $chargeId = (string)$intent->latest_charge->id;
+                }
+            }
+            $orderModel->saveOrderPaymentProviderReferences((int)$orderId, [
+                'payment_provider' => 'stripe',
+                'provider_payment_intent_id' => (string)$paymentIntentId,
+                'provider_charge_id' => $chargeId,
+            ]);
+        } catch (\Throwable $e) {
+            error_log('Finalize payment provider reference update warning: ' . $e->getMessage());
         }
 
         // Always ensure docs/email after finalize (safe to re-run).
@@ -737,6 +756,12 @@ class OrderController extends Controller
             $createdByAdminId = isset($meta->created_by_admin_id) && $meta->created_by_admin_id !== '' ? (int)$meta->created_by_admin_id : null;
             $createdByAdminRole = strtolower(trim((string)($meta->created_by_admin_role ?? '')));
             $createdByAdminName = trim((string)($meta->created_by_admin_name ?? ''));
+            $providerPaymentIntentId = null;
+            if (isset($stripeObject->id) && is_string($stripeObject->id) && strpos($stripeObject->id, 'pi_') === 0) {
+                $providerPaymentIntentId = $stripeObject->id;
+            } elseif (isset($stripeObject->payment_intent) && is_string($stripeObject->payment_intent)) {
+                $providerPaymentIntentId = $stripeObject->payment_intent;
+            }
 
             // --- CUSTOMER LOGIC START ---
             // $pdo = \App\Utils\Database::getInstance();
@@ -817,9 +842,9 @@ class OrderController extends Controller
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, total_amount, security_deposit, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', :total_amount, :security_deposit, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
                     )"
                 );
                 $params = [
@@ -838,6 +863,7 @@ class OrderController extends Controller
                     ':return_datetime' => $return_datetime,
                     ':pickup_location' => $pickupLocation,
                     ':notes' => $notes,
+                    ':provider_payment_intent_id' => $providerPaymentIntentId,
                     ':total_amount' => $totalAmount,
                     ':security_deposit' => $securityDeposit,
                     ':customer_type' => $loggedInUserId ? 'user' : 'guest',
@@ -1457,9 +1483,31 @@ class OrderController extends Controller
             $formData = $metadata['form_data'] ?? [];
             $userId = $metadata['user_id'] ?? null;
 
+            $paypalCaptureId = null;
+            if (is_object($order) && method_exists($order, 'getPurchaseUnits')) {
+                $orderPurchaseUnits = $order->getPurchaseUnits();
+                if (is_array($orderPurchaseUnits) && isset($orderPurchaseUnits[0])) {
+                    $pu = $orderPurchaseUnits[0];
+                    if (is_object($pu) && method_exists($pu, 'getPayments')) {
+                        $payments = $pu->getPayments();
+                        if (is_object($payments) && method_exists($payments, 'getCaptures')) {
+                            $captures = $payments->getCaptures();
+                            if (is_array($captures) && isset($captures[0])) {
+                                $c0 = $captures[0];
+                                if (is_object($c0) && method_exists($c0, 'getId')) {
+                                    $paypalCaptureId = (string)$c0->getId();
+                                } elseif (is_object($c0) && isset($c0->id)) {
+                                    $paypalCaptureId = (string)$c0->id;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (!empty($cart)) {
                 $log("CART IS NOT EMPTY. Proceeding to create DB order.\n");
-                $this->createDbOrderFromPaypal($userId, $formData, $cart);
+                $this->createDbOrderFromPaypal($userId, $formData, $cart, (string)$orderId, $paypalCaptureId);
             } else {
                 $log("CART IS EMPTY. No DB order will be created.\n");
             }
@@ -1483,7 +1531,7 @@ class OrderController extends Controller
     }
 
     // Helper to create DB order from PayPal capture
-    private function createDbOrderFromPaypal($userId, $formData, $cart)
+    private function createDbOrderFromPaypal($userId, $formData, $cart, $paypalOrderId = null, $paypalCaptureId = null)
     {   
         if (empty($formData)) {
             error_log('PayPal order: formData is empty!');
@@ -1588,14 +1636,14 @@ class OrderController extends Controller
         new \App\Models\OrderModel();
         $stmt = $pdo->prepare(
             "INSERT INTO orders (
-                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, security_deposit, order_date, status, address1, address2, state, zip, pickup_location, notes, payment_method, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, security_deposit, order_date, status, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs,
             $totalAmountWithTax, $securityDeposit, date('Y-m-d H:i:s'), 'paid',
             $address1, $address2, $state, $zip, $pickupLocation, $notes,
-            'paypal', $customerType, $formData['sale_type'] ?? 'rental',
+            'paypal', 'paypal', $paypalOrderId, $paypalCaptureId, $customerType, $formData['sale_type'] ?? 'rental',
             $pickup_datetime, $return_datetime, $formData['delivery_type'] ?? 'preferred', $formData['hotel_id'] ?? null
         ]);
         $orderId = $pdo->lastInsertId();

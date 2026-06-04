@@ -7,6 +7,22 @@ $roleLabels = [
 ];
 $roleKey = $_SESSION['admin_role'] ?? 'admin';
 $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
+
+$summary = is_array($analyticsSummary ?? null) ? $analyticsSummary : [];
+$totalAmount = (float)($summary['total_amount'] ?? 0);
+$salesBeforeTax = (float)($summary['sales_before_tax'] ?? 0);
+$salesAfterTax = (float)($summary['sales_after_tax'] ?? 0);
+$taxCollected = (float)($summary['tax_collected'] ?? 0);
+$securityDepositCollected = (float)($summary['security_deposit_collected'] ?? 0);
+$securityDepositRefunded = (float)($summary['security_deposit_refunded'] ?? 0);
+$netSalesAfterRefunds = (float)($summary['net_sales_after_refunds'] ?? 0);
+$totalOrders = (int)($summary['total_orders'] ?? 0);
+$completedOrders = (int)($summary['completed_orders'] ?? 0);
+$pendingOrders = (int)($summary['pending_orders'] ?? 0);
+
+$selectedPeriod = (string)($period ?? 'month');
+$selectedPeriodLabel = (string)($periodLabel ?? 'Past Month');
+$periodChoices = is_array($periodOptions ?? null) ? $periodOptions : [];
 ?>
 
 <div class="flex-1 flex flex-col">
@@ -19,44 +35,109 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
     </header>
 
     <main class="p-6">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div class="mb-6 rounded-lg border border-[#c6d9e8] bg-white p-4 shadow-sm">
+            <form method="GET" class="flex flex-wrap items-end gap-3">
+                <div>
+                    <label for="period" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-600">Sales Period</label>
+                    <select id="period" name="period" class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                        <?php foreach ($periodChoices as $key => $option): ?>
+                            <option value="<?= htmlspecialchars((string)$key) ?>" <?= $selectedPeriod === (string)$key ? 'selected' : '' ?>>
+                                <?= htmlspecialchars((string)($option['label'] ?? strtoupper((string)$key))) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <button type="submit" class="rounded-md bg-[#062B41] px-4 py-2 text-sm font-semibold text-white hover:bg-[#041b2b] transition-colors duration-150">Apply</button>
+                <span class="text-xs text-gray-500">Current window: <?= htmlspecialchars($selectedPeriodLabel) ?></span>
+            </form>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6 flex flex-col">
-                <span class="text-gray-500 text-sm font-semibold uppercase">Total Sales</span>
-                <span class="text-3xl font-bold mt-2 text-green-600">$<?= number_format($totalSales ?? 0, 2) ?></span>
-                <span class="text-xs text-gray-400 mt-1">All completed orders</span>
+                <span class="text-gray-500 text-sm font-semibold uppercase">Total Amount Charged</span>
+                <span class="text-3xl font-bold mt-2 text-blue-600">$<?= number_format($totalAmount, 2) ?></span>
+                <span class="text-xs text-gray-400 mt-1"><?= htmlspecialchars($selectedPeriodLabel) ?>, completed orders</span>
             </div>
+            <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                <span class="text-gray-500 text-sm font-semibold uppercase">Sales Before Tax</span>
+                <span class="text-3xl font-bold mt-2 text-emerald-600">$<?= number_format($salesBeforeTax, 2) ?></span>
+                <span class="text-xs text-gray-400 mt-1">Estimated net sales excluding tax</span>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                <span class="text-gray-500 text-sm font-semibold uppercase">Sales After Tax</span>
+                <span class="text-3xl font-bold mt-2 text-green-600">$<?= number_format($salesAfterTax, 2) ?></span>
+                <span class="text-xs text-gray-400 mt-1">Product sales excluding deposit</span>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                <span class="text-gray-500 text-sm font-semibold uppercase">Tax Collected</span>
+                <span class="text-3xl font-bold mt-2 text-violet-600">$<?= number_format($taxCollected, 2) ?></span>
+                <span class="text-xs text-gray-400 mt-1">Computed from sales totals</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6 flex flex-col">
                 <span class="text-gray-500 text-sm font-semibold uppercase">Total Orders</span>
-                <span class="text-3xl font-bold mt-2 text-blue-600"><?= $totalOrders ?? 0 ?></span>
-                <span class="text-xs text-gray-400 mt-1">All orders (any status)</span>
+                <span class="text-3xl font-bold mt-2 text-[#062B41]"><?= $totalOrders ?></span>
+                <span class="text-xs text-gray-400 mt-1">All statuses in selected period</span>
             </div>
             <div class="bg-white rounded-lg shadow p-6 flex flex-col">
-                <span class="text-gray-500 text-sm font-semibold uppercase">Completed</span>
-                <span class="text-3xl font-bold mt-2 text-purple-600"><?= $completedOrders ?? 0 ?></span>
-                <span class="text-xs text-gray-400 mt-1">Finished orders</span>
+                <span class="text-gray-500 text-sm font-semibold uppercase">Completed Orders</span>
+                <span class="text-3xl font-bold mt-2 text-indigo-600"><?= $completedOrders ?></span>
+                <span class="text-xs text-gray-400 mt-1">Status: completed</span>
             </div>
             <div class="bg-white rounded-lg shadow p-6 flex flex-col">
-                <span class="text-gray-500 text-sm font-semibold uppercase">Pending</span>
-                <span class="text-3xl font-bold mt-2 text-orange-600"><?= $pendingOrders ?? 0 ?></span>
-                <span class="text-xs text-gray-400 mt-1">Awaiting approval</span>
+                <span class="text-gray-500 text-sm font-semibold uppercase">Pending Orders</span>
+                <span class="text-3xl font-bold mt-2 text-orange-600"><?= $pendingOrders ?></span>
+                <span class="text-xs text-gray-400 mt-1">Status: pending</span>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                <span class="text-gray-500 text-sm font-semibold uppercase">Net Sales After Refunds</span>
+                <span class="text-3xl font-bold mt-2 text-teal-600">$<?= number_format($netSalesAfterRefunds, 2) ?></span>
+                <span class="text-xs text-gray-400 mt-1">Sales after tax minus refunded deposit</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                <span class="text-gray-500 text-sm font-semibold uppercase">Security Deposit Collected</span>
+                <span class="text-2xl font-bold mt-2 text-amber-600">$<?= number_format($securityDepositCollected, 2) ?></span>
+                <span class="text-xs text-gray-400 mt-1">Completed orders in selected period</span>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                <span class="text-gray-500 text-sm font-semibold uppercase">Security Deposit Refunded</span>
+                <span class="text-2xl font-bold mt-2 text-rose-600">$<?= number_format($securityDepositRefunded, 2) ?></span>
+                <span class="text-xs text-gray-400 mt-1">Refund records in selected period</span>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-lg font-semibold mb-4 text-gray-800">Sales Over Last 30 Days</h3>
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Sales After Tax Trend (<?= htmlspecialchars($selectedPeriodLabel) ?>)</h3>
                 <canvas id="salesChart" class="max-h-80"></canvas>
             </div>
 
             <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-lg font-semibold mb-4 text-gray-800">Orders by Status</h3>
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Orders by Status (<?= htmlspecialchars($selectedPeriodLabel) ?>)</h3>
                 <canvas id="statusChart" class="max-h-80"></canvas>
             </div>
         </div>
 
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Order Volume (<?= htmlspecialchars($selectedPeriodLabel) ?>)</h3>
+                <canvas id="volumeChart" class="max-h-80"></canvas>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Refund Trend (<?= htmlspecialchars($selectedPeriodLabel) ?>)</h3>
+                <canvas id="refundsChart" class="max-h-80"></canvas>
+            </div>
+        </div>
+
         <div class="bg-white rounded-lg shadow p-6 mt-6">
-            <h3 class="text-lg font-semibold mb-4 text-gray-800">Order Volume Over Last 30 Days</h3>
-            <canvas id="volumeChart" class="max-h-80"></canvas>
+            <h3 class="text-lg font-semibold mb-4 text-gray-800">Payment Channel Mix (<?= htmlspecialchars($selectedPeriodLabel) ?>)</h3>
+            <canvas id="paymentProviderChart" class="max-h-80"></canvas>
         </div>
     </main>
 </div>
@@ -64,12 +145,30 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        const formatChartDate = function(value) {
+            const raw = String(value || '').trim();
+            if (!raw) {
+                return '';
+            }
+
+            const parsed = new Date(raw + 'T00:00:00');
+            if (Number.isNaN(parsed.getTime())) {
+                return raw;
+            }
+
+            const monthNames = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];
+            return `${monthNames[parsed.getMonth()]} ${parsed.getDate()}, ${parsed.getFullYear()}`;
+        };
+
         const chartColors = {
             primary: '#0086C9',
             success: '#10B981',
             warning: '#F59E0B',
             danger: '#EF4444',
-            purple: '#8B5CF6'
+            purple: '#8B5CF6',
+            indigo: '#4F46E5',
+            rose: '#E11D48',
+            teal: '#0F766E'
         };
 
         const salesData = <?php echo json_encode($salesByDate ?? []); ?>;
@@ -78,9 +177,9 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
             new Chart(salesCtx, {
                 type: 'line',
                 data: {
-                    labels: salesData.map(d => new Date(d.date).toLocaleDateString()),
+                    labels: salesData.map(d => formatChartDate(d.date)),
                     datasets: [{
-                        label: 'Daily Sales ($)',
+                        label: 'Sales After Tax ($)',
                         data: salesData.map(d => parseFloat(d.total || 0)),
                         borderColor: chartColors.primary,
                         backgroundColor: 'rgba(0, 134, 201, 0.1)',
@@ -151,7 +250,7 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
             new Chart(volumeCtx, {
                 type: 'bar',
                 data: {
-                    labels: volumeData.map(d => new Date(d.date).toLocaleDateString()),
+                    labels: volumeData.map(d => formatChartDate(d.date)),
                     datasets: [{
                         label: 'Orders per Day',
                         data: volumeData.map(d => parseInt(d.count || 0, 10)),
@@ -172,6 +271,84 @@ $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
                     scales: {
                         y: {
                             beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        const refundData = <?php echo json_encode($refundsByDate ?? []); ?>;
+        const refundsCtx = document.getElementById('refundsChart');
+        if (refundsCtx) {
+            new Chart(refundsCtx, {
+                type: 'line',
+                data: {
+                    labels: refundData.map(d => formatChartDate(d.date)),
+                    datasets: [{
+                        label: 'Refunded Amount ($)',
+                        data: refundData.map(d => parseFloat(d.total || 0)),
+                        borderColor: chartColors.rose,
+                        backgroundColor: 'rgba(225, 29, 72, 0.12)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.35,
+                        pointRadius: 3,
+                        pointBackgroundColor: chartColors.rose,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Refunds ($)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        const providerData = <?php echo json_encode($paymentProviderBreakdown ?? []); ?>;
+        const providerCtx = document.getElementById('paymentProviderChart');
+        if (providerCtx && providerData.length > 0) {
+            const providerLabels = providerData.map(d => String(d.provider || 'unknown').toUpperCase());
+            const providerCounts = providerData.map(d => parseInt(d.count || 0, 10));
+            const providerColors = [
+                chartColors.primary,
+                chartColors.success,
+                chartColors.warning,
+                chartColors.purple,
+                chartColors.indigo,
+                chartColors.teal
+            ];
+
+            new Chart(providerCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: providerLabels,
+                    datasets: [{
+                        data: providerCounts,
+                        backgroundColor: providerColors.slice(0, providerLabels.length),
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
                         }
                     }
                 }
