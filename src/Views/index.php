@@ -2,11 +2,12 @@
 <!-- Cart Date Change Modal -->
 
 <!-- HERO SECTION -->
-<section class="relative h-screen bg-cover bg-center bg-[url(/img/new-las-vegas-hero-section.png)] mt-16">
+<section class="relative h-screen bg-cover bg-center bg-[url(/img/new-las-vegas-hero-section.png)] md:mt-17">
+    <div class="absolute inset-0 bg-gradient-to-b from-[#062B41]/55 via-[#062B41]/40 to-[#062B41]/60"></div>
     <div class="relative z-10 h-full flex px-6 items-center justify-center">
         <div class="max-w-screen-xl mx-auto text-white text-center">
-            <h1 class="text-5xl md:text-6xl font-bold leading-tight mb-4 font-[Barlow]">Your partner in Mobility</h1>
-            <p class="text-lg md:text-xl mb-6 max-w-2xl mx-auto font-[Barlow]">The best customer mobility rental for customer-first teams. Industry-leading support.</p>
+            <h1 class="text-5xl md:text-6xl font-extrabold uppercase tracking-wide leading-tight mb-4 font-[Barlow] [text-shadow:0_6px_20px_rgba(0,0,0,0.72)]">Your partner in Mobility</h1>
+            <p class="text-lg md:text-xl mb-6 max-w-2xl mx-auto font-[Barlow] font-semibold rounded-2xl border border-white/20 bg-[#062B41]/72 px-5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-[2px]">The best customer mobility rental for customer-first teams. <span class="text-yellow-300">Industry-leading support.</span></p>
             <a id="heroRentNowBtn" href="#rentalForm" class="group inline-flex items-center gap-3
                     bg-[#0086C9] text-white
                     px-10 py-4 rounded-full

@@ -112,6 +112,26 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     <p id="clientWeightWarning" class="mt-1 hidden text-xs text-amber-700">Warning: custom weight should be between 101 lbs and 499 lbs.</p>
                                 </div>
                             </div>
+                            <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
+                                <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40">Where did you hear about us?</label>
+                                <div class="w-full max-w-md">
+                                <select id="heardAboutOption" name="heard_about_option_id" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] md:w-72" required>
+                                    <option value="" selected disabled>Select one</option>
+                                    <?php foreach (($heardAboutOptions ?? []) as $sourceOption): ?>
+                                        <option value="<?= (int)$sourceOption['id'] ?>"><?= htmlspecialchars($sourceOption['label']) ?></option>
+                                    <?php endforeach; ?>
+                                    <option value="-1">Other</option>
+                                </select>
+                                <input
+                                    type="text"
+                                    id="heardAboutOtherText"
+                                    name="heard_about_other_text"
+                                    maxlength="120"
+                                    placeholder="Please specify"
+                                    class="mt-2 hidden w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]"
+                                >
+                                </div>
+                            </div>
                             <?php if (!$user): ?>
                             <div class="flex justify-end">
                                 <button type="button" id="clearContactBtn" class="mt-2 px-4 py-2 bg-white text-gray-700 rounded cursor-pointer hover:bg-gray-300 text-sm border font-[Barlow] border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] transition-colors duration-200">
@@ -556,6 +576,48 @@ if (file_exists(__DIR__ . '/../../.env')) {
         return true;
     }
 
+    function setupHeardAboutFields() {
+        const optionEl = document.getElementById('heardAboutOption');
+        const otherTextEl = document.getElementById('heardAboutOtherText');
+        if (!optionEl || !otherTextEl) return;
+
+        function sync() {
+            const isOther = optionEl.value === '-1';
+            otherTextEl.classList.toggle('hidden', !isOther);
+            otherTextEl.required = isOther;
+            if (!isOther) {
+                otherTextEl.value = '';
+            }
+        }
+
+        optionEl.addEventListener('change', sync);
+        sync();
+    }
+
+    function validateHeardAboutSelection() {
+        const optionEl = document.getElementById('heardAboutOption');
+        const otherTextEl = document.getElementById('heardAboutOtherText');
+        if (!optionEl) return true;
+
+        const selected = String(optionEl.value || '').trim();
+        if (selected === '') {
+            alert('Please select where you heard about us.');
+            optionEl.focus();
+            return false;
+        }
+
+        if (selected === '-1') {
+            const otherText = String(otherTextEl ? otherTextEl.value : '').trim();
+            if (otherText.length < 2) {
+                alert('Please enter at least 2 characters for "Other".');
+                if (otherTextEl) otherTextEl.focus();
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     function loadCart() {
         const keysToTry = ['cart', 'getaround_cart', 'cart_items'];
         for (const key of keysToTry) {
@@ -713,6 +775,7 @@ window.addEventListener('storage', function(e) {
 document.addEventListener('DOMContentLoaded', renderCheckoutSummary);
 document.addEventListener('DOMContentLoaded', renderSelectedDatesSummary);
 document.addEventListener('DOMContentLoaded', setupClientWeightFields);
+document.addEventListener('DOMContentLoaded', setupHeardAboutFields);
 
 const stripePk = "<?= $_ENV['STRIPE_PUBLISHABLE'] ?>";
 const stripeClient = stripePk ? Stripe(stripePk) : null;
@@ -821,6 +884,10 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
     }
 
     if (!validateClientWeightSelection()) {
+        return;
+    }
+
+    if (!validateHeardAboutSelection()) {
         return;
     }
 
@@ -1157,6 +1224,10 @@ function renderPayPalButton() {
         },
         
         async createOrder() {
+
+            if (!validateHeardAboutSelection()) {
+                throw new Error('Please select where you heard about us.');
+            }
 
             // Validate delivery selection (hotel or pickup store required)
             if (!validateDeliverySelection()) {

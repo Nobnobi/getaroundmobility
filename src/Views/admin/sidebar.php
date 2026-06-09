@@ -101,6 +101,13 @@ $role = strtolower($_SESSION['admin_role'] ?? '');
                 </svg>
                 Promo Codes
             </a>
+
+            <a href="/admin/heard-about-options" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.2-3.6A7.73 7.73 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                </svg>
+                Checkout Referral Sources
+            </a>
         <?php endif; ?>
 
         <a href="/admin/testimonials" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">

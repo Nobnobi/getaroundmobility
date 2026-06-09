@@ -140,7 +140,7 @@ $formatDateTime = function ($value) {
                         <a href="/admin/orders" class="text-xs font-semibold text-[#0b5f8a] hover:underline">Reset all</a>
                     </div>
 
-                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-8">
+                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-9">
                         <div class="lg:col-span-2">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Order ID</label>
                             <input type="text" name="order_id_search" value="<?= htmlspecialchars($searchTerm ?? '') ?>" placeholder="Search Order ID..." class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
@@ -184,6 +184,14 @@ $formatDateTime = function ($value) {
                         </div>
 
                         <div>
+                            <label class="mb-1 block text-xs font-semibold text-gray-600">Heard About Us</label>
+                            <select name="heard_about" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <option value="">All</option>
+                                <option value="others" <?= (($heardAboutFilter ?? '') === 'others') ? 'selected' : '' ?>>Others</option>
+                            </select>
+                        </div>
+
+                        <div>
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Promo</label>
                             <select name="promo_usage" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                 <option value="">All</option>
@@ -222,7 +230,7 @@ $formatDateTime = function ($value) {
                 <div class="overflow-x-auto">
                     <table id="ordersTable" class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
-                            <tr>
+                            <tr data-order-id="<?= (int)$order['order_id'] ?>">
                                 <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('order_id')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Order ID <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'order_id') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
                                 <th class="px-4 py-2">Customer</th>
                                 <th class="px-4 py-2">Type</th> <!-- New: Customer Type -->
@@ -267,7 +275,7 @@ $formatDateTime = function ($value) {
                                 ?>
                                 <td class="px-4 py-2 align-top">
                                     <div class="leading-5">
-                                        <div class="text-base font-semibold text-[#062B41]">Total: $<?= number_format($totalAmount, 2) ?></div>
+                                        <div class="text-base font-semibold text-[#062B41]" data-order-total>Total: $<?= number_format($totalAmount, 2) ?></div>
                                         <div class="text-sm text-gray-700">Sales: $<?= number_format($salesAmount, 2) ?></div>
                                         <div class="text-sm text-gray-700">Refund: $<?= number_format($refundAmount, 2) ?></div>
                                     </div>
@@ -447,7 +455,8 @@ $formatDateTime = function ($value) {
                 .replace(/'/g, '&#39;');
         };
         content.innerHTML = '<div class="py-8 text-center text-gray-500">Loading...</div>';
-        fetch(`/admin/orders/details?order_id=${orderId}`)
+        const detailsUrl = `/admin/orders/details?order_id=${orderId}&_=${Date.now()}`;
+        fetch(detailsUrl, { cache: 'no-store' })
             .then(res => {
                 if (!res.ok) {
                     throw new Error(`HTTP error! status: ${res.status}`);
@@ -468,6 +477,16 @@ $formatDateTime = function ($value) {
                 const customerEmail = order.guest_email || order.customer_email || 'N/A';
                 const customerPhone = order.guest_phone || order.customer_phone || 'N/A';
                 const paymentPlatform = order.payment_provider || refundSummary.payment_provider || (order.payment_method === 'paypal' ? 'paypal' : (order.payment_method === 'card' ? 'stripe' : 'unknown'));
+                const isWalkInBooking = String(order.booking_source || '').toLowerCase() === 'walk-in';
+                const heardAboutRaw = String(order.heard_about_label || order.heard_about_display || '').trim();
+                const heardAboutOptionId = Number(order.heard_about_option_id || 0);
+                let heardAboutDisplay = 'Not specified';
+                if (heardAboutRaw && heardAboutRaw.toLowerCase() !== 'not specified') {
+                    heardAboutDisplay = heardAboutOptionId > 0 ? heardAboutRaw : `Other - ${heardAboutRaw}`;
+                }
+                const defaultRefundMethod = isWalkInBooking
+                    ? (String(order.payment_method || '').toLowerCase() === 'cash' ? 'cash' : 'card-terminal')
+                    : 'provider';
 
                 let html = `
                     <div class="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-2">
@@ -478,6 +497,7 @@ $formatDateTime = function ($value) {
                         <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
                         <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method || 'N/A')}</div>
                         <div><span class="font-semibold text-[#062B41]">Platform:</span> ${esc(String(paymentPlatform).toUpperCase())}</div>
+                        <div><span class="font-semibold text-[#062B41]">Heard About Us:</span> ${esc(heardAboutDisplay)}</div>
                         <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${toOrdinaryTime(order.pickup_datetime)}</div>
                         <div><span class="font-semibold text-[#062B41]">Return:</span> ${toOrdinaryTime(order.return_datetime)}</div>
                         <div><span class="font-semibold text-[#062B41]">Total:</span> $${Number(order.total_amount || 0).toFixed(2)}</div>
@@ -614,7 +634,7 @@ $formatDateTime = function ($value) {
 
                         <div class="mt-4 border-t border-amber-200 pt-3">
                             <div class="font-semibold text-[#7c3e00]">Return Security Deposit</div>
-                            <div class="mt-1 text-xs text-[#7c3e00]">Refunds go back to the original ${esc(String(paymentPlatform).toUpperCase())} payment source.</div>
+                            <div class="mt-1 text-xs text-[#7c3e00]">${isWalkInBooking ? 'Record the walk-in refund method used at the desk or terminal.' : `Refunds go back to the original ${esc(String(paymentPlatform).toUpperCase())} payment source.`}</div>
                             <form class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-12 md:items-end" data-security-deposit-refund-form>
                                 <input type="hidden" name="order_id" value="${Number(order.order_id || orderId)}">
                                 <div class="md:col-span-3">
@@ -629,6 +649,25 @@ $formatDateTime = function ($value) {
                                         class="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00] focus:border-[#b45309] focus:outline-none focus:ring-2 focus:ring-amber-300/60"
                                         ${refundableRemaining > 0 ? 'required' : 'disabled'}
                                     >
+                                </div>
+                                <div class="md:col-span-3">
+                                    ${isWalkInBooking ? `
+                                        <label class="block text-xs font-semibold text-[#7c3e00]">Refund Method</label>
+                                        <select
+                                            name="refund_method"
+                                            class="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00] focus:border-[#b45309] focus:outline-none focus:ring-2 focus:ring-amber-300/60"
+                                            ${refundableRemaining > 0 ? '' : 'disabled'}
+                                        >
+                                            <option value="card-terminal" ${defaultRefundMethod === 'card-terminal' ? 'selected' : ''}>Card terminal</option>
+                                            <option value="cash" ${defaultRefundMethod === 'cash' ? 'selected' : ''}>Cash</option>
+                                        </select>
+                                    ` : `
+                                        <label class="block text-xs font-semibold text-[#7c3e00]">Refund Method</label>
+                                        <div class="mt-1 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00]">
+                                            Original payment service (${esc(String(paymentPlatform).toUpperCase())})
+                                        </div>
+                                        <input type="hidden" name="refund_method" value="provider">
+                                    `}
                                 </div>
                                 <div class="md:col-span-7">
                                     <label class="block text-xs font-semibold text-[#7c3e00]">Refund Reason (required)</label>
@@ -661,7 +700,7 @@ $formatDateTime = function ($value) {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                ${refunds.map(r => `<tr class="border-t border-amber-100"><td class="py-1 pr-2">${esc(toOrdinaryTime(r.created_at))}</td><td class="py-1 pr-2">${esc(String(r.payment_provider || '').toUpperCase())}</td><td class="py-1 pr-2">$${Number(r.approved_amount || r.requested_amount || 0).toFixed(2)}</td><td class="py-1 pr-2">${esc(r.status || '')}</td><td class="py-1">${esc(r.reason || '')}</td></tr>`).join('')}
+                                                ${refunds.map(r => `<tr class="border-t border-amber-100"><td class="py-1 pr-2">${esc(toOrdinaryTime(r.created_at))}</td><td class="py-1 pr-2">${esc(String(r.payment_provider || '').toUpperCase())}${r.refund_method ? `<div class='text-[10px] text-gray-500'>${esc(String(r.refund_method).replace('-', ' '))}</div>` : ''}</td><td class="py-1 pr-2">$${Number(r.approved_amount || r.requested_amount || 0).toFixed(2)}</td><td class="py-1 pr-2">${esc(r.status || '')}</td><td class="py-1">${esc(r.reason || '')}</td></tr>`).join('')}
                                             </tbody>
                                         </table>
                                     </div>
@@ -769,11 +808,21 @@ $formatDateTime = function ($value) {
                             }
                             return body;
                         })
-                        .then(() => {
+                        .then((body) => {
                             if (feedback) {
                                 feedback.className = 'mt-2 text-xs text-green-700';
                                 feedback.textContent = 'Security deposit updated.';
                             }
+
+                            const updatedTotal = Number(body?.order?.total_amount || 0);
+                            if (Number.isFinite(updatedTotal) && updatedTotal > 0) {
+                                const row = document.querySelector(`tr[data-order-id="${Number(order.order_id || orderId)}"]`);
+                                const totalNode = row ? row.querySelector('[data-order-total]') : null;
+                                if (totalNode) {
+                                    totalNode.textContent = `Total: $${updatedTotal.toFixed(2)}`;
+                                }
+                            }
+
                             openOrderModal(Number(order.order_id || orderId));
                         })
                         .catch((error) => {
@@ -799,6 +848,7 @@ $formatDateTime = function ($value) {
                         const feedback = content.querySelector('[data-security-deposit-refund-feedback]');
                         const submitButton = refundForm.querySelector('button[type="submit"]');
                         const amountInput = refundForm.querySelector('input[name="refund_amount"]');
+                        const methodInput = refundForm.querySelector('[name="refund_method"]');
                         const reasonInput = refundForm.querySelector('textarea[name="refund_reason"]');
 
                         const amount = Number(amountInput ? amountInput.value : NaN);
@@ -827,7 +877,12 @@ $formatDateTime = function ($value) {
                             return;
                         }
 
-                        const confirmed = window.confirm(`Refund $${amount.toFixed(2)} to the customer via ${String(paymentPlatform).toUpperCase()}?\n\nReason:\n${reason}`);
+                        const refundMethod = String(methodInput ? methodInput.value : '').trim();
+
+                        const confirmationTarget = isWalkInBooking
+                            ? `record a ${refundMethod.replace('-', ' ')} refund`
+                            : `refund via ${String(paymentPlatform).toUpperCase()}`;
+                        const confirmed = window.confirm(`Are you sure you want to ${confirmationTarget} for $${amount.toFixed(2)}?\n\nReason:\n${reason}`);
                         if (!confirmed) {
                             return;
                         }
@@ -845,6 +900,9 @@ $formatDateTime = function ($value) {
                         payload.set('order_id', String(Number(order.order_id || orderId)));
                         payload.set('refund_amount', amount.toFixed(2));
                         payload.set('refund_reason', reason);
+                        if (refundMethod) {
+                            payload.set('refund_method', refundMethod);
+                        }
                         payload.set('csrf_token', ADMIN_CSRF_TOKEN);
 
                         fetch('/admin/orders/security-deposit/refund', {
@@ -856,16 +914,24 @@ $formatDateTime = function ($value) {
                             body: payload.toString()
                         })
                         .then(async (response) => {
-                            const body = await response.json().catch(() => ({}));
+                            const rawText = await response.text();
+                            let body = {};
+                            if (rawText) {
+                                try {
+                                    body = JSON.parse(rawText);
+                                } catch (_e) {
+                                    body = { error: rawText.trim() };
+                                }
+                            }
                             if (!response.ok || body.error) {
-                                throw new Error(body.error || 'Refund failed.');
+                                throw new Error(body.error || `Refund failed (${response.status}).`);
                             }
                             return body;
                         })
                         .then(() => {
                             if (feedback) {
                                 feedback.className = 'mt-2 text-xs text-green-700';
-                                feedback.textContent = 'Refund processed successfully.';
+                                feedback.textContent = isWalkInBooking ? 'Walk-in refund recorded successfully.' : 'Refund processed successfully.';
                             }
                             openOrderModal(Number(order.order_id || orderId));
                         })

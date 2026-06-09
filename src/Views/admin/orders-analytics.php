@@ -19,6 +19,9 @@ $netSalesAfterRefunds = (float)($summary['net_sales_after_refunds'] ?? 0);
 $totalOrders = (int)($summary['total_orders'] ?? 0);
 $completedOrders = (int)($summary['completed_orders'] ?? 0);
 $pendingOrders = (int)($summary['pending_orders'] ?? 0);
+$heardAboutBreakdownRows = is_array($heardAboutBreakdown ?? null) ? $heardAboutBreakdown : [];
+$topHeardAbout = !empty($heardAboutBreakdownRows) ? (string)($heardAboutBreakdownRows[0]['heard_about'] ?? 'Not specified') : 'Not specified';
+$topHeardAboutCount = !empty($heardAboutBreakdownRows) ? (int)($heardAboutBreakdownRows[0]['count'] ?? 0) : 0;
 
 $selectedPeriod = (string)($period ?? 'month');
 $selectedPeriodLabel = (string)($periodLabel ?? 'Past Month');
@@ -98,7 +101,7 @@ $periodChoices = is_array($periodOptions ?? null) ? $periodOptions : [];
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6 flex flex-col">
                 <span class="text-gray-500 text-sm font-semibold uppercase">Security Deposit Collected</span>
                 <span class="text-2xl font-bold mt-2 text-amber-600">$<?= number_format($securityDepositCollected, 2) ?></span>
@@ -108,6 +111,11 @@ $periodChoices = is_array($periodOptions ?? null) ? $periodOptions : [];
                 <span class="text-gray-500 text-sm font-semibold uppercase">Security Deposit Refunded</span>
                 <span class="text-2xl font-bold mt-2 text-rose-600">$<?= number_format($securityDepositRefunded, 2) ?></span>
                 <span class="text-xs text-gray-400 mt-1">Refund records in selected period</span>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 flex flex-col">
+                <span class="text-gray-500 text-sm font-semibold uppercase">Top Heard About Source</span>
+                <span class="text-2xl font-bold mt-2 text-cyan-700"><?= htmlspecialchars($topHeardAbout) ?></span>
+                <span class="text-xs text-gray-400 mt-1"><?= number_format($topHeardAboutCount) ?> order<?= $topHeardAboutCount === 1 ? '' : 's' ?> in <?= htmlspecialchars($selectedPeriodLabel) ?></span>
             </div>
         </div>
 
@@ -138,6 +146,46 @@ $periodChoices = is_array($periodOptions ?? null) ? $periodOptions : [];
         <div class="bg-white rounded-lg shadow p-6 mt-6">
             <h3 class="text-lg font-semibold mb-4 text-gray-800">Payment Channel Mix (<?= htmlspecialchars($selectedPeriodLabel) ?>)</h3>
             <canvas id="paymentProviderChart" class="max-h-80"></canvas>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Heard About Us Mix (<?= htmlspecialchars($selectedPeriodLabel) ?>)</h3>
+                <canvas id="heardAboutChart" class="max-h-80"></canvas>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Referral Source Statistics</h3>
+                <?php if (!empty($heardAboutBreakdownRows)): ?>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm border border-gray-200">
+                            <thead class="bg-gray-50 text-gray-700">
+                                <tr>
+                                    <th class="px-3 py-2 text-left border-b border-gray-200">Source</th>
+                                    <th class="px-3 py-2 text-right border-b border-gray-200">Orders</th>
+                                    <th class="px-3 py-2 text-right border-b border-gray-200">Share</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($heardAboutBreakdownRows as $row): ?>
+                                    <?php
+                                        $source = (string)($row['heard_about'] ?? 'Not specified');
+                                        $count = (int)($row['count'] ?? 0);
+                                        $share = $totalOrders > 0 ? ($count / $totalOrders) * 100 : 0;
+                                    ?>
+                                    <tr class="border-b border-gray-100">
+                                        <td class="px-3 py-2"><?= htmlspecialchars($source) ?></td>
+                                        <td class="px-3 py-2 text-right font-semibold text-[#062B41]"><?= number_format($count) ?></td>
+                                        <td class="px-3 py-2 text-right"><?= number_format($share, 1) ?>%</td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php else: ?>
+                    <div class="rounded-md border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">No referral source data available for this period yet.</div>
+                <?php endif; ?>
+            </div>
         </div>
     </main>
 </div>
@@ -339,6 +387,47 @@ $periodChoices = is_array($periodOptions ?? null) ? $periodOptions : [];
                     datasets: [{
                         data: providerCounts,
                         backgroundColor: providerColors.slice(0, providerLabels.length),
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        const heardAboutData = <?php echo json_encode($heardAboutBreakdownRows ?? []); ?>;
+        const heardAboutCtx = document.getElementById('heardAboutChart');
+        if (heardAboutCtx && heardAboutData.length > 0) {
+            const heardAboutLabels = heardAboutData.map(d => String(d.heard_about || 'Not specified'));
+            const heardAboutCounts = heardAboutData.map(d => parseInt(d.count || 0, 10));
+            const heardAboutColors = [
+                chartColors.primary,
+                chartColors.success,
+                chartColors.warning,
+                chartColors.purple,
+                chartColors.indigo,
+                chartColors.teal,
+                chartColors.rose,
+                '#0EA5E9',
+                '#14B8A6',
+                '#F97316'
+            ];
+
+            new Chart(heardAboutCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: heardAboutLabels,
+                    datasets: [{
+                        data: heardAboutCounts,
+                        backgroundColor: heardAboutColors.slice(0, heardAboutLabels.length),
                         borderColor: '#fff',
                         borderWidth: 2
                     }]

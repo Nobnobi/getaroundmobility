@@ -99,12 +99,68 @@ class OrderController extends Controller
             'return_datetime' => trim((string)($post['return_datetime'] ?? '')),
             'pickup_location' => trim((string)($post['pickup_location'] ?? '')),
             'notes' => trim((string)($post['notes'] ?? '')),
+            'heard_about_option_id' => trim((string)($post['heard_about_option_id'] ?? '')),
+            'heard_about_other_text' => trim((string)($post['heard_about_other_text'] ?? '')),
             'sale_type' => trim((string)($post['sale_type'] ?? 'rental')),
             'cart_json' => (string)($post['cart'] ?? '[]'),
             'created_by_admin_id' => trim((string)($_SESSION['admin_id'] ?? '')),
             'created_by_admin_role' => trim((string)($_SESSION['admin_role'] ?? '')),
             'created_by_admin_name' => trim((string)($_SESSION['admin_username'] ?? '')),
         ];
+    }
+
+    private function resolveHeardAboutSelection(array $source): array
+    {
+        $optionIdRaw = trim((string)($source['heard_about_option_id'] ?? ''));
+        $otherText = trim((string)($source['heard_about_other_text'] ?? ''));
+        $optionId = (is_numeric($optionIdRaw) && (int)$optionIdRaw > 0) ? (int)$optionIdRaw : null;
+        $label = null;
+
+        if ($optionId !== null) {
+            try {
+                $pdo = \App\Utils\Database::getInstance();
+                $stmt = $pdo->prepare("SELECT label FROM heard_about_options WHERE id = ? LIMIT 1");
+                $stmt->execute([$optionId]);
+                $found = $stmt->fetchColumn();
+                if (is_string($found) && trim($found) !== '') {
+                    $label = trim($found);
+                }
+            } catch (\Throwable $e) {
+                $label = null;
+            }
+        }
+
+        if ($label === null && $optionIdRaw === '-1') {
+            $label = $otherText !== '' ? $otherText : 'Other';
+        }
+
+        return [
+            'option_id' => $optionId,
+            'label' => $label,
+            'raw' => $optionIdRaw,
+        ];
+    }
+
+    private function validateHeardAboutSelection(array $source): ?string
+    {
+        $selection = trim((string)($source['heard_about_option_id'] ?? ''));
+        if ($selection === '') {
+            return 'Please select where you heard about us.';
+        }
+
+        if ($selection === '-1') {
+            $otherText = trim((string)($source['heard_about_other_text'] ?? ''));
+            if (strlen($otherText) < 2) {
+                return 'Please provide details for Other (at least 2 characters).';
+            }
+            return null;
+        }
+
+        if (!is_numeric($selection) || (int)$selection <= 0) {
+            return 'Invalid referral source selection.';
+        }
+
+        return null;
     }
 
     private function findRecentlyCreatedStripeOrderId(string $guestEmail, array $cart, array $meta): ?int
@@ -217,6 +273,13 @@ class OrderController extends Controller
                 exit;
             }
 
+            $heardAboutError = $this->validateHeardAboutSelection($_POST);
+            if ($heardAboutError !== null) {
+                http_response_code(422);
+                echo $heardAboutError;
+                exit;
+            }
+
             if ($deliveryType === 'pickup') {
                 if (empty($_POST['pickup_location'])) {
                     echo "Please select a pickup store.";
@@ -318,7 +381,10 @@ class OrderController extends Controller
         $orderId = intval($_GET['order_id']);
         $orderModel = new OrderModel();
         $details = $orderModel->getOrderDetails($orderId);
-        header('Content-Type: application/json');
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
+        header('Expires: 0');
         echo json_encode($details);
         exit;
     }
@@ -553,6 +619,8 @@ class OrderController extends Controller
                 'return_datetime' => $meta['return_datetime'] ?? '',
                 'pickup_location' => $meta['pickup_location'] ?? '',
                 'notes' => $meta['notes'] ?? '',
+                'heard_about_option_id' => $meta['heard_about_option_id'] ?? '',
+                'heard_about_other_text' => $meta['heard_about_other_text'] ?? '',
                 'sale_type' => $meta['sale_type'] ?? 'rental',
                 'guest_first_name' => $meta['first_name'] ?? '',
                 'guest_last_name' => $meta['last_name'] ?? '',
@@ -724,6 +792,46 @@ class OrderController extends Controller
             exit;
         }
 
+        if (in_array($event->type, ['refund.created', 'refund.updated'], true)) {
+            $stripeObject = $event->data->object;
+            $refundPayload = json_decode(json_encode($stripeObject), true);
+            $orderModel = new \App\Models\OrderModel();
+            $syncResult = $orderModel->syncStripeRefundFromWebhook(is_array($refundPayload) ? $refundPayload : []);
+            if (isset($myfile) && is_resource($myfile)) {
+                fwrite($myfile, "[DEBUG] Stripe refund webhook sync result: " . print_r($syncResult, true) . "\n");
+                fclose($myfile);
+            }
+            http_response_code(200);
+            exit;
+        }
+
+        if ($event->type === 'charge.refunded') {
+            $stripeObject = $event->data->object;
+            $chargePayload = json_decode(json_encode($stripeObject), true);
+            $refundItems = $chargePayload['refunds']['data'] ?? [];
+            $orderModel = new \App\Models\OrderModel();
+            $syncResults = [];
+
+            if (is_array($refundItems)) {
+                foreach ($refundItems as $refundItem) {
+                    if (!is_array($refundItem)) {
+                        continue;
+                    }
+                    if (empty($refundItem['charge']) && !empty($chargePayload['id'])) {
+                        $refundItem['charge'] = (string)$chargePayload['id'];
+                    }
+                    $syncResults[] = $orderModel->syncStripeRefundFromWebhook($refundItem);
+                }
+            }
+
+            if (isset($myfile) && is_resource($myfile)) {
+                fwrite($myfile, "[DEBUG] Stripe charge.refunded sync results: " . print_r($syncResults, true) . "\n");
+                fclose($myfile);
+            }
+            http_response_code(200);
+            exit;
+        }
+
         if ($event->type === 'checkout.session.completed' || $event->type === 'payment_intent.succeeded') {
 
             
@@ -746,6 +854,12 @@ class OrderController extends Controller
             $return_datetime = htmlspecialchars(trim($meta->return_datetime ?? ''));
             $pickupLocation = htmlspecialchars(trim($meta->pickup_location ?? ''));
             $notes = htmlspecialchars(trim($meta->notes ?? ''));
+            $heardAboutResolved = $this->resolveHeardAboutSelection([
+                'heard_about_option_id' => $meta->heard_about_option_id ?? '',
+                'heard_about_other_text' => $meta->heard_about_other_text ?? '',
+            ]);
+            $heardAboutOptionId = $heardAboutResolved['option_id'];
+            $heardAboutLabel = $heardAboutResolved['label'];
             $saleType = htmlspecialchars(trim($meta->sale_type ?? 'rental'));
             $totalAmount = (float)($meta->total_amount ?? 0);
             $metadataSecurityDeposit = isset($meta->security_deposit) ? (float)$meta->security_deposit : null;
@@ -842,9 +956,9 @@ class OrderController extends Controller
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
                     )"
                 );
                 $params = [
@@ -863,6 +977,8 @@ class OrderController extends Controller
                     ':return_datetime' => $return_datetime,
                     ':pickup_location' => $pickupLocation,
                     ':notes' => $notes,
+                    ':heard_about_option_id' => $heardAboutOptionId,
+                    ':heard_about_label' => $heardAboutLabel,
                     ':provider_payment_intent_id' => $providerPaymentIntentId,
                     ':total_amount' => $totalAmount,
                     ':security_deposit' => $securityDeposit,
@@ -1210,6 +1326,11 @@ class OrderController extends Controller
         }
 
         $formData = $_SESSION['checkout_form_data'] ?? [];
+        $heardAboutError = $this->validateHeardAboutSelection($formData);
+        if ($heardAboutError !== null) {
+            echo json_encode(['error' => $heardAboutError]);
+            exit;
+        }
 
         // Availability check
         $pickup_datetime = $formData['pickup_datetime'] ?? '';
@@ -1634,15 +1755,20 @@ class OrderController extends Controller
         $first_name = $formData['first_name'] ?? '';
         $last_name = $formData['last_name'] ?? '';
         new \App\Models\OrderModel();
+        $heardAboutResolved = $this->resolveHeardAboutSelection($formData);
+        $heardAboutOptionId = $heardAboutResolved['option_id'];
+        $heardAboutLabel = $heardAboutResolved['label'];
         $stmt = $pdo->prepare(
             "INSERT INTO orders (
-                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, security_deposit, order_date, status, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, security_deposit, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs,
             $totalAmountWithTax, $securityDeposit, date('Y-m-d H:i:s'), 'paid',
             $address1, $address2, $state, $zip, $pickupLocation, $notes,
+            $heardAboutOptionId,
+            $heardAboutLabel,
             'paypal', 'paypal', $paypalOrderId, $paypalCaptureId, $customerType, $formData['sale_type'] ?? 'rental',
             $pickup_datetime, $return_datetime, $formData['delivery_type'] ?? 'preferred', $formData['hotel_id'] ?? null
         ]);

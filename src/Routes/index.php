@@ -182,6 +182,9 @@ $router->get('/admin/api/product-variations', ProductController::class, 'apiProd
 $router->get('/admin/promo-codes', AdminController::class, 'promoCodes');
 $router->post('/admin/promo-codes/save', AdminController::class, 'savePromoCode');
 $router->post('/admin/promo-codes/delete', AdminController::class, 'deletePromoCode');
+$router->get('/admin/heard-about-options', AdminController::class, 'heardAboutOptions');
+$router->post('/admin/heard-about-options/save', AdminController::class, 'saveHeardAboutOption');
+$router->post('/admin/heard-about-options/delete', AdminController::class, 'deleteHeardAboutOption');
 
 /*
 |--------------------------------------------------------------------------

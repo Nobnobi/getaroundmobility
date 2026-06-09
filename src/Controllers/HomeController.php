@@ -7,6 +7,7 @@ use App\Models\Journal;
 use App\Models\ProductModel;
 use App\Models\CartModel;
 use App\Models\OrderModel;
+use App\Models\HeardAboutOptionModel;
 use App\Models\TestimonialsModel;
 use App\Models\TipsTroubleshootingModel;
 
@@ -271,6 +272,7 @@ class HomeController extends Controller
         // Pickup locations
         $pickupStmt = $pdo->query("SELECT * FROM pickup_locations ORDER BY name ASC");
         $pickupLocations = $pickupStmt->fetchAll(\PDO::FETCH_ASSOC);
+        $heardAboutOptions = (new HeardAboutOptionModel())->getActive();
 
         $order = null;
         $showConfirmation = false;
@@ -297,6 +299,7 @@ class HomeController extends Controller
             'csrf_token'      => $_SESSION['csrf_token'],
             'partnerHotels'   => $partnerHotels,
             'pickupLocations' => $pickupLocations,
+            'heardAboutOptions' => $heardAboutOptions,
             'showConfirmation'=> $showConfirmation,   
             'order'           => $order,              
         ]);

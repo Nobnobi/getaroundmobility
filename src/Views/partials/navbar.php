@@ -10,10 +10,10 @@
 </div>
 
 <!-- MOBILE NAVBAR TOP BAR -->
-<div class="md:hidden fixed top-0 left-0 w-full z-[80] bg-[#0086C9] shadow-sm flex items-center h-14">
+<div class="md:hidden fixed top-0 left-0 w-full z-[80] bg-white shadow-sm flex items-center h-14">
     <div class="flex-1 flex justify-start">
         <button id="burgerBtn" class="ml-2 p-2 rounded cursor-pointer">
-            <img src="/img/burgerNav.svg" class="w-7 h-7" alt="Menu" />
+            <img src="/img/burgerNav-black.svg" class="w-7 h-7" alt="Menu" />
         </button>
     </div>
     <div class="flex-none flex justify-center absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-fit">
@@ -23,10 +23,10 @@
     </div>
     <div class="flex-1 flex justify-end items-center gap-1 pr-2">
         <button id="mobileSearchIcon" class="relative p-2">
-            <img src="/img/search-white.svg" alt="Search" class="w-7 h-7" />
+            <img src="/img/search-black.svg" alt="Search" class="w-7 h-7" />
         </button>
         <button id="mobileCartIcon" class="relative p-2">
-            <img src="/img/shoppingcart_white2.svg" alt="Cart" class="w-7 h-7" />
+            <img src="/img/shoppingcart_black.svg" alt="Cart" class="w-7 h-7" />
             <span id="mobileCartCount" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full px-1.5 min-w-[20px] text-center hidden"></span>
         </button>
     </div>

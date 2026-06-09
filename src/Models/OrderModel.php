@@ -73,6 +73,85 @@ class OrderModel {
                 return $this->getCatalogBasePrice($productId, $variationId);
             }
 
+            private ?bool $orderRefundsHasRefundMethodColumn = null;
+
+            private function hasOrderRefundMethodColumn(): bool {
+                if ($this->orderRefundsHasRefundMethodColumn !== null) {
+                    return $this->orderRefundsHasRefundMethodColumn;
+                }
+
+                try {
+                    $col = $this->db->query("SHOW COLUMNS FROM order_refunds LIKE 'refund_method'");
+                    $this->orderRefundsHasRefundMethodColumn = (bool)($col && $col->fetch(\PDO::FETCH_ASSOC));
+                } catch (\Throwable $e) {
+                    $this->orderRefundsHasRefundMethodColumn = false;
+                }
+
+                return $this->orderRefundsHasRefundMethodColumn;
+            }
+
+            private function executeOrThrow(\PDOStatement $stmt, array $params): void {
+                if (!$stmt->execute($params)) {
+                    $errorInfo = $stmt->errorInfo();
+                    throw new \RuntimeException('SQL execute failed: ' . implode(' | ', array_filter($errorInfo ?: [])));
+                }
+            }
+
+            private function insertOrderRefundRecord(array $payload): void {
+                $supportsRefundMethod = $this->hasOrderRefundMethodColumn();
+
+                if ($supportsRefundMethod) {
+                    $stmt = $this->db->prepare(
+                        "INSERT INTO order_refunds (
+                            order_id, payment_provider, refund_method, requested_amount, approved_amount, reason, admin_id,
+                            provider_refund_id, provider_transaction_reference, status, provider_response_snapshot, idempotency_key
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    );
+                    try {
+                        $this->executeOrThrow($stmt, [
+                            $payload['order_id'],
+                            $payload['payment_provider'],
+                            $payload['refund_method'],
+                            $payload['requested_amount'],
+                            $payload['approved_amount'],
+                            $payload['reason'],
+                            $payload['admin_id'],
+                            $payload['provider_refund_id'],
+                            $payload['provider_transaction_reference'],
+                            $payload['status'],
+                            $payload['provider_response_snapshot'],
+                            $payload['idempotency_key'],
+                        ]);
+                        return;
+                    } catch (\Throwable $e) {
+                        if (stripos($e->getMessage(), 'refund_method') === false) {
+                            throw $e;
+                        }
+                        $this->orderRefundsHasRefundMethodColumn = false;
+                    }
+                }
+
+                $legacyStmt = $this->db->prepare(
+                    "INSERT INTO order_refunds (
+                        order_id, payment_provider, requested_amount, approved_amount, reason, admin_id,
+                        provider_refund_id, provider_transaction_reference, status, provider_response_snapshot, idempotency_key
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                );
+                $this->executeOrThrow($legacyStmt, [
+                    $payload['order_id'],
+                    $payload['payment_provider'],
+                    $payload['requested_amount'],
+                    $payload['approved_amount'],
+                    $payload['reason'],
+                    $payload['admin_id'],
+                    $payload['provider_refund_id'],
+                    $payload['provider_transaction_reference'],
+                    $payload['status'],
+                    $payload['provider_response_snapshot'],
+                    $payload['idempotency_key'],
+                ]);
+            }
+
             public function normalizeCartForTrustedPricing(array $cart, $pickupDatetime = null, $returnDatetime = null, $saleType = 'rental'): array {
                 $normalized = [];
                 $days = $this->getRentalDays($pickupDatetime, $returnDatetime);
@@ -213,6 +292,16 @@ class OrderModel {
             $this->db->exec("ALTER TABLE orders ADD COLUMN booking_source VARCHAR(20) NULL AFTER customer_type");
         }
 
+        $heardAboutOptionCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'heard_about_option_id'");
+        if (!$heardAboutOptionCol || !$heardAboutOptionCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN heard_about_option_id INT NULL AFTER booking_source");
+        }
+
+        $heardAboutLabelCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'heard_about_label'");
+        if (!$heardAboutLabelCol || !$heardAboutLabelCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN heard_about_label VARCHAR(120) NULL AFTER heard_about_option_id");
+        }
+
         $promoCodeCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_code'");
         if (!$promoCodeCol || !$promoCodeCol->fetch(\PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE orders ADD COLUMN promo_code VARCHAR(32) NULL AFTER booking_source");
@@ -309,6 +398,36 @@ class OrderModel {
         }
     }
 
+    private function resolveHeardAboutSelection(array $form): array
+    {
+        $optionIdRaw = trim((string)($form['heard_about_option_id'] ?? ''));
+        $otherTextRaw = trim((string)($form['heard_about_other_text'] ?? ''));
+        $optionId = (is_numeric($optionIdRaw) && (int)$optionIdRaw > 0) ? (int)$optionIdRaw : null;
+        $label = null;
+
+        if ($optionId !== null) {
+            try {
+                $stmt = $this->db->prepare("SELECT label FROM heard_about_options WHERE id = ? LIMIT 1");
+                $stmt->execute([$optionId]);
+                $foundLabel = $stmt->fetchColumn();
+                if (is_string($foundLabel) && trim($foundLabel) !== '') {
+                    $label = trim($foundLabel);
+                }
+            } catch (\Throwable $e) {
+                $label = null;
+            }
+        }
+
+        if ($label === null && $optionIdRaw === '-1') {
+            $label = $otherTextRaw !== '' ? $otherTextRaw : 'Other';
+        }
+
+        return [
+            'id' => $optionId,
+            'label' => $label,
+        ];
+    }
+
     private function ensureRefundTables(): void
     {
         $this->db->exec(
@@ -316,6 +435,7 @@ class OrderModel {
                 refund_id INT AUTO_INCREMENT PRIMARY KEY,
                 order_id INT NOT NULL,
                 payment_provider VARCHAR(20) NOT NULL,
+                refund_method VARCHAR(30) NULL,
                 requested_amount DECIMAL(10,2) NOT NULL,
                 approved_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
                 reason TEXT NOT NULL,
@@ -331,6 +451,24 @@ class OrderModel {
                 INDEX idx_order_refunds_provider_refund (provider_refund_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         );
+
+        $requiredRefundColumns = [
+            'refund_method' => "ALTER TABLE order_refunds ADD COLUMN refund_method VARCHAR(30) NULL AFTER payment_provider",
+            'requested_amount' => "ALTER TABLE order_refunds ADD COLUMN requested_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER refund_method",
+            'approved_amount' => "ALTER TABLE order_refunds ADD COLUMN approved_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER requested_amount",
+            'provider_transaction_reference' => "ALTER TABLE order_refunds ADD COLUMN provider_transaction_reference VARCHAR(100) NULL AFTER provider_refund_id",
+            'status' => "ALTER TABLE order_refunds ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'pending' AFTER provider_transaction_reference",
+            'provider_response_snapshot' => "ALTER TABLE order_refunds ADD COLUMN provider_response_snapshot LONGTEXT NULL AFTER status",
+            'idempotency_key' => "ALTER TABLE order_refunds ADD COLUMN idempotency_key VARCHAR(120) NULL AFTER provider_response_snapshot",
+            'updated_at' => "ALTER TABLE order_refunds ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at",
+        ];
+
+        foreach ($requiredRefundColumns as $columnName => $alterSql) {
+            $colCheck = $this->db->query("SHOW COLUMNS FROM order_refunds LIKE '" . $columnName . "'");
+            if (!$colCheck || !$colCheck->fetch(\PDO::FETCH_ASSOC)) {
+                $this->db->exec($alterSql);
+            }
+        }
     }
 
     public function saveOrderPaymentProviderReferences(int $orderId, array $refs): bool
@@ -367,7 +505,7 @@ class OrderModel {
         ]);
     }
 
-    public function refundSecurityDeposit(int $orderId, float $amount, string $reason, ?int $adminId = null): array
+    public function refundSecurityDeposit(int $orderId, float $amount, string $reason, ?int $adminId = null, ?string $refundMethod = null): array
     {
         if ($orderId <= 0) {
             return ['success' => false, 'error' => 'Invalid order ID'];
@@ -400,8 +538,33 @@ class OrderModel {
             }
         }
 
-        if (!in_array($provider, ['stripe', 'paypal'], true)) {
+        $bookingSource = strtolower(trim((string)($order['booking_source'] ?? '')));
+        $resolvedRefundMethod = strtolower(trim((string)($refundMethod ?? '')));
+        if ($resolvedRefundMethod === '' && $bookingSource === 'walk-in') {
+            $walkInPaymentMethod = strtolower(trim((string)($order['payment_method'] ?? '')));
+            if ($walkInPaymentMethod === 'card') {
+                $resolvedRefundMethod = 'card-terminal';
+            } elseif ($walkInPaymentMethod === 'cash') {
+                $resolvedRefundMethod = 'cash';
+            }
+        }
+
+        $isManualRefund =
+            $bookingSource === 'walk-in' ||
+            $resolvedRefundMethod === 'cash' ||
+            !in_array($provider, ['stripe', 'paypal'], true);
+
+        if ($isManualRefund) {
+            if (!in_array($resolvedRefundMethod, ['cash', 'card-terminal', 'manual'], true)) {
+                $resolvedRefundMethod = 'manual';
+            }
+            $provider = 'manual';
+        } elseif (!in_array($provider, ['stripe', 'paypal'], true)) {
             return ['success' => false, 'error' => 'This order does not support automated provider refunds.'];
+        } else {
+            if ($resolvedRefundMethod === '' || $resolvedRefundMethod === 'provider') {
+                $resolvedRefundMethod = 'provider';
+            }
         }
 
         $depositCharged = max(0, round((float)($order['security_deposit'] ?? 0), 2));
@@ -420,14 +583,32 @@ class OrderModel {
         $providerResult = [];
         if ($provider === 'stripe') {
             $providerResult = $this->issueStripeSecurityDepositRefund($order, $requestedAmount, $reasonText, $idempotencyKey);
-        } else {
+            if (!($providerResult['success'] ?? false)) {
+                return [
+                    'success' => false,
+                    'error' => (string)($providerResult['error'] ?? 'Refund failed'),
+                ];
+            }
+        } elseif ($provider === 'paypal') {
             $providerResult = $this->issuePaypalSecurityDepositRefund($order, $requestedAmount, $reasonText, $idempotencyKey);
-        }
-
-        if (!($providerResult['success'] ?? false)) {
-            return [
-                'success' => false,
-                'error' => (string)($providerResult['error'] ?? 'Refund failed'),
+            if (!($providerResult['success'] ?? false)) {
+                return [
+                    'success' => false,
+                    'error' => (string)($providerResult['error'] ?? 'Refund failed'),
+                ];
+            }
+        } else {
+            $providerResult = [
+                'success' => true,
+                'approved_amount' => $requestedAmount,
+                'status' => 'manual_recorded',
+                'provider_refund_id' => null,
+                'provider_transaction_reference' => null,
+                'raw_response' => [
+                    'mode' => 'manual',
+                    'refund_method' => $resolvedRefundMethod,
+                    'booking_source' => $bookingSource,
+                ],
             ];
         }
 
@@ -439,24 +620,19 @@ class OrderModel {
 
         $this->db->beginTransaction();
         try {
-            $insertRefundStmt = $this->db->prepare(
-                "INSERT INTO order_refunds (
-                    order_id, payment_provider, requested_amount, approved_amount, reason, admin_id,
-                    provider_refund_id, provider_transaction_reference, status, provider_response_snapshot, idempotency_key
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            );
-            $insertRefundStmt->execute([
-                $orderId,
-                $provider,
-                $requestedAmount,
-                $approvedAmount,
-                $reasonText,
-                $adminId,
-                $providerRefundId !== '' ? $providerRefundId : null,
-                $providerTxnRef !== '' ? $providerTxnRef : null,
-                $status,
-                $snapshot !== false ? $snapshot : null,
-                $idempotencyKey,
+            $this->insertOrderRefundRecord([
+                'order_id' => $orderId,
+                'payment_provider' => $provider,
+                'refund_method' => $resolvedRefundMethod !== '' ? $resolvedRefundMethod : null,
+                'requested_amount' => $requestedAmount,
+                'approved_amount' => $approvedAmount,
+                'reason' => $reasonText,
+                'admin_id' => $adminId,
+                'provider_refund_id' => $providerRefundId !== '' ? $providerRefundId : null,
+                'provider_transaction_reference' => $providerTxnRef !== '' ? $providerTxnRef : null,
+                'status' => $status,
+                'provider_response_snapshot' => $snapshot !== false ? $snapshot : null,
+                'idempotency_key' => $idempotencyKey,
             ]);
 
             $updatedRefunded = round($alreadyRefunded + $approvedAmount, 2);
@@ -472,7 +648,6 @@ class OrderModel {
             return [
                 'success' => true,
                 'order_id' => $orderId,
-                'payment_provider' => $provider,
                 'requested_amount' => $requestedAmount,
                 'approved_amount' => $approvedAmount,
                 'status' => $status,
@@ -482,6 +657,44 @@ class OrderModel {
             ];
         } catch (\Throwable $e) {
             $this->db->rollBack();
+
+            if ($provider === 'stripe' && !empty($providerResult['raw_response']) && is_array($providerResult['raw_response'])) {
+                $stripeRefundPayload = $providerResult['raw_response'];
+                $stripeRefundPayload['id'] = $providerRefundId !== '' ? $providerRefundId : ($stripeRefundPayload['id'] ?? '');
+                $stripeRefundPayload['status'] = $status;
+                $stripeRefundPayload['amount'] = (int)round($approvedAmount * 100);
+                $stripeRefundPayload['payment_intent'] = trim((string)($stripeRefundPayload['payment_intent'] ?? ($order['provider_payment_intent_id'] ?? '')));
+                if (empty($stripeRefundPayload['payment_intent']) && !empty($order['provider_payment_intent_id'])) {
+                    $stripeRefundPayload['payment_intent'] = (string)$order['provider_payment_intent_id'];
+                }
+                $stripeRefundPayload['charge'] = trim((string)($stripeRefundPayload['charge'] ?? ($order['provider_charge_id'] ?? '')));
+                if (!isset($stripeRefundPayload['metadata']) || !is_array($stripeRefundPayload['metadata'])) {
+                    $stripeRefundPayload['metadata'] = [];
+                }
+                $stripeRefundPayload['metadata']['order_id'] = (string)$orderId;
+                $stripeRefundPayload['reason'] = $reasonText;
+
+                $syncResult = $this->syncStripeRefundFromWebhook($stripeRefundPayload);
+                if (($syncResult['success'] ?? false) === true) {
+                    return [
+                        'success' => true,
+                        'order_id' => (int)($syncResult['order_id'] ?? $orderId),
+                        'requested_amount' => $requestedAmount,
+                        'approved_amount' => $approvedAmount,
+                        'status' => $status,
+                        'provider_refund_id' => $providerRefundId,
+                        'security_deposit_refunded_amount' => $approvedAmount,
+                        'security_deposit_refundable_remaining' => round(max(0, $depositCharged - $approvedAmount), 2),
+                        'reconciled' => true,
+                    ];
+                }
+
+                return [
+                    'success' => false,
+                    'error' => 'Refund was processed but local tracking failed: ' . (string)($syncResult['error'] ?? $e->getMessage()),
+                ];
+            }
+
             return ['success' => false, 'error' => 'Refund was processed but local tracking failed: ' . $e->getMessage()];
         }
     }
@@ -516,7 +729,7 @@ class OrderModel {
             $status = strtolower((string)($refund->status ?? 'succeeded'));
             $approvedAmount = isset($refund->amount) ? ((float)$refund->amount / 100) : $amount;
             return [
-                'success' => in_array($status, ['succeeded', 'pending'], true),
+                'success' => true,
                 'approved_amount' => round($approvedAmount, 2),
                 'status' => $status,
                 'provider_refund_id' => (string)($refund->id ?? ''),
@@ -619,6 +832,165 @@ class OrderModel {
         ];
     }
 
+    public function syncStripeRefundFromWebhook(array $refundPayload): array
+    {
+        $refundId = trim((string)($refundPayload['id'] ?? ''));
+        if ($refundId === '') {
+            return ['success' => false, 'error' => 'Missing Stripe refund id'];
+        }
+
+        $stripeStatus = strtolower(trim((string)($refundPayload['status'] ?? 'pending')));
+        $amountCents = isset($refundPayload['amount']) ? (int)$refundPayload['amount'] : 0;
+        $approvedAmount = round(max(0, $amountCents) / 100, 2);
+        $paymentIntentId = trim((string)($refundPayload['payment_intent'] ?? ''));
+        $chargeId = trim((string)($refundPayload['charge'] ?? ''));
+        $metadataOrderId = isset($refundPayload['metadata']['order_id']) ? (int)$refundPayload['metadata']['order_id'] : 0;
+        $reason = trim((string)($refundPayload['reason'] ?? ''));
+        if ($reason === '') {
+            $reason = 'Stripe dashboard/provider refund sync';
+        }
+
+        $resolvedPaymentIntentId = $paymentIntentId;
+        if ($resolvedPaymentIntentId === '' && $chargeId !== '') {
+            try {
+                $stripeSecret = (string)(getenv('STRIPE_SECRET_KEY') ?: getenv('STRIPE_SECRET') ?: '');
+                if ($stripeSecret !== '') {
+                    \Stripe\Stripe::setApiKey($stripeSecret);
+                    $charge = \Stripe\Charge::retrieve($chargeId);
+                    if (is_object($charge) && isset($charge->payment_intent) && $charge->payment_intent) {
+                        $resolvedPaymentIntentId = trim((string)$charge->payment_intent);
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log('Stripe refund webhook charge lookup warning: ' . $e->getMessage());
+            }
+        }
+
+        $snapshot = json_encode($refundPayload, JSON_UNESCAPED_SLASHES);
+
+        $this->db->beginTransaction();
+        try {
+            $existingStmt = $this->db->prepare(
+                "SELECT refund_id, order_id, approved_amount
+                 FROM order_refunds
+                 WHERE provider_refund_id = ? AND payment_provider = 'stripe'
+                 LIMIT 1"
+            );
+            $existingStmt->execute([$refundId]);
+            $existing = $existingStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+
+            if ($existing) {
+                $existingApproved = round((float)($existing['approved_amount'] ?? 0), 2);
+                $delta = round($approvedAmount - $existingApproved, 2);
+
+                $updateRefundStmt = $this->db->prepare(
+                    "UPDATE order_refunds
+                     SET approved_amount = ?,
+                         requested_amount = ?,
+                         status = ?,
+                         provider_transaction_reference = ?,
+                         provider_response_snapshot = ?,
+                         reason = ?
+                     WHERE refund_id = ?"
+                );
+                $updateRefundStmt->execute([
+                    $approvedAmount,
+                    $approvedAmount,
+                    $stripeStatus !== '' ? $stripeStatus : 'pending',
+                    $chargeId !== '' ? $chargeId : null,
+                    $snapshot !== false ? $snapshot : null,
+                    $reason,
+                    (int)$existing['refund_id'],
+                ]);
+
+                if ($delta !== 0.0) {
+                    $orderUpdateStmt = $this->db->prepare(
+                        "UPDATE orders
+                         SET security_deposit_refunded_amount = GREATEST(0, COALESCE(security_deposit_refunded_amount, 0) + ?),
+                             last_security_deposit_refund_at = NOW()
+                         WHERE order_id = ?"
+                    );
+                    $orderUpdateStmt->execute([$delta, (int)$existing['order_id']]);
+                }
+
+                $this->db->commit();
+                return [
+                    'success' => true,
+                    'order_id' => (int)$existing['order_id'],
+                    'refund_id' => (int)$existing['refund_id'],
+                    'updated' => true,
+                ];
+            }
+
+            $orderStmt = $this->db->prepare(
+                "SELECT order_id
+                 FROM orders
+                 WHERE payment_provider = 'stripe'
+                   AND (
+                        (provider_payment_intent_id IS NOT NULL AND provider_payment_intent_id = ?)
+                        OR (provider_charge_id IS NOT NULL AND provider_charge_id = ?)
+                   )
+                 ORDER BY order_id DESC
+                 LIMIT 1"
+            );
+            $orderStmt->execute([$resolvedPaymentIntentId, $chargeId]);
+            $orderId = (int)$orderStmt->fetchColumn();
+
+            if ($orderId <= 0 && $metadataOrderId > 0) {
+                $metaOrderStmt = $this->db->prepare("SELECT order_id FROM orders WHERE order_id = ? LIMIT 1");
+                $metaOrderStmt->execute([$metadataOrderId]);
+                $orderId = (int)$metaOrderStmt->fetchColumn();
+            }
+
+            if ($orderId <= 0 && $chargeId !== '' && $resolvedPaymentIntentId === '') {
+                $this->db->rollBack();
+                return ['success' => false, 'error' => 'Unable to resolve Stripe refund to a local order'];
+            }
+
+            if ($orderId <= 0) {
+                $this->db->rollBack();
+                return ['success' => false, 'error' => 'No matching order for Stripe refund'];
+            }
+
+            $this->insertOrderRefundRecord([
+                'order_id' => $orderId,
+                'payment_provider' => 'stripe',
+                'refund_method' => 'provider',
+                'requested_amount' => $approvedAmount,
+                'approved_amount' => $approvedAmount,
+                'reason' => $reason,
+                'admin_id' => null,
+                'provider_refund_id' => $refundId,
+                'provider_transaction_reference' => $chargeId !== '' ? $chargeId : null,
+                'status' => $stripeStatus !== '' ? $stripeStatus : 'pending',
+                'provider_response_snapshot' => $snapshot !== false ? $snapshot : null,
+                'idempotency_key' => null,
+            ]);
+
+            if ($approvedAmount > 0) {
+                $orderUpdateStmt = $this->db->prepare(
+                    "UPDATE orders
+                     SET security_deposit_refunded_amount = COALESCE(security_deposit_refunded_amount, 0) + ?,
+                         last_security_deposit_refund_at = NOW()
+                     WHERE order_id = ?"
+                );
+                $orderUpdateStmt->execute([$approvedAmount, $orderId]);
+            }
+
+            $this->db->commit();
+            return [
+                'success' => true,
+                'order_id' => $orderId,
+                'created' => true,
+            ];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
     public function getOrderRefundData(int $orderId): array
     {
         $orderStmt = $this->db->prepare(
@@ -632,10 +1004,13 @@ class OrderModel {
         $refunded = max(0, round((float)($order['security_deposit_refunded_amount'] ?? 0), 2));
         $remaining = round(max(0, $depositCharged - $refunded), 2);
 
-        $refundStmt = $this->db->prepare(
-            "SELECT refund_id, payment_provider, requested_amount, approved_amount, reason, admin_id, provider_refund_id, status, created_at
-             FROM order_refunds WHERE order_id = ? ORDER BY refund_id DESC"
-        );
+                $refundSelectMethod = $this->hasOrderRefundMethodColumn()
+                    ? 'refund_method'
+                    : 'NULL AS refund_method';
+                $refundStmt = $this->db->prepare(
+                    "SELECT refund_id, payment_provider, {$refundSelectMethod}, requested_amount, approved_amount, reason, admin_id, provider_refund_id, status, created_at
+                     FROM order_refunds WHERE order_id = ? ORDER BY refund_id DESC"
+                );
         $refundStmt->execute([$orderId]);
 
         return [
@@ -1114,13 +1489,16 @@ class OrderModel {
         $stmt = $this->db->prepare(
             "SELECT
                 o.*,
+                COALESCE(NULLIF(TRIM(o.heard_about_label), ''), NULLIF(TRIM(hao.label), ''), 'Not specified') AS heard_about_display,
                 ROUND(GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.security_deposit, 0)), 2) AS sales_amount,
                 COALESCE(refunds.refund_amount, 0) AS refund_amount
              FROM orders o
+             LEFT JOIN heard_about_options hao ON hao.id = o.heard_about_option_id
              LEFT JOIN (
                 SELECT order_id, ROUND(SUM(approved_amount), 2) AS refund_amount
-                FROM order_refunds
-                WHERE approved_amount > 0
+                                        FROM order_refunds
+                                        WHERE approved_amount > 0
+                                            AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed', 'manual_recorded')
                   AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')
                 GROUP BY order_id
              ) refunds ON refunds.order_id = o.order_id
@@ -1150,6 +1528,7 @@ class OrderModel {
                                         SELECT order_id, ROUND(SUM(approved_amount), 2) AS refund_amount
                                         FROM order_refunds
                                         WHERE approved_amount > 0
+                                            AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed', 'manual_recorded')
                                             AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')
                                         GROUP BY order_id
                                 ) refunds ON refunds.order_id = o.order_id
@@ -1208,6 +1587,17 @@ class OrderModel {
             $where[] = "(LOWER(COALESCE(o.booking_source, 'online')) = 'online' AND LOWER(COALESCE(o.pickup_location, '')) <> 'walk-in booking')";
         }
 
+        $heardAboutExpr = "COALESCE(NULLIF(TRIM(o.heard_about_label), ''), NULLIF(TRIM(hao.label), ''), 'Not specified')";
+        $heardAbout = trim((string)($filters['heard_about'] ?? ''));
+        if ($heardAbout !== '') {
+            if ($heardAbout === 'others') {
+                $where[] = "o.heard_about_option_id IS NULL AND TRIM(COALESCE(o.heard_about_label, '')) <> ''";
+            } else {
+                $where[] = $heardAboutExpr . ' = ?';
+                $params[] = $heardAbout;
+            }
+        }
+
         $promoUsage = strtolower(trim((string)($filters['promo_usage'] ?? '')));
         if ($promoUsage === 'with') {
             $where[] = "(o.promo_code IS NOT NULL AND o.promo_code <> '')";
@@ -1258,9 +1648,11 @@ class OrderModel {
                 $sql =
                         "SELECT
                                 o.*,
+                                    COALESCE(NULLIF(TRIM(o.heard_about_label), ''), NULLIF(TRIM(hao.label), ''), 'Not specified') AS heard_about_display,
                                 ROUND(GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.security_deposit, 0)), 2) AS sales_amount,
                                 COALESCE(refunds.refund_amount, 0) AS refund_amount
                          FROM orders o
+                                LEFT JOIN heard_about_options hao ON hao.id = o.heard_about_option_id
                          LEFT JOIN (
                                 SELECT order_id, ROUND(SUM(approved_amount), 2) AS refund_amount
                                 FROM order_refunds
@@ -1281,7 +1673,7 @@ class OrderModel {
         $stmt->execute();
         $results = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-        $countSql = "SELECT COUNT(*) FROM orders o" . $whereSql;
+        $countSql = "SELECT COUNT(*) FROM orders o LEFT JOIN heard_about_options hao ON hao.id = o.heard_about_option_id" . $whereSql;
         $countStmt = $this->db->prepare($countSql);
         $idx = 1;
         foreach ($params as $param) {
@@ -1453,7 +1845,7 @@ class OrderModel {
         $pendingStmt->execute();
         $pendingOrders = (int)$pendingStmt->fetchColumn();
 
-        $refundWhere = "WHERE approved_amount > 0 AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')";
+        $refundWhere = "WHERE approved_amount > 0 AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed', 'manual_recorded')";
         $refundParams = [];
         if ($days !== null) {
             $refundWhere .= " AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)";
@@ -1558,8 +1950,8 @@ class OrderModel {
             $stmt = $this->db->query(
                 "SELECT DATE(created_at) as date, SUM(approved_amount) as total
                  FROM order_refunds
-                 WHERE approved_amount > 0
-                   AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed')
+                                 WHERE approved_amount > 0
+                                     AND LOWER(COALESCE(status, '')) IN ('pending', 'succeeded', 'completed', 'manual_recorded')
                  GROUP BY DATE(created_at)
                  ORDER BY date ASC"
             );
@@ -1598,6 +1990,52 @@ class OrderModel {
              WHERE order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)
              GROUP BY provider
              ORDER BY count DESC"
+        );
+        $stmt->execute([$days]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function getHeardAboutFilterOptions(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT
+                COALESCE(NULLIF(TRIM(o.heard_about_label), ''), NULLIF(TRIM(hao.label), ''), 'Not specified') AS heard_about,
+                COUNT(*) AS count
+             FROM orders o
+             LEFT JOIN heard_about_options hao ON hao.id = o.heard_about_option_id
+             GROUP BY heard_about
+             ORDER BY count DESC, heard_about ASC"
+        );
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function getHeardAboutBreakdown($days = 30): array
+    {
+        $days = $this->normalizeAnalyticsDays($days);
+        if ($days === null) {
+            $stmt = $this->db->query(
+                "SELECT
+                    COALESCE(NULLIF(TRIM(o.heard_about_label), ''), NULLIF(TRIM(hao.label), ''), 'Not specified') AS heard_about,
+                    COUNT(*) AS count
+                 FROM orders o
+                 LEFT JOIN heard_about_options hao ON hao.id = o.heard_about_option_id
+                 GROUP BY heard_about
+                 ORDER BY count DESC, heard_about ASC"
+            );
+
+            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT
+                COALESCE(NULLIF(TRIM(o.heard_about_label), ''), NULLIF(TRIM(hao.label), ''), 'Not specified') AS heard_about,
+                COUNT(*) AS count
+             FROM orders o
+             LEFT JOIN heard_about_options hao ON hao.id = o.heard_about_option_id
+             WHERE o.order_date >= DATE_SUB(NOW(), INTERVAL ? DAY)
+             GROUP BY heard_about
+             ORDER BY count DESC, heard_about ASC"
         );
         $stmt->execute([$days]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -1714,6 +2152,7 @@ class OrderModel {
         $pickup_datetime = $form['pickup_datetime'] ?? null;
         $return_datetime = $form['return_datetime'] ?? null;
         $bookingSource = htmlspecialchars(trim((string)($form['booking_source'] ?? 'online')));
+        $heardAbout = $this->resolveHeardAboutSelection($form);
         $createdByAdminId = isset($form['created_by_admin_id']) && is_numeric($form['created_by_admin_id'])
             ? (int)$form['created_by_admin_id']
             : (isset($session['admin_id']) && is_numeric($session['admin_id']) ? (int)$session['admin_id'] : null);
@@ -1746,6 +2185,8 @@ class OrderModel {
                     $securityDeposit,
                     $customerType,
                     $bookingSource,
+                    $heardAbout['id'],
+                    $heardAbout['label'],
                     $createdByAdminId,
                     $createdByAdminRole !== '' ? $createdByAdminRole : null,
                     $createdByAdminName !== '' ? $createdByAdminName : null,
@@ -1759,8 +2200,8 @@ class OrderModel {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, total_amount, security_deposit, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, total_amount, security_deposit, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
@@ -2752,6 +3193,8 @@ class OrderModel {
             'return_datetime' => htmlspecialchars(trim($post['return_datetime'] ?? '')),
             'pickup_location' => $pickup_location,
             'notes' => htmlspecialchars(trim($post['notes'] ?? '')),
+            'heard_about_option_id' => trim((string)($post['heard_about_option_id'] ?? '')),
+            'heard_about_other_text' => htmlspecialchars(trim((string)($post['heard_about_other_text'] ?? ''))),
             'sale_type' => htmlspecialchars(trim($post['sale_type'] ?? 'rental')),
             'cart_json' => json_encode($cart),
             'total_amount' => (string)$totalAmount,
@@ -2878,6 +3321,8 @@ class OrderModel {
             'return_datetime' => htmlspecialchars(trim($post['return_datetime'] ?? '')),
             'pickup_location' => $pickup_location,
             'notes' => htmlspecialchars(trim($post['notes'] ?? '')),
+            'heard_about_option_id' => trim((string)($post['heard_about_option_id'] ?? '')),
+            'heard_about_other_text' => htmlspecialchars(trim((string)($post['heard_about_other_text'] ?? ''))),
             'sale_type' => htmlspecialchars(trim($post['sale_type'] ?? 'rental')),
             'total_amount' => (string)$totalAmount,
             'security_deposit' => (string)self::SECURITY_DEPOSIT,

@@ -8,6 +8,7 @@ use App\Models\AdminModel;
 use App\Models\OrderModel;
 use App\Models\ProductModel;
 use App\Models\PromoCodeModel;
+use App\Models\HeardAboutOptionModel;
 use App\Models\ReservationModel;
 use App\Models\TipsTroubleshootingModel;
 
@@ -102,6 +103,7 @@ class AdminController extends Controller
         $customerTypeFilter = isset($_GET['customer_type']) ? trim($_GET['customer_type']) : '';
         $saleTypeFilter = isset($_GET['sale_type']) ? trim($_GET['sale_type']) : '';
         $bookingSourceFilter = isset($_GET['booking_source']) ? trim($_GET['booking_source']) : '';
+        $heardAboutFilter = isset($_GET['heard_about']) ? trim($_GET['heard_about']) : '';
         $promoUsageFilter = isset($_GET['promo_usage']) ? trim($_GET['promo_usage']) : '';
         $creatorRoleFilter = isset($_GET['creator_role']) ? trim($_GET['creator_role']) : '';
         $dateFromFilter = isset($_GET['date_from']) ? trim($_GET['date_from']) : '';
@@ -162,6 +164,7 @@ class AdminController extends Controller
             'customer_type' => strtolower($customerTypeFilter),
             'sale_type' => strtolower($saleTypeFilter),
             'booking_source' => strtolower($bookingSourceFilter),
+            'heard_about' => $heardAboutFilter,
             'promo_usage' => strtolower($promoUsageFilter),
             'creator_role' => strtolower($creatorRoleFilter),
             'date_from' => $dateFromFilter,
@@ -169,6 +172,10 @@ class AdminController extends Controller
             'sort_by' => $sortBy,
             'sort_dir' => $sortDir,
         ];
+
+        $heardAboutFilterOptions = method_exists($orderModel, 'getHeardAboutFilterOptions')
+            ? $orderModel->getHeardAboutFilterOptions()
+            : [];
 
         $totalOrders = 0;
         if (method_exists($orderModel, 'getOrdersFilteredPaginated')) {
@@ -209,6 +216,8 @@ class AdminController extends Controller
             'customerTypeFilter' => strtolower($customerTypeFilter),
             'saleTypeFilter' => strtolower($saleTypeFilter),
             'bookingSourceFilter' => strtolower($bookingSourceFilter),
+            'heardAboutFilter' => $heardAboutFilter,
+            'heardAboutFilterOptions' => $heardAboutFilterOptions,
             'promoUsageFilter' => strtolower($promoUsageFilter),
             'creatorRoleFilter' => strtolower($creatorRoleFilter),
             'dateFromFilter' => $dateFromFilter,
@@ -253,6 +262,9 @@ class AdminController extends Controller
         $orderCountByDate = $orderModel->getOrderCountByDate($periodDays);
         $refundsByDate = $orderModel->getRefundsByDate($periodDays);
         $paymentProviderBreakdown = $orderModel->getPaymentProviderBreakdown($periodDays);
+        $heardAboutBreakdown = method_exists($orderModel, 'getHeardAboutBreakdown')
+            ? $orderModel->getHeardAboutBreakdown($periodDays)
+            : [];
 
         $this->renderAdmin('admin/orders-analytics', [
             'period' => $period,
@@ -264,6 +276,7 @@ class AdminController extends Controller
             'orderCountByDate' => $orderCountByDate,
             'refundsByDate' => $refundsByDate,
             'paymentProviderBreakdown' => $paymentProviderBreakdown,
+            'heardAboutBreakdown' => $heardAboutBreakdown,
         ]);
     }
 
@@ -856,6 +869,7 @@ class AdminController extends Controller
         $orderId = isset($_POST['order_id']) ? (int)$_POST['order_id'] : 0;
         $amountRaw = trim((string)($_POST['refund_amount'] ?? ''));
         $reason = trim((string)($_POST['refund_reason'] ?? ''));
+        $refundMethod = strtolower(trim((string)($_POST['refund_method'] ?? '')));
 
         if ($orderId <= 0) {
             http_response_code(422);
@@ -894,17 +908,27 @@ class AdminController extends Controller
             exit;
         }
 
+        if ($refundMethod !== '' && !in_array($refundMethod, ['cash', 'card-terminal', 'manual', 'provider'], true)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Invalid refund method.']);
+            exit;
+        }
+
         $orderModel = new \App\Models\OrderModel();
         $result = $orderModel->refundSecurityDeposit(
             $orderId,
             $refundAmount,
             $reason,
-            isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null
+            isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null,
+            $refundMethod !== '' ? $refundMethod : null
         );
 
         if (!($result['success'] ?? false)) {
             http_response_code(422);
-            echo json_encode(['error' => (string)($result['error'] ?? 'Refund failed')]);
+            echo json_encode([
+                'error' => (string)($result['error'] ?? 'Refund failed'),
+                'success' => false,
+            ]);
             exit;
         }
 
@@ -1052,6 +1076,48 @@ class AdminController extends Controller
             $_SESSION['promo_success'] = 'Promo code deleted.';
         }
         header('Location: /admin/promo-codes');
+        exit;
+    }
+
+    public function heardAboutOptions() {
+        $this->requireAdmin(['admin', 'superadmin']);
+        $options = (new HeardAboutOptionModel())->getAll();
+        $this->renderAdmin('admin/heard-about-options', ['options' => $options]);
+    }
+
+    public function saveHeardAboutOption() {
+        $this->requireAdmin(['admin', 'superadmin']);
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
+        $ok = (new HeardAboutOptionModel())->save($_POST, $id);
+        if (!$ok) {
+            $_SESSION['heard_about_error'] = 'Failed to save option. Label may already exist.';
+        } else {
+            $_SESSION['heard_about_success'] = $id ? 'Option updated.' : 'Option created.';
+        }
+
+        header('Location: /admin/heard-about-options');
+        exit;
+    }
+
+    public function deleteHeardAboutOption() {
+        $this->requireAdmin(['admin', 'superadmin']);
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id > 0) {
+            (new HeardAboutOptionModel())->delete($id);
+            $_SESSION['heard_about_success'] = 'Option deleted.';
+        }
+
+        header('Location: /admin/heard-about-options');
         exit;
     }
 
