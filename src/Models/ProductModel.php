@@ -551,21 +551,22 @@ class ProductModel{
             ];
         }
 
-        $linkedScootersStmt = $this->db->prepare("SELECT COUNT(*) FROM scooters WHERE product_id = ?");
-        $linkedScootersStmt->execute([$productId]);
-        $linkedScooters = (int)$linkedScootersStmt->fetchColumn();
-        if ($linkedScooters > 0) {
-            return [
-                'success' => false,
-                'code' => 'IN_USE',
-                'message' => 'Cannot delete this product because it is linked to scooters. Remove or reassign scooter records first.',
-            ];
-        }
-
         try {
             $this->db->beginTransaction();
 
-            // Remove child variations first for environments with restrictive FK rules.
+            // Delete inventory stock rows first (scooters) before deleting variations/product.
+            $deleteScootersStmt = $this->db->prepare("DELETE FROM scooters WHERE product_id = ?");
+            $deleteScootersStmt->execute([$productId]);
+
+            // Delete rental prices tied to this product's variations.
+            $deleteRentalPricesStmt = $this->db->prepare(
+                "DELETE rp FROM rental_prices rp
+                 INNER JOIN product_variations pv ON pv.variation_id = rp.variation_id
+                 WHERE pv.product_id = ?"
+            );
+            $deleteRentalPricesStmt->execute([$productId]);
+
+            // Remove child variations for environments with restrictive FK rules.
             $deleteVariationsStmt = $this->db->prepare("DELETE FROM product_variations WHERE product_id = ?");
             $deleteVariationsStmt->execute([$productId]);
 
@@ -586,7 +587,7 @@ class ProductModel{
             return [
                 'success' => true,
                 'code' => 'DELETED',
-                'message' => 'Product deleted successfully.',
+                'message' => 'Product and linked inventory stock deleted successfully.',
             ];
         } catch (\PDOException $e) {
             if ($this->db->inTransaction()) {
@@ -596,7 +597,7 @@ class ProductModel{
             return [
                 'success' => false,
                 'code' => 'FK_OR_DB_ERROR',
-                'message' => 'Unable to delete product due to existing linked records.',
+                'message' => 'Unable to delete product. It is still linked to active order/reservation history or other required records.',
                 'db_error' => $e->getMessage(),
             ];
         }

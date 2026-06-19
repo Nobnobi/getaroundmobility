@@ -172,6 +172,10 @@ $isStaff = ($role === 'staff');
             // Delete row
             document.querySelectorAll('.deleteBtn').forEach(btn => {
                 btn.onclick = function() {
+                    const confirmed = window.confirm('Delete this product? This will also delete linked inventory stock records for this product.');
+                    if (!confirmed) {
+                        return;
+                    }
                     const row = btn.closest('tr');
                     const id = btn.getAttribute('data-id');
                     if (id && id !== 'New') {
@@ -219,6 +223,10 @@ $isStaff = ($role === 'staff');
                 <td class="py-1 px-2 border-b"><button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs" style="display:inline-block;">Delete</button></td>
                     `;
                     row.querySelector('.deleteBtn').onclick = function() {
+                        const confirmed = window.confirm('Remove this new unsaved product row?');
+                        if (!confirmed) {
+                            return;
+                        }
                         row.remove();
                     };
                     bindNotesButtons(row);

@@ -1614,7 +1614,7 @@ class OrderModel {
         $quickPeriod = strtolower(trim((string)($filters['quick_period'] ?? '')));
         if (in_array($quickPeriod, ['late', 'today', 'upcoming'], true)) {
             // Quick period filters always target ongoing incomplete orders.
-            $where[] = "LOWER(COALESCE(o.status, '')) NOT IN ('completed', 'cancelled')";
+            $where[] = "LOWER(COALESCE(o.status, '')) IN ('pending', 'approved', 'paid')";
 
             if ($quickPeriod === 'late') {
                 $where[] = 'DATE(o.return_datetime) < CURDATE()';

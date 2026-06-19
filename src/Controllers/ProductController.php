@@ -447,6 +447,7 @@ class ProductController extends Controller {
             die('Invalid CSRF token');
         }
         $pdo = \App\Utils\Database::getInstance();
+        $deleteWarnings = [];
 
         // Handle deletions (hard delete in batch save)
         if (!empty($_POST['deleted_ids'])) {
@@ -454,8 +455,32 @@ class ProductController extends Controller {
             foreach ($ids as $id) {
                 $id = intval($id);
                 if ($id) {
-                    $stmt = $pdo->prepare("DELETE FROM product_variations WHERE variation_id = ?");
-                    $stmt->execute([$id]);
+                    try {
+                        $pdo->beginTransaction();
+
+                        $deleteRentalPricesStmt = $pdo->prepare("DELETE FROM rental_prices WHERE variation_id = ?");
+                        $deleteRentalPricesStmt->execute([$id]);
+
+                        // Keep historical integrity and remove stock from availability.
+                        // We keep variation links intact for history, but mark units as Sold so stock decreases.
+                        $archiveScootersStmt = $pdo->prepare("UPDATE scooters SET status = 'Sold' WHERE variation_id = ?");
+                        $archiveScootersStmt->execute([$id]);
+
+                        // Clear featured variation reference for products using this variation.
+                        $clearFeaturedStmt = $pdo->prepare("UPDATE products SET featured_variation_id = NULL WHERE featured_variation_id = ?");
+                        $clearFeaturedStmt->execute([$id]);
+
+                        // Soft delete variation so legacy order/history references remain valid.
+                        $stmt = $pdo->prepare("UPDATE product_variations SET is_active = 0 WHERE variation_id = ?");
+                        $stmt->execute([$id]);
+
+                        $pdo->commit();
+                    } catch (\PDOException $e) {
+                        if ($pdo->inTransaction()) {
+                            $pdo->rollBack();
+                        }
+                        $deleteWarnings[] = "Variation ID {$id}: cannot be archived due to required linked records.";
+                    }
                 }
             }
         }
@@ -489,6 +514,10 @@ class ProductController extends Controller {
                     $stmt->execute([$product_id, $name, $price]);
                 }
             }
+        }
+
+        if (!empty($deleteWarnings)) {
+            $_SESSION['variation_delete_warnings'] = $deleteWarnings;
         }
         header('Location: /admin/product-variations');
         exit;

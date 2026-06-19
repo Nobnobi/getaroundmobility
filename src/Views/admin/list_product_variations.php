@@ -12,6 +12,16 @@ $isStaff = ($role === 'staff');
 
 <div class="flex flex-1 items-center justify-center w-full">
 	<div class="bg-white rounded-2xl shadow-xl p-10 w-full max-w-5xl mx-auto border border-gray-200">
+		<?php if (!empty($_SESSION['variation_delete_warnings']) && is_array($_SESSION['variation_delete_warnings'])): ?>
+			<div class="mb-4 rounded border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900">
+				<div class="font-semibold mb-1">Some variations were not deleted:</div>
+				<?php foreach ($_SESSION['variation_delete_warnings'] as $warning): ?>
+					<div><?= htmlspecialchars($warning) ?></div>
+				<?php endforeach; ?>
+			</div>
+			<?php unset($_SESSION['variation_delete_warnings']); ?>
+		<?php endif; ?>
+
 		<header class="mb-8 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
 			<h1 class="text-3xl font-bold text-[#062B41] tracking-tight">Product Variations</h1>
 			<input type="text" id="searchInput" placeholder="Search variation..." class="border border-gray-300 rounded-lg px-4 py-2 w-full md:w-72 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
@@ -94,6 +104,10 @@ document.getElementById('editBtn').onclick = function() {
 // Delete row
 document.querySelectorAll('.deleteBtn').forEach(btn => {
 	btn.onclick = function() {
+		const confirmed = window.confirm('Delete this variation? This will archive the variation, remove linked units from available inventory, and delete rental price entries for this variation.');
+		if (!confirmed) {
+			return;
+		}
 		const row = btn.closest('tr');
 		const id = btn.getAttribute('data-id');
 		if (id && id !== 'New') {
@@ -126,6 +140,10 @@ document.getElementById('addBtn').onclick = function() {
 		<td class="py-2 px-4 border-b"><button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600" style="display:inline-block;">Delete</button></td>
 	`;
 	row.querySelector('.deleteBtn').onclick = function() {
+		const confirmed = window.confirm('Remove this new unsaved variation row?');
+		if (!confirmed) {
+			return;
+		}
 		row.remove();
 	};
 };
