@@ -129,7 +129,10 @@ class CategoryController extends Controller {
                 }
             }
         }
-        $this->index();
+
+        // Prevent duplicate inserts when users refresh/reload after POST.
+        header('Location: /admin/categories');
+        exit;
     }
 
     private function requireAdminOrSuperadmin() {

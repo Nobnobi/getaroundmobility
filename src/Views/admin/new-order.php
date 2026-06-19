@@ -84,17 +84,7 @@ $panelClass = $kioskMode
                             </div>
                             <div>
                                 <label class="mb-1 block text-sm font-medium text-slate-700">Client Weight Range <span class="text-red-500">*</span></label>
-                                <select name="client_weight_option" id="clientWeightOption" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
-                            <option value="" selected disabled>Select weight range</option>
-                            <option value="below120">Below 120 lbs</option>
-                            <option value="120to200">120-200 lbs</option>
-                            <option value="above200">Above 200 lbs</option>
-                            <option value="other">Other (exact)</option>
-                        </select>
-                            </div>
-                            <div id="clientWeightLbsWrap" class="hidden">
-                                <label class="mb-1 block text-sm font-medium text-slate-700">Exact Weight (lbs)</label>
-                                <input type="number" name="client_weight_lbs" id="clientWeightLbs" min="1" max="700" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="e.g. 165">
+                                <input type="text" name="client_weight_option" id="clientWeightRange" maxlength="32" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="e.g. 120-160 lbs">
                             </div>
                             <div class="md:col-span-2">
                                 <label class="mb-1 block text-sm font-medium text-slate-700">Notes</label>
@@ -330,9 +320,7 @@ const bookingForm = document.getElementById('walkin-booking-form');
 const bookingLoadingOverlay = document.getElementById('booking-loading-overlay');
 const availabilityEndpoint = <?= json_encode($availabilityEndpoint) ?>;
 const saleTypeSelect = bookingForm.querySelector('select[name="sale_type"]');
-const clientWeightOption = document.getElementById('clientWeightOption');
-const clientWeightLbsWrap = document.getElementById('clientWeightLbsWrap');
-const clientWeightLbsInput = document.getElementById('clientWeightLbs');
+const clientWeightRangeInput = document.getElementById('clientWeightRange');
 const pickupInput = document.getElementById('pickupDatetime');
 const returnInput = document.getElementById('returnDatetime');
 const rentalDurationBadge = document.getElementById('rental-duration-badge');
@@ -398,19 +386,6 @@ function agreeAndClosePolicyModal() {
         walkinPolicyCheckbox.checked = true;
     }
     closePolicyModal();
-}
-
-function syncClientWeightInput() {
-    if (!clientWeightOption || !clientWeightLbsWrap || !clientWeightLbsInput) {
-        return;
-    }
-
-    const isOther = clientWeightOption.value === 'other';
-    clientWeightLbsWrap.classList.toggle('hidden', !isOther);
-    clientWeightLbsInput.required = isOther;
-    if (!isOther) {
-        clientWeightLbsInput.value = '';
-    }
 }
 
 function formatMoney(value) {
@@ -988,9 +963,13 @@ document.querySelectorAll('.product-row').forEach(row => {
 if (applyPromoBtn) {
     applyPromoBtn.addEventListener('click', applyPromoCode);
 }
-if (clientWeightOption) {
-    clientWeightOption.addEventListener('change', syncClientWeightInput);
-    syncClientWeightInput();
+if (clientWeightRangeInput) {
+    clientWeightRangeInput.addEventListener('input', function() {
+        const normalized = String(this.value || '').replace(/\s{2,}/g, ' ');
+        if (normalized !== this.value) {
+            this.value = normalized;
+        }
+    });
 }
 if (promoCodeInput) {
     promoCodeInput.addEventListener('keydown', function(e) {

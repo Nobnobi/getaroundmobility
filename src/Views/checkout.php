@@ -100,16 +100,9 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     placeholder="e.g. john@email.com">
                             </div>
                             <div class="mb-4 flex flex-col md:flex-row md:items-start gap-2">
-                                <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40 md:pt-2">Client Weight</label>
+                                <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40 md:pt-2">Client Weight Range</label>
                                 <div class="w-full max-w-md">
-                                    <select name="client_weight_option" id="clientWeightOption" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]" required>
-                                        <option value="">Select weight range</option>
-                                        <option value="under_100">Under 100 lbs</option>
-                                        <option value="over_500">Over 500 lbs</option>
-                                        <option value="other">Other (enter exact weight)</option>
-                                    </select>
-                                    <input type="number" name="client_weight_lbs" id="clientWeightOther" min="1" step="1" placeholder="Enter weight in lbs" class="mt-2 hidden w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]">
-                                    <p id="clientWeightWarning" class="mt-1 hidden text-xs text-amber-700">Warning: custom weight should be between 101 lbs and 499 lbs.</p>
+                                    <input type="text" name="client_weight_option" id="clientWeightRange" maxlength="32" placeholder="e.g. 120-160 lbs" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]" required>
                                 </div>
                             </div>
                             <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
@@ -527,52 +520,15 @@ if (file_exists(__DIR__ . '/../../.env')) {
         return true;
     }
 
-    function setupClientWeightFields() {
-        const optionEl = document.getElementById('clientWeightOption');
-        const otherEl = document.getElementById('clientWeightOther');
-        const warningEl = document.getElementById('clientWeightWarning');
-        if (!optionEl || !otherEl || !warningEl) return;
-
-        function syncFields() {
-            const isOther = optionEl.value === 'other';
-            otherEl.classList.toggle('hidden', !isOther);
-            otherEl.required = isOther;
-            if (!isOther) {
-                otherEl.value = '';
-                warningEl.classList.add('hidden');
-            }
-        }
-
-        optionEl.addEventListener('change', syncFields);
-        otherEl.addEventListener('input', function() {
-            const val = parseInt(otherEl.value || '0', 10);
-            const outOfExpectedRange = Number.isFinite(val) && (val < 101 || val > 499);
-            warningEl.classList.toggle('hidden', !outOfExpectedRange);
-        });
-
-        syncFields();
-    }
-
     function validateClientWeightSelection() {
-        const optionEl = document.getElementById('clientWeightOption');
-        const otherEl = document.getElementById('clientWeightOther');
-        if (!optionEl || !otherEl) return true;
-
-        if (optionEl.value !== 'other') {
-            return true;
-        }
-
-        const val = parseInt(otherEl.value || '0', 10);
-        if (!Number.isFinite(val) || val <= 0) {
-            alert('Please enter a valid weight in lbs.');
-            otherEl.focus();
+        const rangeEl = document.getElementById('clientWeightRange');
+        if (!rangeEl) return true;
+        const value = String(rangeEl.value || '').trim();
+        if (value.length < 2) {
+            alert('Please enter the client weight range.');
+            rangeEl.focus();
             return false;
         }
-
-        if (val < 101 || val > 499) {
-            return window.confirm('Warning: the entered weight is outside 101-499 lbs. Do you want to continue?');
-        }
-
         return true;
     }
 
@@ -774,7 +730,6 @@ window.addEventListener('storage', function(e) {
 // call on load
 document.addEventListener('DOMContentLoaded', renderCheckoutSummary);
 document.addEventListener('DOMContentLoaded', renderSelectedDatesSummary);
-document.addEventListener('DOMContentLoaded', setupClientWeightFields);
 document.addEventListener('DOMContentLoaded', setupHeardAboutFields);
 
 const stripePk = "<?= $_ENV['STRIPE_PUBLISHABLE'] ?>";

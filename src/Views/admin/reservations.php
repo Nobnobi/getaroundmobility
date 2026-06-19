@@ -286,6 +286,11 @@
                 const customerName = [order.guest_first_name || '', order.guest_last_name || ''].join(' ').trim() || 'N/A';
                 const customerEmail = order.guest_email || order.customer_email || 'N/A';
                 const customerPhone = order.guest_phone || order.customer_phone || 'N/A';
+                const weightOptionRaw = String(order.client_weight_option || '').trim();
+                const weightLbsRaw = Number(order.client_weight_lbs || 0);
+                const weightDisplay = weightOptionRaw !== ''
+                    ? weightOptionRaw
+                    : (weightLbsRaw > 0 ? `${weightLbsRaw} lbs` : 'Not specified');
                 const fmt = (value) => {
                     if (!value) return 'N/A';
                     if (typeof window.formatAdminDateTime === 'function') {
@@ -302,6 +307,7 @@
                         <div><span class="font-semibold text-[#062B41]">Customer:</span> ${esc(customerName)}</div>
                         <div><span class="font-semibold text-[#062B41]">Email:</span> ${esc(customerEmail)}</div>
                         <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Client Weight (lbs):</span> ${esc(weightDisplay)}</div>
                         <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method ?? 'N/A')}</div>
                         <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${fmt(order.pickup_datetime)}</div>
                         <div><span class="font-semibold text-[#062B41]">Return:</span> ${fmt(order.return_datetime)}</div>

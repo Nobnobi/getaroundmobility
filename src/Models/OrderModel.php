@@ -1611,15 +1611,32 @@ class OrderModel {
             $params[] = $creatorRole;
         }
 
-        $dateFrom = trim((string)($filters['date_from'] ?? ''));
-        if ($dateFrom !== '') {
-            $where[] = 'DATE(o.order_date) >= ?';
-            $params[] = $dateFrom;
+        $quickPeriod = strtolower(trim((string)($filters['quick_period'] ?? '')));
+        if (in_array($quickPeriod, ['late', 'today', 'upcoming'], true)) {
+            // Quick period filters always target ongoing incomplete orders.
+            $where[] = "LOWER(COALESCE(o.status, '')) NOT IN ('completed', 'cancelled')";
+
+            if ($quickPeriod === 'late') {
+                $where[] = 'DATE(o.return_datetime) < CURDATE()';
+            } elseif ($quickPeriod === 'today') {
+                $where[] = 'DATE(o.pickup_datetime) <= CURDATE() AND DATE(o.return_datetime) >= CURDATE()';
+            } elseif ($quickPeriod === 'upcoming') {
+                $where[] = 'DATE(o.pickup_datetime) > CURDATE()';
+            }
         }
 
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
         $dateTo = trim((string)($filters['date_to'] ?? ''));
-        if ($dateTo !== '') {
-            $where[] = 'DATE(o.order_date) <= ?';
+        if ($dateFrom !== '' && $dateTo !== '') {
+            // Match orders whose rental period overlaps the selected date window.
+            $where[] = '(DATE(o.pickup_datetime) <= ? AND DATE(o.return_datetime) >= ?)';
+            $params[] = $dateTo;
+            $params[] = $dateFrom;
+        } elseif ($dateFrom !== '') {
+            $where[] = 'DATE(o.return_datetime) >= ?';
+            $params[] = $dateFrom;
+        } elseif ($dateTo !== '') {
+            $where[] = 'DATE(o.pickup_datetime) <= ?';
             $params[] = $dateTo;
         }
 

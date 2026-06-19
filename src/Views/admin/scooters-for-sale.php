@@ -12,6 +12,15 @@ $isStaff = ($role === 'staff');
             <h1 class="text-3xl font-bold text-[#062B41] tracking-tight">Scooters For Sale</h1>
             <input type="text" id="searchInput" placeholder="Search scooter..." class="border border-gray-300 rounded-lg px-4 py-2 w-full md:w-72 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
         </header>
+        <?php if (!empty($_SESSION['product_delete_warnings']) && is_array($_SESSION['product_delete_warnings'])): ?>
+            <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
+                <div class="font-semibold mb-1">Some products were not deleted:</div>
+                <?php foreach ($_SESSION['product_delete_warnings'] as $warning): ?>
+                    <div><?= htmlspecialchars($warning) ?></div>
+                <?php endforeach; ?>
+            </div>
+            <?php unset($_SESSION['product_delete_warnings']); ?>
+        <?php endif; ?>
         <div class="bg-gray-50 rounded-xl shadow-inner p-6">
             <div class="flex flex-col md:flex-row md:items-center gap-4 mb-6">
                 <h2 class="text-xl font-bold text-gray-800">Scooters For Sale Table</h2>

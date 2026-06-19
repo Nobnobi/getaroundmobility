@@ -541,9 +541,65 @@ class ProductModel{
     }
 
 
-    public function deleteProduct($product_id){
-        $stmt = $this->db->prepare("DELETE FROM products WHERE product_id=?");
-        $stmt->execute([$product_id]);
+    public function deleteProduct($product_id): array {
+        $productId = (int)$product_id;
+        if ($productId <= 0) {
+            return [
+                'success' => false,
+                'code' => 'INVALID_ID',
+                'message' => 'Invalid product ID.',
+            ];
+        }
+
+        $linkedScootersStmt = $this->db->prepare("SELECT COUNT(*) FROM scooters WHERE product_id = ?");
+        $linkedScootersStmt->execute([$productId]);
+        $linkedScooters = (int)$linkedScootersStmt->fetchColumn();
+        if ($linkedScooters > 0) {
+            return [
+                'success' => false,
+                'code' => 'IN_USE',
+                'message' => 'Cannot delete this product because it is linked to scooters. Remove or reassign scooter records first.',
+            ];
+        }
+
+        try {
+            $this->db->beginTransaction();
+
+            // Remove child variations first for environments with restrictive FK rules.
+            $deleteVariationsStmt = $this->db->prepare("DELETE FROM product_variations WHERE product_id = ?");
+            $deleteVariationsStmt->execute([$productId]);
+
+            $deleteProductStmt = $this->db->prepare("DELETE FROM products WHERE product_id = ?");
+            $deleteProductStmt->execute([$productId]);
+            $deletedRows = $deleteProductStmt->rowCount();
+
+            $this->db->commit();
+
+            if ($deletedRows < 1) {
+                return [
+                    'success' => false,
+                    'code' => 'NOT_FOUND',
+                    'message' => 'Product not found.',
+                ];
+            }
+
+            return [
+                'success' => true,
+                'code' => 'DELETED',
+                'message' => 'Product deleted successfully.',
+            ];
+        } catch (\PDOException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+
+            return [
+                'success' => false,
+                'code' => 'FK_OR_DB_ERROR',
+                'message' => 'Unable to delete product due to existing linked records.',
+                'db_error' => $e->getMessage(),
+            ];
+        }
     }
 
      /**

@@ -268,8 +268,9 @@ class OrderController extends Controller
                 exit;
             }
 
-            if (($_POST['client_weight_option'] ?? '') === 'other' && empty($_POST['client_weight_lbs'])) {
-                echo "Please provide the customer's exact weight in lbs.";
+            $clientWeightRange = trim((string)($_POST['client_weight_option'] ?? ''));
+            if ($clientWeightRange === '' || strlen($clientWeightRange) < 2) {
+                echo "Please provide the customer's weight range.";
                 exit;
             }
 

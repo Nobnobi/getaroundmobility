@@ -106,6 +106,7 @@ class AdminController extends Controller
         $heardAboutFilter = isset($_GET['heard_about']) ? trim($_GET['heard_about']) : '';
         $promoUsageFilter = isset($_GET['promo_usage']) ? trim($_GET['promo_usage']) : '';
         $creatorRoleFilter = isset($_GET['creator_role']) ? trim($_GET['creator_role']) : '';
+        $quickPeriodFilter = isset($_GET['quick_period']) ? strtolower(trim((string)$_GET['quick_period'])) : '';
         $dateFromFilter = isset($_GET['date_from']) ? trim($_GET['date_from']) : '';
         $dateToFilter = isset($_GET['date_to']) ? trim($_GET['date_to']) : '';
         $sortBy = isset($_GET['sort_by']) ? trim($_GET['sort_by']) : 'order_id';
@@ -143,6 +144,11 @@ class AdminController extends Controller
             $creatorRoleFilter = '';
         }
 
+        $allowedQuickPeriods = ['late', 'today', 'upcoming'];
+        if (!in_array($quickPeriodFilter, $allowedQuickPeriods, true)) {
+            $quickPeriodFilter = '';
+        }
+
         if ($dateFromFilter !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFromFilter)) {
             $dateFromFilter = '';
         }
@@ -167,6 +173,7 @@ class AdminController extends Controller
             'heard_about' => $heardAboutFilter,
             'promo_usage' => strtolower($promoUsageFilter),
             'creator_role' => strtolower($creatorRoleFilter),
+            'quick_period' => $quickPeriodFilter,
             'date_from' => $dateFromFilter,
             'date_to' => $dateToFilter,
             'sort_by' => $sortBy,
@@ -220,6 +227,7 @@ class AdminController extends Controller
             'heardAboutFilterOptions' => $heardAboutFilterOptions,
             'promoUsageFilter' => strtolower($promoUsageFilter),
             'creatorRoleFilter' => strtolower($creatorRoleFilter),
+            'quickPeriodFilter' => $quickPeriodFilter,
             'dateFromFilter' => $dateFromFilter,
             'dateToFilter' => $dateToFilter,
             'sortBy' => $sortBy,
@@ -423,8 +431,8 @@ class AdminController extends Controller
             'guest_last_name' => $guestLastName,
             'guest_email' => filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL),
             'guest_phone' => preg_replace('/\D/', '', $_POST['phone'] ?? ''),
-            'client_weight_option' => htmlspecialchars(trim($_POST['client_weight_option'] ?? '')),
-            'client_weight_lbs' => is_numeric($_POST['client_weight_lbs'] ?? null) ? (int)$_POST['client_weight_lbs'] : null,
+            'client_weight_option' => htmlspecialchars(substr(trim((string)($_POST['client_weight_option'] ?? '')), 0, 32)),
+            'client_weight_lbs' => null,
             'address1' => htmlspecialchars(trim($_POST['address1'] ?? '')),
             // Pickup location is set to default for walk-in booking
             'pickup_location' => 'walk-in booking',
@@ -453,14 +461,8 @@ class AdminController extends Controller
             exit;
         }
 
-        if (($orderData['client_weight_option'] ?? '') === '') {
+        if (($orderData['client_weight_option'] ?? '') === '' || strlen((string)$orderData['client_weight_option']) < 2) {
             $_SESSION['form_errors'] = ['Client weight range is required.'];
-            header('Location: ' . $newOrderRoute);
-            exit;
-        }
-
-        if (($orderData['client_weight_option'] ?? '') === 'other' && empty($orderData['client_weight_lbs'])) {
-            $_SESSION['form_errors'] = ['Please provide an exact client weight in lbs when selecting Other.'];
             header('Location: ' . $newOrderRoute);
             exit;
         }
@@ -773,8 +775,16 @@ class AdminController extends Controller
     }
 
     public function updateSecurityDeposit() {
-        $this->requireAdmin();
         header('Content-Type: application/json; charset=utf-8');
+
+        if (empty($_SESSION['admin_id'])) {
+            http_response_code(401);
+            echo json_encode([
+                'error' => 'Session expired. Please log in again.',
+                'auth_required' => true,
+            ]);
+            exit;
+        }
 
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
@@ -851,8 +861,26 @@ class AdminController extends Controller
     }
 
     public function refundSecurityDeposit() {
-        $this->requireAdmin();
         header('Content-Type: application/json; charset=utf-8');
+
+        if (empty($_SESSION['admin_id'])) {
+            http_response_code(401);
+            echo json_encode([
+                'error' => 'Session expired. Please log in again.',
+                'auth_required' => true,
+            ]);
+            exit;
+        }
+
+        $role = strtolower(trim((string)($_SESSION['admin_role'] ?? '')));
+        if (!in_array($role, ['admin', 'superadmin'], true)) {
+            http_response_code(403);
+            echo json_encode([
+                'error' => 'Only Admin and Super Admin can refund security deposits.',
+                'forbidden' => true,
+            ]);
+            exit;
+        }
 
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);

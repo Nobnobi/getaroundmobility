@@ -93,11 +93,18 @@ class ProductController extends Controller {
         // Handle deletions
         if (!empty($_POST['deleted_ids'])) {
             $ids = explode(',', $_POST['deleted_ids']);
+            $deleteWarnings = [];
             foreach ($ids as $id) {
                 $id = intval($id);
                 if ($id) {
-                    $productModel->deleteProduct($id);
+                    $deleteResult = $productModel->deleteProduct($id);
+                    if (!($deleteResult['success'] ?? false)) {
+                        $deleteWarnings[] = "Product ID {$id}: " . ($deleteResult['message'] ?? 'Delete failed.');
+                    }
                 }
+            }
+            if (!empty($deleteWarnings)) {
+                $_SESSION['product_delete_warnings'] = $deleteWarnings;
             }
         }
 
@@ -254,8 +261,19 @@ class ProductController extends Controller {
         // Handle deleted IDs
         if (!empty($_POST['deleted_ids'])) {
             $deletedIds = explode(',', $_POST['deleted_ids']);
+            $deleteWarnings = [];
             foreach ($deletedIds as $id) {
-                $productModel->deleteProduct((int)$id);
+                $id = (int)$id;
+                if ($id <= 0) {
+                    continue;
+                }
+                $deleteResult = $productModel->deleteProduct($id);
+                if (!($deleteResult['success'] ?? false)) {
+                    $deleteWarnings[] = "Product ID {$id}: " . ($deleteResult['message'] ?? 'Delete failed.');
+                }
+            }
+            if (!empty($deleteWarnings)) {
+                $_SESSION['product_delete_warnings'] = $deleteWarnings;
             }
         }
 
@@ -333,7 +351,12 @@ class ProductController extends Controller {
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['product_id'])) {
             $productModel = new ProductModel();
-            $productModel->deleteProduct($_POST['product_id']);
+            $deleteResult = $productModel->deleteProduct($_POST['product_id']);
+            if (!($deleteResult['success'] ?? false)) {
+                $_SESSION['product_delete_warnings'] = [
+                    'Product ID ' . (int)$_POST['product_id'] . ': ' . ($deleteResult['message'] ?? 'Delete failed.'),
+                ];
+            }
             header('Location: /admin/scooters-for-sale');
             exit;
         }

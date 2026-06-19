@@ -12,6 +12,7 @@ $roleLabels = [
     'partner' => 'Partner'
 ];
 $roleKey = $_SESSION['admin_role'] ?? 'admin';
+$canRefundSecurityDeposit = in_array(strtolower((string)$roleKey), ['admin', 'superadmin'], true);
 $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
 
 $statusOptions = ['pending', 'approved', 'paid', 'completed', 'cancelled'];
@@ -31,6 +32,16 @@ $buildPageLink = function (int $pageNumber) use ($currentQuery) {
     $query = array_merge($currentQuery, ['page' => $pageNumber]);
     return '?' . http_build_query($query);
 };
+
+$buildQuickPeriodLink = function (string $period) use ($currentQuery) {
+    $query = $currentQuery;
+    unset($query['date_from'], $query['date_to'], $query['status']);
+    $query['quick_period'] = $period;
+    $query['page'] = 1;
+    return '?' . http_build_query($query);
+};
+
+$quickPeriodActive = strtolower((string)($quickPeriodFilter ?? ''));
 
 $formatDateTime = function ($value) {
     if (empty($value)) {
@@ -131,6 +142,13 @@ $formatDateTime = function ($value) {
                 <form method="GET" class="mb-4 rounded-xl border border-[#c6d9e8] bg-gradient-to-r from-[#f8fcff] to-[#eef6fb] p-4 shadow-sm">
                     <input type="hidden" name="sort_by" value="<?= htmlspecialchars($sortByCurrent) ?>">
                     <input type="hidden" name="sort_dir" value="<?= htmlspecialchars($sortDirCurrent) ?>">
+
+                    <div class="mb-3 flex flex-wrap items-center gap-2">
+                        <span class="text-xs font-semibold text-gray-600">Quick Period (Ongoing Incomplete):</span>
+                        <a href="<?= htmlspecialchars($buildQuickPeriodLink('late')) ?>" class="rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'late' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Late</a>
+                        <a href="<?= htmlspecialchars($buildQuickPeriodLink('today')) ?>" class="rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'today' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Today</a>
+                        <a href="<?= htmlspecialchars($buildQuickPeriodLink('upcoming')) ?>" class="rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'upcoming' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Upcoming</a>
+                    </div>
 
                     <div class="mb-3 flex items-center justify-between">
                         <div>
@@ -412,6 +430,7 @@ $formatDateTime = function ($value) {
 
     <script>
     const ADMIN_CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token'] ?? '') ?>;
+    const CAN_REFUND_SECURITY_DEPOSIT = <?= $canRefundSecurityDeposit ? 'true' : 'false' ?>;
 
     function showOrderActionLoadingState(title, message) {
         const overlay = document.getElementById('order-action-loading-overlay');
@@ -454,6 +473,19 @@ $formatDateTime = function ($value) {
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
         };
+        const toFriendlyAjaxError = (value, fallback) => {
+            const raw = String(value ?? '').trim();
+            if (!raw) {
+                return fallback;
+            }
+            if (/<!doctype html|<html/i.test(raw)) {
+                return 'Your admin session has expired. Please log in again and retry.';
+            }
+            if (raw.length > 300) {
+                return fallback;
+            }
+            return raw;
+        };
         content.innerHTML = '<div class="py-8 text-center text-gray-500">Loading...</div>';
         const detailsUrl = `/admin/orders/details?order_id=${orderId}&_=${Date.now()}`;
         fetch(detailsUrl, { cache: 'no-store' })
@@ -478,6 +510,11 @@ $formatDateTime = function ($value) {
                 const customerPhone = order.guest_phone || order.customer_phone || 'N/A';
                 const paymentPlatform = order.payment_provider || refundSummary.payment_provider || (order.payment_method === 'paypal' ? 'paypal' : (order.payment_method === 'card' ? 'stripe' : 'unknown'));
                 const isWalkInBooking = String(order.booking_source || '').toLowerCase() === 'walk-in';
+                const weightOptionRaw = String(order.client_weight_option || '').trim();
+                const weightLbsRaw = Number(order.client_weight_lbs || 0);
+                const weightDisplay = weightOptionRaw !== ''
+                    ? weightOptionRaw
+                    : (weightLbsRaw > 0 ? `${weightLbsRaw} lbs` : 'Not specified');
                 const heardAboutRaw = String(order.heard_about_label || order.heard_about_display || '').trim();
                 const heardAboutOptionId = Number(order.heard_about_option_id || 0);
                 let heardAboutDisplay = 'Not specified';
@@ -495,6 +532,7 @@ $formatDateTime = function ($value) {
                         <div><span class="font-semibold text-[#062B41]">Customer:</span> ${esc(customerName)}</div>
                         <div><span class="font-semibold text-[#062B41]">Email:</span> ${esc(customerEmail)}</div>
                         <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Client Weight (lbs):</span> ${esc(weightDisplay)}</div>
                         <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method || 'N/A')}</div>
                         <div><span class="font-semibold text-[#062B41]">Platform:</span> ${esc(String(paymentPlatform).toUpperCase())}</div>
                         <div><span class="font-semibold text-[#062B41]">Heard About Us:</span> ${esc(heardAboutDisplay)}</div>
@@ -635,6 +673,7 @@ $formatDateTime = function ($value) {
                         <div class="mt-4 border-t border-amber-200 pt-3">
                             <div class="font-semibold text-[#7c3e00]">Return Security Deposit</div>
                             <div class="mt-1 text-xs text-[#7c3e00]">${isWalkInBooking ? 'Record the walk-in refund method used at the desk or terminal.' : `Refunds go back to the original ${esc(String(paymentPlatform).toUpperCase())} payment source.`}</div>
+                            ${CAN_REFUND_SECURITY_DEPOSIT ? `
                             <form class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-12 md:items-end" data-security-deposit-refund-form>
                                 <input type="hidden" name="order_id" value="${Number(order.order_id || orderId)}">
                                 <div class="md:col-span-3">
@@ -684,6 +723,7 @@ $formatDateTime = function ($value) {
                                 <button type="submit" class="md:col-span-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 cursor-pointer" ${refundableRemaining > 0 ? '' : 'disabled'}>${refundableRemaining > 0 ? 'Refund Deposit' : 'No Balance'}</button>
                             </form>
                             <div class="mt-2 text-xs" data-security-deposit-refund-feedback></div>
+                            ` : `<div class="mt-2 rounded-md border border-amber-300 bg-white/70 p-2 text-xs text-[#7c3e00]">Only Admin and Super Admin can process security deposit refunds.</div>`}
 
                             <div class="mt-3 rounded-md border border-amber-300 bg-white/70 p-2">
                                 <div class="text-xs font-semibold text-[#7c3e00] mb-1">Refund History</div>
@@ -802,9 +842,17 @@ $formatDateTime = function ($value) {
                             body: payload.toString()
                         })
                         .then(async (response) => {
-                            const body = await response.json().catch(() => ({}));
+                            const rawText = await response.text();
+                            let body = {};
+                            if (rawText) {
+                                try {
+                                    body = JSON.parse(rawText);
+                                } catch (_e) {
+                                    body = { error: rawText };
+                                }
+                            }
                             if (!response.ok || body.error) {
-                                throw new Error(body.error || 'Failed to update security deposit.');
+                                throw new Error(toFriendlyAjaxError(body.error || rawText, 'Failed to update security deposit.'));
                             }
                             return body;
                         })
@@ -828,7 +876,7 @@ $formatDateTime = function ($value) {
                         .catch((error) => {
                             if (feedback) {
                                 feedback.className = 'mt-2 text-xs text-red-700';
-                                feedback.textContent = error.message || 'Failed to update security deposit.';
+                                feedback.textContent = toFriendlyAjaxError(error.message, 'Failed to update security deposit.');
                             }
                         })
                         .finally(() => {
@@ -924,7 +972,7 @@ $formatDateTime = function ($value) {
                                 }
                             }
                             if (!response.ok || body.error) {
-                                throw new Error(body.error || `Refund failed (${response.status}).`);
+                                throw new Error(toFriendlyAjaxError(body.error || rawText, `Refund failed (${response.status}).`));
                             }
                             return body;
                         })
@@ -938,7 +986,7 @@ $formatDateTime = function ($value) {
                         .catch((error) => {
                             if (feedback) {
                                 feedback.className = 'mt-2 text-xs text-red-700';
-                                feedback.textContent = error.message || 'Refund failed.';
+                                feedback.textContent = toFriendlyAjaxError(error.message, 'Refund failed.');
                             }
                         })
                         .finally(() => {
