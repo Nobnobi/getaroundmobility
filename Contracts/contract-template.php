@@ -10,6 +10,10 @@ $customerName = $customerName ?? '';
 $pickupDate = $pickupDate ?? '';
 $returnDate = $returnDate ?? '';
 $totalAmountWithTax = $totalAmountWithTax ?? 0;
+$deliveryFee = isset($deliveryFee)
+    ? (float)$deliveryFee
+    : (isset($delivery_fee) ? (float)$delivery_fee : 0.0);
+$deliveryFee = max(0, $deliveryFee);
 $itemsTable = $itemsTable ?? '';
 ?>
 <!-- filepath: c:\xampp\htdocs\GetAroundMobility\src\Contracts\contract-template.php -->
@@ -56,6 +60,10 @@ $itemsTable = $itemsTable ?? '';
         The Renter agrees to pay a total rental fee of 
         <span class="border-b border-black px-2">$<?= htmlspecialchars(number_format($totalAmountWithTax, 2)) ?></span> 
         (including tax).  
+        <?php if ($deliveryFee > 0): ?>
+        This includes a hotel delivery fee of
+        <span class="border-b border-black px-2">$<?= htmlspecialchars(number_format($deliveryFee, 2)) ?></span>.
+        <?php endif; ?>
         Payment shall be made on or before the pickup date.  
         Late returns may incur a fee of <span class="border-b border-black px-2">$20</span> per day.
     </div>

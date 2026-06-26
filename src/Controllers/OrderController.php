@@ -95,6 +95,7 @@ class OrderController extends Controller
             'zip' => trim((string)($post['zip'] ?? '')),
             'delivery_type' => trim((string)($post['delivery_type'] ?? 'preferred')),
             'hotel_id' => trim((string)($post['hotel_id'] ?? '')),
+            'delivery_fee' => trim((string)($post['delivery_fee'] ?? '')),
             'pickup_datetime' => trim((string)($post['pickup_datetime'] ?? '')),
             'return_datetime' => trim((string)($post['return_datetime'] ?? '')),
             'pickup_location' => trim((string)($post['pickup_location'] ?? '')),
@@ -141,6 +142,36 @@ class OrderController extends Controller
         ];
     }
 
+    private function getHotelDeliveryFeeById($hotelId): float
+    {
+        if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
+            return 0.0;
+        }
+
+        try {
+            $pdo = \App\Utils\Database::getInstance();
+            $stmt = $pdo->prepare("SELECT delivery_fee FROM partner_hotels WHERE id = ? LIMIT 1");
+            $stmt->execute([(int)$hotelId]);
+            $fee = $stmt->fetchColumn();
+            if ($fee === false || !is_numeric($fee)) {
+                return 0.0;
+            }
+            return round(max(0, (float)$fee), 2);
+        } catch (\Throwable $e) {
+            return 0.0;
+        }
+    }
+
+    private function resolveDeliveryFeeForInput(array $source): float
+    {
+        $deliveryType = strtolower(trim((string)($source['delivery_type'] ?? 'hotel')));
+        if ($deliveryType !== 'hotel') {
+            return 0.0;
+        }
+
+        return $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
+    }
+
     private function validateHeardAboutSelection(array $source): ?string
     {
         $selection = trim((string)($source['heard_about_option_id'] ?? ''));
@@ -180,11 +211,13 @@ class OrderController extends Controller
                 return null;
             }
 
+            $deliveryFee = $this->resolveDeliveryFeeForInput($meta);
+
             // Prefer metadata total when available, otherwise derive by adding mandatory deposit.
             $metaTotal = (float)($meta['total_amount'] ?? 0);
             $totalAmount = $metaTotal > 0
                 ? round($metaTotal, 2)
-                : round($productAmount + self::SECURITY_DEPOSIT, 2);
+                : round($productAmount + self::SECURITY_DEPOSIT + $deliveryFee, 2);
 
             $pickup = trim((string)($meta['pickup_datetime'] ?? ''));
             $return = trim((string)($meta['return_datetime'] ?? ''));
@@ -268,9 +301,9 @@ class OrderController extends Controller
                 exit;
             }
 
-            $clientWeightRange = trim((string)($_POST['client_weight_option'] ?? ''));
-            if ($clientWeightRange === '' || strlen($clientWeightRange) < 2) {
-                echo "Please provide the customer's weight range.";
+            $clientWeightLbs = trim((string)($_POST['client_weight_option'] ?? ''));
+            if ($clientWeightLbs === '' || !ctype_digit($clientWeightLbs) || (int)$clientWeightLbs <= 0) {
+                echo "Please provide a valid customer weight in lbs.";
                 exit;
             }
 
@@ -853,6 +886,8 @@ class OrderController extends Controller
             $zip = htmlspecialchars(trim($meta->zip ?? ''));
             $pickup_datetime = htmlspecialchars(trim($meta->pickup_datetime ?? ''));
             $return_datetime = htmlspecialchars(trim($meta->return_datetime ?? ''));
+            $delivery_type = htmlspecialchars(trim($meta->delivery_type ?? 'preferred'));
+            $hotel_id = isset($meta->hotel_id) && $meta->hotel_id !== '' ? (int)$meta->hotel_id : null;
             $pickupLocation = htmlspecialchars(trim($meta->pickup_location ?? ''));
             $notes = htmlspecialchars(trim($meta->notes ?? ''));
             $heardAboutResolved = $this->resolveHeardAboutSelection([
@@ -913,7 +948,11 @@ class OrderController extends Controller
             $securityDeposit = $metadataSecurityDeposit !== null
                 ? round(max(0, $metadataSecurityDeposit), 2)
                 : self::SECURITY_DEPOSIT;
-            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
+            $deliveryFee = $this->resolveDeliveryFeeForInput([
+                'delivery_type' => $delivery_type,
+                'hotel_id' => $hotel_id,
+            ]);
+            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
             $totalAmount = $totalAmountWithTax;
 
             
@@ -957,9 +996,9 @@ class OrderController extends Controller
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, delivery_type, hotel_id, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, delivery_fee, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :delivery_type, :hotel_id, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, :delivery_fee, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
                     )"
                 );
                 $params = [
@@ -976,6 +1015,8 @@ class OrderController extends Controller
                     ':zip' => $zip,
                     ':pickup_datetime' => $pickup_datetime,
                     ':return_datetime' => $return_datetime,
+                    ':delivery_type' => $delivery_type,
+                    ':hotel_id' => $hotel_id,
                     ':pickup_location' => $pickupLocation,
                     ':notes' => $notes,
                     ':heard_about_option_id' => $heardAboutOptionId,
@@ -983,6 +1024,7 @@ class OrderController extends Controller
                     ':provider_payment_intent_id' => $providerPaymentIntentId,
                     ':total_amount' => $totalAmount,
                     ':security_deposit' => $securityDeposit,
+                    ':delivery_fee' => $deliveryFee,
                     ':customer_type' => $loggedInUserId ? 'user' : 'guest',
                     ':booking_source' => 'online',
                     ':created_by_admin_id' => $createdByAdminId,
@@ -1749,7 +1791,8 @@ class OrderController extends Controller
         }
         $productTotalWithTax = round($totalAmount, 2);
         $securityDeposit = self::SECURITY_DEPOSIT;
-        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
+        $deliveryFee = $this->resolveDeliveryFeeForInput($formData);
+        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
 
         // Insert order
         // Extract first and last name from formData (PayPal checkout)
@@ -1761,12 +1804,12 @@ class OrderController extends Controller
         $heardAboutLabel = $heardAboutResolved['label'];
         $stmt = $pdo->prepare(
             "INSERT INTO orders (
-                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, security_deposit, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, security_deposit, delivery_fee, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs,
-            $totalAmountWithTax, $securityDeposit, date('Y-m-d H:i:s'), 'paid',
+            $totalAmountWithTax, $securityDeposit, $deliveryFee, date('Y-m-d H:i:s'), 'paid',
             $address1, $address2, $state, $zip, $pickupLocation, $notes,
             $heardAboutOptionId,
             $heardAboutLabel,

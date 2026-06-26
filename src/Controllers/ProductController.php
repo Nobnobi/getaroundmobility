@@ -4,6 +4,64 @@ use App\Controller;
 use App\Models\ProductModel;
 
 class ProductController extends Controller {
+    private function storeUploadedAdminImage(array $imageFile, string $prefix): ?string
+    {
+        $errorCode = (int) ($imageFile['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($errorCode === UPLOAD_ERR_NO_FILE) {
+            return null;
+        }
+        if ($errorCode !== UPLOAD_ERR_OK) {
+            throw new \RuntimeException('Image upload failed.');
+        }
+
+        $uploadDir = dirname(__DIR__, 2) . '/public/img/uploads';
+        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
+            throw new \RuntimeException('Unable to create the image upload folder.');
+        }
+
+        $originalName = (string) ($imageFile['name'] ?? '');
+        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
+        if (!in_array($extension, $allowedExtensions, true)) {
+            throw new \RuntimeException('Please upload JPG, PNG, WEBP, or SVG images only.');
+        }
+
+        $tmpFile = (string) ($imageFile['tmp_name'] ?? '');
+        if ($tmpFile === '') {
+            throw new \RuntimeException('Invalid uploaded image.');
+        }
+
+        $fileName = $prefix . '-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
+        $destination = $uploadDir . '/' . $fileName;
+        if (!move_uploaded_file($tmpFile, $destination)) {
+            throw new \RuntimeException('Unable to save the uploaded image.');
+        }
+
+        return '/img/uploads/' . $fileName;
+    }
+
+    private function extractUploadedFile(array $files, string $field, array $path): ?array
+    {
+        if (!isset($files[$field]) || !is_array($files[$field])) {
+            return null;
+        }
+
+        $source = $files[$field];
+        $entry = [];
+        foreach (['name', 'type', 'tmp_name', 'error', 'size'] as $attribute) {
+            $value = $source[$attribute] ?? null;
+            foreach ($path as $segment) {
+                if (!is_array($value) || !array_key_exists($segment, $value)) {
+                    return null;
+                }
+                $value = $value[$segment];
+            }
+            $entry[$attribute] = $value;
+        }
+
+        return $entry;
+    }
+
     private function normalizeShortDescription(?string $value): string
     {
         $text = trim((string) $value);
@@ -118,13 +176,22 @@ class ProductController extends Controller {
             }
             foreach ($_POST['product_name'] as $id => $name) {
                 if ($id !== 'new') {
+                    $imagePath = htmlspecialchars(trim($_POST['image_url'][$id] ?? ''));
+                    $uploadedImage = $this->extractUploadedFile($_FILES, 'product_image', [$id]);
+                    if ($uploadedImage) {
+                        $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'product');
+                        if ($uploadedPath !== null) {
+                            $imagePath = $uploadedPath;
+                        }
+                    }
+
                     $data = [
                         'product_name' => htmlspecialchars(trim($name)),
                         'product_category_id' => intval($_POST['product_category_id'][$id] ?? 0),
                         'price' => filter_var($_POST['price'][$id] ?? 0, FILTER_VALIDATE_FLOAT),
                         'description' => htmlspecialchars(trim($_POST['description'][$id] ?? '')),
                         'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'][$id] ?? '')),
-                        'image_url' => htmlspecialchars(trim($_POST['image_url'][$id] ?? '')),
+                        'image_url' => htmlspecialchars(trim($imagePath)),
                     ];
                     $saleType = $saleTypeMap[$id] ?? '';
                     if ($saleType === 'sale') {
@@ -141,13 +208,22 @@ class ProductController extends Controller {
             foreach ($_POST['product_name']['new'] as $i => $newName) {
                 $newName = htmlspecialchars(trim($newName));
                 if (!empty($newName)) {
+                    $imagePath = !empty($_POST['image_url']['new'][$i]) ? htmlspecialchars(trim($_POST['image_url']['new'][$i])) : '';
+                    $uploadedImage = $this->extractUploadedFile($_FILES, 'product_image', ['new', $i]);
+                    if ($uploadedImage) {
+                        $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'product');
+                        if ($uploadedPath !== null) {
+                            $imagePath = $uploadedPath;
+                        }
+                    }
+
                     $data = [
                         'product_name' => $newName,
                         'product_category_id' => intval($_POST['product_category_id']['new'][$i] ?? 0),
                         'price' => filter_var($_POST['price']['new'][$i] ?? 0, FILTER_VALIDATE_FLOAT),
                         'description' => !empty($_POST['description']['new'][$i]) ? htmlspecialchars(trim($_POST['description']['new'][$i])) : 'No description',
                         'short_description' => !empty($_POST['short_description']['new'][$i]) ? htmlspecialchars($this->normalizeShortDescription($_POST['short_description']['new'][$i])) : '',
-                        'image_url' => !empty($_POST['image_url']['new'][$i]) ? htmlspecialchars(trim($_POST['image_url']['new'][$i])) : 'No image',
+                        'image_url' => $imagePath !== '' ? htmlspecialchars(trim($imagePath)) : 'No image',
                     ];
                     $productModel->addProduct($data);
                 }
@@ -224,7 +300,7 @@ class ProductController extends Controller {
                 'stock_quantity' => intval($_POST['stock_quantity'] ?? 0),
                 'description' => htmlspecialchars(trim($_POST['description'] ?? '')),
                 'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'] ?? '')),
-                'image_url' => htmlspecialchars(trim($_POST['image_url'] ?? '')),
+                'image_url' => htmlspecialchars(trim((string)($_POST['image_url'] ?? ''))),
                 'is_available' => isset($_POST['is_available']) ? 1 : 0
             ];
             $productModel->addProductForSale($data);
@@ -281,6 +357,15 @@ class ProductController extends Controller {
         if (!empty($_POST['product_name'])) {
             foreach ($_POST['product_name'] as $id => $name) {
                 if ($id === 'new') continue; // Skip if new items
+                $imagePath = htmlspecialchars(trim($_POST['image_url'][$id] ?? ''));
+                $uploadedImage = $this->extractUploadedFile($_FILES, 'scooter_image', [$id]);
+                if ($uploadedImage) {
+                    $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                    if ($uploadedPath !== null) {
+                        $imagePath = $uploadedPath;
+                    }
+                }
+
                 $data = [
                     'product_name' => htmlspecialchars(trim($name)),
                     'product_category_id' => intval($_POST['product_category_id'][$id] ?? 0),
@@ -288,7 +373,7 @@ class ProductController extends Controller {
                     'stock_quantity' => intval($_POST['stock_quantity'][$id] ?? 0),
                     'description' => htmlspecialchars(trim($_POST['description'][$id] ?? '')),
                     'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'][$id] ?? '')),
-                    'image_url' => htmlspecialchars(trim($_POST['image_url'][$id] ?? '')),
+                    'image_url' => htmlspecialchars(trim($imagePath)),
                     'is_available' => isset($_POST['is_available'][$id]) ? 1 : 0
                 ];
                 $productModel->updateProductForSale($id, $data);
@@ -300,6 +385,15 @@ class ProductController extends Controller {
             foreach ($_POST['product_name']['new'] as $i => $newName) {
                 $newName = htmlspecialchars(trim($newName));
                 if (!empty($newName)) {
+                    $imagePath = !empty($_POST['image_url']['new'][$i]) ? htmlspecialchars(trim($_POST['image_url']['new'][$i])) : '';
+                    $uploadedImage = $this->extractUploadedFile($_FILES, 'scooter_image', ['new', $i]);
+                    if ($uploadedImage) {
+                        $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                        if ($uploadedPath !== null) {
+                            $imagePath = $uploadedPath;
+                        }
+                    }
+
                     $data = [
                         'product_name' => $newName,
                         'product_category_id' => intval($_POST['product_category_id']['new'][$i] ?? 0),
@@ -307,7 +401,7 @@ class ProductController extends Controller {
                         'stock_quantity' => intval($_POST['stock_quantity']['new'][$i] ?? 0),
                         'description' => htmlspecialchars(trim($_POST['description']['new'][$i] ?? '')),
                         'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description']['new'][$i] ?? '')),
-                        'image_url' => htmlspecialchars(trim($_POST['image_url']['new'][$i] ?? '')),
+                        'image_url' => $imagePath !== '' ? htmlspecialchars(trim($imagePath)) : 'No image',
                         'is_available' => isset($_POST['is_available']['new'][$i]) ? 1 : 0
                     ];
                     $productModel->addProductForSale($data);
@@ -328,6 +422,15 @@ class ProductController extends Controller {
                 http_response_code(403);
                 die('Invalid CSRF token');
             }
+            $imagePath = htmlspecialchars(trim((string)($_POST['image_url'] ?? '')));
+            $uploadedImage = $this->extractUploadedFile($_FILES, 'scooter_image', [$_POST['product_id']]);
+            if ($uploadedImage) {
+                $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                if ($uploadedPath !== null) {
+                    $imagePath = $uploadedPath;
+                }
+            }
+
             $data = [
                 'product_name' => htmlspecialchars(trim($_POST['product_name'] ?? '')),
                 'product_category_id' => intval($_POST['product_category_id'] ?? 0),
@@ -335,7 +438,7 @@ class ProductController extends Controller {
                 'stock_quantity' => intval($_POST['stock_quantity'] ?? 0),
                 'description' => htmlspecialchars(trim($_POST['description'] ?? '')),
                 'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'] ?? '')),
-                'image_url' => htmlspecialchars(trim($_POST['image_url'] ?? '')),
+                'image_url' => htmlspecialchars(trim($imagePath)),
                 'is_available' => isset($_POST['is_available']) ? 1 : 0
             ];
             $productModel = new ProductModel();

@@ -83,8 +83,8 @@ $panelClass = $kioskMode
                                 <p id="sale-type-helper" class="mt-2 text-xs text-slate-500">Showing products marked for rental bookings.</p>
                             </div>
                             <div>
-                                <label class="mb-1 block text-sm font-medium text-slate-700">Client Weight Range <span class="text-red-500">*</span></label>
-                                <input type="text" name="client_weight_option" id="clientWeightRange" maxlength="32" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="e.g. 120-160 lbs">
+                                <label class="mb-1 block text-sm font-medium text-slate-700">Client Weight (lbs) <span class="text-red-500">*</span></label>
+                                <input type="number" name="client_weight_option" id="clientWeightRange" min="1" step="1" inputmode="numeric" required class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="e.g. 160">
                             </div>
                             <div class="md:col-span-2">
                                 <label class="mb-1 block text-sm font-medium text-slate-700">Notes</label>
@@ -965,7 +965,7 @@ if (applyPromoBtn) {
 }
 if (clientWeightRangeInput) {
     clientWeightRangeInput.addEventListener('input', function() {
-        const normalized = String(this.value || '').replace(/\s{2,}/g, ' ');
+        const normalized = String(this.value || '').replace(/\D/g, '');
         if (normalized !== this.value) {
             this.value = normalized;
         }

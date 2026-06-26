@@ -32,7 +32,7 @@ $isStaff = ($role === 'staff');
                         <?php endif; ?>
                     </div>
                 </div>
-                <form method="post" action="/admin/products/save" id="productForm"<?= $isStaff ? ' onsubmit="return false;"' : '' ?>>
+                <form method="post" action="/admin/products/save" enctype="multipart/form-data" id="productForm"<?= $isStaff ? ' onsubmit="return false;"' : '' ?>>
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token ?? '') ?>">
                     <input type="hidden" name="deleted_ids" id="deletedIds">
                     <div class="overflow-x-auto">
@@ -117,7 +117,7 @@ $isStaff = ($role === 'staff');
                                             <button type="button" class="hover:cursor-pointer product-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors" data-product-id="<?= $product['product_id'] ?>">Browse</button>
                                             <span class="product-image-filename text-xs text-gray-600"><?= !empty($product['image_url']) ? htmlspecialchars(basename($product['image_url'])) : 'No file chosen.' ?></span>
                                         </div>
-                                        <input type="file" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-product-id="<?= $product['product_id'] ?>">
+                                        <input type="file" name="product_image[<?= $product['product_id'] ?>]" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-product-id="<?= $product['product_id'] ?>">
                                     </td>
                                     <?php if (!$isStaff): ?>
                                     <td class="py-2 px-4 border-b border-gray-200">
@@ -218,7 +218,7 @@ $isStaff = ($role === 'staff');
                         <button type="button" class="product-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors" data-row-type="new">Browse</button>
                         <span class="product-image-filename text-xs text-gray-600">No file chosen.</span>
                     </div>
-                    <input type="file" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-row-type="new">
+                    <input type="file" name="product_image[new][]" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-row-type="new">
                 </td>
                 <td class="py-1 px-2 border-b"><button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs" style="display:inline-block;">Delete</button></td>
                     `;
@@ -285,7 +285,6 @@ $isStaff = ($role === 'staff');
                 if (fileInput.files && fileInput.files.length > 0) {
                     const fileName = fileInput.files[0].name;
                     if (fileNameSpan) fileNameSpan.textContent = fileName;
-                    if (urlInput) urlInput.value = '/img/' + fileName;
                     return;
                 }
 

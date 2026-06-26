@@ -608,6 +608,36 @@ function openProductModal(product) {
     const stockElem = document.getElementById('modalProductStock');
     const rentNowBtn = document.getElementById('modalRentNowBtn');
 
+    async function getTieredPrice(productId, variationId, days, fallbackPrice) {
+        if (typeof window.fetchRentalQuotePrice !== 'function') {
+            return Number(fallbackPrice || 0);
+        }
+        return await window.fetchRentalQuotePrice(productId, variationId, days, fallbackPrice);
+    }
+
+    async function updateModalPrice(syncCard) {
+        let price = Number(product.price || 0);
+        let days = 1;
+        const daysDropdown = document.getElementById('modalDaysDropdown');
+        if (daysDropdown) {
+            days = parseInt(daysDropdown.value) || 1;
+        }
+        price = await getTieredPrice(product.id, product.variation_id, days, price);
+        const priceElem = document.getElementById('modalProductPrice');
+        if (priceElem) priceElem.textContent = '$' + Number(price).toFixed(2);
+
+        if (syncCard) {
+            const selector = `.instant-days-dropdown[data-product-id='${product.id}'][data-variation-id='${product.variation_id}']`;
+            const cardDropdown = document.querySelector(selector);
+            if (cardDropdown && parseInt(cardDropdown.value) !== days) {
+                cardDropdown.value = days;
+                if (typeof window.updateInstantMobilityPrices === 'function') {
+                    window.updateInstantMobilityPrices();
+                }
+            }
+        }
+    }
+
     // Hide and disable quantity label if in product-list.php
     if (window.isProductListModal) {
         const qtyLabel = document.querySelector('#productModal label[for="modalProductQuantity"]') || document.querySelector('#productModal .flex.items-center.mb-4 label');
@@ -672,49 +702,13 @@ function openProductModal(product) {
     document.getElementById('modalProductDescription').textContent = product.description && product.description.trim() !== '' ? product.description : 'No description available.';
 
     // Only enable dropdown and price logic on homepage
-    var isHomePageModal = (!window.isSearchResultsModal && !window.isProductListModal && (window.location.pathname === '/' || window.location.pathname === '/index.php'));
+    var isHomePageModal = (!window.isSearchResultsModal && !window.isProductListModal && document.querySelectorAll('[data-instant-product]').length > 0);
     if (isHomePageModal) {
-        // --- Dynamic Price Calculation Based on Date Selection ---
-        function getDaysDiff(pickup, ret) {
-            if (!pickup || !ret) return 1;
-            const start = new Date(pickup);
-            const end = new Date(ret);
-            if (isNaN(start) || isNaN(end)) return 1;
-            let diff = (end - start) / (1000 * 60 * 60 * 24);
-            return diff > 0 ? Math.ceil(diff) : 1;
-        }
-
-        async function getTieredPrice(productId, variationId, days, fallbackPrice) {
-            if (typeof window.fetchRentalQuotePrice !== 'function') {
-                return Number(fallbackPrice || 0);
-            }
-            return await window.fetchRentalQuotePrice(productId, variationId, days, fallbackPrice);
-        }
         // --- Dropdown Synchronization Logic ---
         function getCardDropdown() {
             // Find the card dropdown for this product/variation
             const selector = `.instant-days-dropdown[data-product-id='${product.id}'][data-variation-id='${product.variation_id}']`;
             return document.querySelector(selector);
-        }
-        async function updateModalPrice(syncCard) {
-            let price = Number(product.price || 0);
-            let days = 1;
-            const daysDropdown = document.getElementById('modalDaysDropdown');
-            if (daysDropdown) {
-                days = parseInt(daysDropdown.value) || 1;
-            }
-            price = await getTieredPrice(product.id, product.variation_id, days, price);
-            const priceElem = document.getElementById('modalProductPrice');
-            if (priceElem) priceElem.textContent = '$' + Number(price).toFixed(2);
-            // If syncCard is true, update the card dropdown
-            if (syncCard) {
-                const cardDropdown = getCardDropdown();
-                if (cardDropdown && parseInt(cardDropdown.value) !== days) {
-                    cardDropdown.value = days;
-                    // Optionally, trigger card price update if needed
-                    if (typeof window.updateInstantMobilityPrices === 'function') window.updateInstantMobilityPrices();
-                }
-            }
         }
         // Attach dropdown listener
         setTimeout(function() {

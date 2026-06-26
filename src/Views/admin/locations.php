@@ -8,6 +8,10 @@ $isStaff = ($role === 'staff');
 ?>
 <?php
 $activeTab = $_GET['tab'] ?? '';
+$hotelSearchValue = isset($hotelSearch) ? (string)$hotelSearch : '';
+$hotelPageValue = isset($hotelPage) ? max(1, (int)$hotelPage) : 1;
+$hotelTotalPagesValue = isset($hotelTotalPages) ? max(1, (int)$hotelTotalPages) : 1;
+$hotelTotalCountValue = isset($hotelTotalCount) ? max(0, (int)$hotelTotalCount) : count($partnerHotels);
 ?>
 <div class="flex flex-1 items-center justify-center w-full">
     <div class="bg-white rounded-2xl shadow-xl p-10 w-full max-w-6xl mx-auto border border-blue-200">
@@ -23,8 +27,10 @@ $activeTab = $_GET['tab'] ?? '';
             </div>
             <!-- Hotels Tab -->
             <div id="tab-content-hotels" class="tab-content">
-                <form method="post" action="/admin/locations?tab=hotels" id="hotelsForm">
+                <form method="post" action="/admin/locations?tab=hotels<?= $hotelSearchValue !== '' ? '&hotel_search=' . urlencode($hotelSearchValue) : '' ?>&hotel_page=<?= (int)$hotelPageValue ?>" id="hotelsForm">
                     <input type="hidden" name="tab" value="hotels">
+                    <input type="hidden" name="hotel_search_context" value="<?= htmlspecialchars($hotelSearchValue) ?>">
+                    <input type="hidden" name="hotel_page_context" value="<?= (int)$hotelPageValue ?>">
                     <div class="flex items-center mb-6">
                         <h3 class="text-2xl font-bold text-blue-800 flex items-center gap-2 mr-4">Partner Hotels</h3>
                         <?php if (!$isStaff): ?>
@@ -35,6 +41,24 @@ $activeTab = $_GET['tab'] ?? '';
                         <input type="hidden" name="deleted_ids" id="deletedHotelIds">
                         <?php endif; ?>
                     </div>
+                    <div class="mb-4 flex flex-col md:flex-row md:items-center gap-3">
+                        <div class="flex flex-1 items-center gap-2">
+                            <input
+                                type="text"
+                                id="hotelSearchInput"
+                                value="<?= htmlspecialchars($hotelSearchValue) ?>"
+                                placeholder="Search hotels, address, state, zip"
+                                class="w-full md:max-w-md border rounded px-3 py-2"
+                            >
+                            <button type="button" id="hotelSearchBtn" class="bg-blue-600 text-white px-4 py-2 rounded shadow font-semibold cursor-pointer">Search</button>
+                            <?php if ($hotelSearchValue !== ''): ?>
+                                <a href="/admin/locations?tab=hotels" class="bg-gray-200 text-gray-800 px-4 py-2 rounded shadow font-semibold">Clear</a>
+                            <?php endif; ?>
+                        </div>
+                        <div class="text-sm text-gray-600">
+                            Showing <?= count($partnerHotels) ?> of <?= (int)$hotelTotalCountValue ?> hotels
+                        </div>
+                    </div>
                     <div class="overflow-x-auto rounded-lg shadow">
                         <table class="w-full text-sm bg-white" id="hotelsTable">
                             <thead>
@@ -44,6 +68,7 @@ $activeTab = $_GET['tab'] ?? '';
                                     <th class="p-3">Address 2</th>
                                     <th class="p-3">State</th>
                                     <th class="p-3">ZIP</th>
+                                    <th class="p-3">Delivery Fee</th>
                                     <?php if (!$isStaff): ?><th class="p-3">Actions</th><?php endif; ?>
                                 </tr>
                             </thead>
@@ -55,6 +80,7 @@ $activeTab = $_GET['tab'] ?? '';
                                     <td class="p-2"><input type="text" name="hotels[<?= $hotel['id'] ?>][address2]" value="<?= htmlspecialchars($hotel['address2']) ?>" class="border rounded px-2 py-1 w-full" disabled></td>
                                     <td class="p-2"><input type="text" name="hotels[<?= $hotel['id'] ?>][state]" value="<?= htmlspecialchars($hotel['state']) ?>" class="border rounded px-2 py-1 w-full" disabled></td>
                                     <td class="p-2"><input type="text" name="hotels[<?= $hotel['id'] ?>][zip]" value="<?= htmlspecialchars($hotel['zip']) ?>" class="border rounded px-2 py-1 w-full" disabled></td>
+                                    <td class="p-2"><input type="number" step="0.01" min="0" name="hotels[<?= $hotel['id'] ?>][delivery_fee]" value="<?= htmlspecialchars(number_format((float)($hotel['delivery_fee'] ?? 0), 2, '.', '')) ?>" class="border rounded px-2 py-1 w-full" disabled></td>
                                     <?php if (!$isStaff): ?>
                                     <td class="p-2">
                                         <button type="button" class="deleteHotelBtn bg-red-500 text-white px-3 py-1 rounded shadow hover:bg-red-600 cursor-pointer" data-id="<?= $hotel['id'] ?>" style="display:none;">Delete</button>
@@ -65,6 +91,21 @@ $activeTab = $_GET['tab'] ?? '';
                             </tbody>
                         </table>
                     </div>
+                    <?php if ($hotelTotalPagesValue > 1): ?>
+                    <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+                        <div class="text-sm text-gray-600">
+                            Page <?= (int)$hotelPageValue ?> of <?= (int)$hotelTotalPagesValue ?>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <?php if ($hotelPageValue > 1): ?>
+                                <a class="px-3 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50" href="/admin/locations?tab=hotels&hotel_page=<?= (int)($hotelPageValue - 1) ?><?= $hotelSearchValue !== '' ? '&hotel_search=' . urlencode($hotelSearchValue) : '' ?>">Previous</a>
+                            <?php endif; ?>
+                            <?php if ($hotelPageValue < $hotelTotalPagesValue): ?>
+                                <a class="px-3 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50" href="/admin/locations?tab=hotels&hotel_page=<?= (int)($hotelPageValue + 1) ?><?= $hotelSearchValue !== '' ? '&hotel_search=' . urlencode($hotelSearchValue) : '' ?>">Next</a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </form>
             </div>
             <!-- Pickups Tab -->
@@ -120,9 +161,17 @@ const saveHotelsBtn = document.getElementById('saveHotelsBtn');
 const cancelHotelsBtn = document.getElementById('cancelHotelsBtn');
 const deletedHotelIds = document.getElementById('deletedHotelIds');
 const hotelsTable = document.getElementById('hotelsTable').getElementsByTagName('tbody')[0];
+const hotelSearchInput = document.getElementById('hotelSearchInput');
+const hotelSearchContextInput = hotelsForm.querySelector('input[name="hotel_search_context"]');
+
+hotelsForm.addEventListener('submit', function() {
+    if (hotelSearchContextInput && hotelSearchInput) {
+        hotelSearchContextInput.value = hotelSearchInput.value.trim();
+    }
+});
 
 editHotelsBtn.onclick = function() {
-    hotelsForm.querySelectorAll('input[type="text"]').forEach(e => e.disabled = false);
+    hotelsForm.querySelectorAll('input:not([type="hidden"])').forEach(e => e.disabled = false);
     hotelsForm.querySelectorAll('.deleteHotelBtn').forEach(e => e.style.display = 'inline-block');
     addHotelBtn.style.display = 'inline-block';
     saveHotelsBtn.style.display = 'inline-block';
@@ -137,6 +186,7 @@ addHotelBtn.onclick = function() {
         <td class="p-2"><input type="text" name="hotels[new][address2][]" class="border rounded px-2 py-1 w-full"></td>
         <td class="p-2"><input type="text" name="hotels[new][state][]" class="border rounded px-2 py-1 w-full"></td>
         <td class="p-2"><input type="text" name="hotels[new][zip][]" class="border rounded px-2 py-1 w-full"></td>
+        <td class="p-2"><input type="number" step="0.01" min="0" name="hotels[new][delivery_fee][]" value="0.00" class="border rounded px-2 py-1 w-full"></td>
         <td class="p-2"><button type="button" class="deleteHotelBtn bg-red-500 text-white px-3 py-1 rounded shadow hover:bg-red-600 cursor-pointer" style="display:inline-block;">Delete</button></td>
     `;
     row.querySelector('.deleteHotelBtn').onclick = function() { row.remove(); };
@@ -214,6 +264,8 @@ function showTab(tab) {
 document.addEventListener('DOMContentLoaded', function() {
     const hotelsTabButton = document.getElementById('tab-hotels');
     const pickupsTabButton = document.getElementById('tab-pickups');
+    const hotelSearchInput = document.getElementById('hotelSearchInput');
+    const hotelSearchBtn = document.getElementById('hotelSearchBtn');
     const urlTab = <?= json_encode($activeTab === 'pickups' ? 'pickups' : '') ?>;
     const storedTab = localStorage.getItem('adminLocationsActiveTab');
     const initialTab = urlTab || storedTab || 'hotels';
@@ -227,6 +279,30 @@ document.addEventListener('DOMContentLoaded', function() {
     if (pickupsTabButton) {
         pickupsTabButton.addEventListener('click', function() {
             showTab('pickups');
+        });
+    }
+
+    function runHotelSearch() {
+        if (!hotelSearchInput) return;
+        const term = hotelSearchInput.value.trim();
+        const params = new URLSearchParams();
+        params.set('tab', 'hotels');
+        params.set('hotel_page', '1');
+        if (term !== '') {
+            params.set('hotel_search', term);
+        }
+        window.location.href = '/admin/locations?' + params.toString();
+    }
+
+    if (hotelSearchBtn) {
+        hotelSearchBtn.addEventListener('click', runHotelSearch);
+    }
+    if (hotelSearchInput) {
+        hotelSearchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                runHotelSearch();
+            }
         });
     }
 

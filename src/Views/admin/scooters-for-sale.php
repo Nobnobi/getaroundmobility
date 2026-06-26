@@ -31,7 +31,7 @@ $isStaff = ($role === 'staff');
                     </div>
                 <?php endif; ?>
             </div>
-            <form method="post" action="/admin/scooters-for-sale/save" id="scooterSaleForm">
+            <form method="post" action="/admin/scooters-for-sale/save" enctype="multipart/form-data" id="scooterSaleForm">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
                 <input type="hidden" name="deleted_ids" id="deletedIds">
                 <div class="overflow-x-auto">
@@ -79,7 +79,7 @@ $isStaff = ($role === 'staff');
                                         <button type="button" class="sale-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors cursor-pointer" data-product-id="<?= $scooter['product_id'] ?>" style="display:none;">Browse</button>
                                         <span class="sale-image-filename text-xs text-gray-600"><?= !empty($scooter['image_url']) ? htmlspecialchars(basename($scooter['image_url'])) : 'No file chosen.' ?></span>
                                     </div>
-                                    <input type="file" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-product-id="<?= $scooter['product_id'] ?>">
+                                    <input type="file" name="scooter_image[<?= $scooter['product_id'] ?>]" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-product-id="<?= $scooter['product_id'] ?>">
                                 </td>
                                 <td class="py-2 px-4 border-b border-gray-200">
                                     <?php if (!$isStaff): ?>
@@ -157,7 +157,7 @@ $isStaff = ($role === 'staff');
                     <button type="button" class="sale-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors cursor-pointer" data-row-type="new">Browse</button>
                     <span class="sale-image-filename text-xs text-gray-600">No file chosen.</span>
                 </div>
-                <input type="file" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-row-type="new">
+                <input type="file" name="scooter_image[new][]" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-row-type="new">
             </td>
             <!-- is_available column removed for new rows -->
             <td class="py-1 px-2 border-b"><button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs" style="display:inline-block;">Delete</button></td>
@@ -208,7 +208,6 @@ $isStaff = ($role === 'staff');
         if (this.files && this.files.length > 0) {
             const fileName = this.files[0].name;
             fileNameSpan.textContent = fileName;
-            urlInput.value = '/img/' + fileName;
             return;
         }
 

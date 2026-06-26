@@ -73,6 +73,30 @@ class OrderModel {
                 return $this->getCatalogBasePrice($productId, $variationId);
             }
 
+            private function getHotelDeliveryFeeById($hotelId): float {
+                if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
+                    return 0.0;
+                }
+
+                $stmt = $this->db->prepare("SELECT delivery_fee FROM partner_hotels WHERE id = ? LIMIT 1");
+                $stmt->execute([(int)$hotelId]);
+                $fee = $stmt->fetchColumn();
+                if ($fee === false || !is_numeric($fee)) {
+                    return 0.0;
+                }
+
+                return round(max(0, (float)$fee), 2);
+            }
+
+            private function resolveDeliveryFeeForOrder(array $source): float {
+                $deliveryType = strtolower(trim((string)($source['delivery_type'] ?? 'hotel')));
+                if ($deliveryType !== 'hotel') {
+                    return 0.0;
+                }
+
+                return $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
+            }
+
             private ?bool $orderRefundsHasRefundMethodColumn = null;
 
             private function hasOrderRefundMethodColumn(): bool {
@@ -345,6 +369,11 @@ class OrderModel {
         $securityDepositCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit'");
         if (!$securityDepositCol || !$securityDepositCol->fetch(\PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit DECIMAL(10,2) NULL AFTER total_amount");
+        }
+
+        $deliveryFeeCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'delivery_fee'");
+        if (!$deliveryFeeCol || !$deliveryFeeCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN delivery_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER security_deposit");
         }
 
         $securityDepositReasonCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_reason'");
@@ -1242,7 +1271,8 @@ class OrderModel {
 
         $orderData['promo_discount'] = $promoDiscount > 0 ? $promoDiscount : null;
         $productTotalWithTax = round(max(0, $trustedSubtotal - $promoDiscount), 2);
-        $orderData['total_amount'] = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
+        $orderData['delivery_fee'] = $this->resolveDeliveryFeeForOrder($orderData);
+        $orderData['total_amount'] = round($productTotalWithTax + self::SECURITY_DEPOSIT + $orderData['delivery_fee'], 2);
         $orderData['security_deposit'] = isset($orderData['security_deposit'])
             ? round(max(0, (float)$orderData['security_deposit']), 2)
             : self::SECURITY_DEPOSIT;
@@ -1252,12 +1282,12 @@ class OrderModel {
             client_weight_option, client_weight_lbs,
             address1, address2, state, zip,
             pickup_datetime, return_datetime, delivery_type, hotel_id, pickup_location,
-            notes, payment_method, payment_provider, total_amount, security_deposit, status, customer_type, booking_source,
+            notes, payment_method, payment_provider, total_amount, security_deposit, delivery_fee, status, customer_type, booking_source,
             promo_code, promo_discount, promo_applied_by_admin_id, promo_applied_by_admin_role, promo_applied_by_admin_name,
             created_by_admin_id, created_by_admin_role, created_by_admin_name,
             sale_type
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )";
 
         $stmt = $this->db->prepare($sql);
@@ -1283,6 +1313,7 @@ class OrderModel {
             strtolower((string)($orderData['payment_method'] ?? '')) === 'paypal' ? 'paypal' : (strtolower((string)($orderData['payment_method'] ?? '')) === 'card' ? 'stripe' : null),
             $orderData['total_amount'],
             $orderData['security_deposit'],
+            $orderData['delivery_fee'],
             $orderData['customer_type'],
             $orderData['booking_source'] ?? null,
             $orderData['promo_code'] ?? null,
@@ -1743,7 +1774,7 @@ class OrderModel {
             $updatedByAdminId = null;
         }
 
-        $orderStmt = $this->db->prepare("SELECT order_id, total_amount, promo_discount, security_deposit FROM orders WHERE order_id = ? LIMIT 1");
+        $orderStmt = $this->db->prepare("SELECT order_id, total_amount, promo_discount, security_deposit, delivery_fee FROM orders WHERE order_id = ? LIMIT 1");
         $orderStmt->execute([$orderId]);
         $order = $orderStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$order) {
@@ -1756,14 +1787,15 @@ class OrderModel {
 
         $promoDiscount = max(0, round((float)($order['promo_discount'] ?? 0), 2));
         $productTotalWithTax = round(max(0, $itemsSubtotal - $promoDiscount), 2);
+        $deliveryFee = max(0, round((float)($order['delivery_fee'] ?? 0), 2));
 
         if ($productTotalWithTax <= 0) {
             $existingTotal = round((float)($order['total_amount'] ?? 0), 2);
             $existingDeposit = max(0, round((float)($order['security_deposit'] ?? 0), 2));
-            $productTotalWithTax = round(max(0, $existingTotal - $existingDeposit), 2);
+            $productTotalWithTax = round(max(0, $existingTotal - $existingDeposit - $deliveryFee), 2);
         }
 
-        $newTotalAmount = round($productTotalWithTax + $newDeposit, 2);
+        $newTotalAmount = round($productTotalWithTax + $newDeposit + $deliveryFee, 2);
 
         $updateStmt = $this->db->prepare("UPDATE orders SET security_deposit = ?, total_amount = ?, security_deposit_reason = ?, security_deposit_updated_by_admin_id = ?, security_deposit_updated_at = NOW() WHERE order_id = ?");
         $updateStmt->execute([$newDeposit, $newTotalAmount, $reasonText, $updatedByAdminId, $orderId]);
@@ -1773,6 +1805,7 @@ class OrderModel {
             'security_deposit' => $newDeposit,
             'total_amount' => $newTotalAmount,
             'product_total_with_tax' => $productTotalWithTax,
+            'delivery_fee' => $deliveryFee,
             'security_deposit_reason' => $reasonText,
             'security_deposit_updated_by_admin_id' => $updatedByAdminId,
         ];
@@ -2165,7 +2198,8 @@ class OrderModel {
         }
         $productTotalWithTax = round($totalAmount, 2);
         $securityDeposit = self::SECURITY_DEPOSIT;
-        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
+        $deliveryFee = $this->resolveDeliveryFeeForOrder($form);
+        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
         $pickup_datetime = $form['pickup_datetime'] ?? null;
         $return_datetime = $form['return_datetime'] ?? null;
         $bookingSource = htmlspecialchars(trim((string)($form['booking_source'] ?? 'online')));
@@ -2200,6 +2234,7 @@ class OrderModel {
                     strtolower((string)$payment) === 'paypal' ? 'paypal' : (strtolower((string)$payment) === 'card' ? 'stripe' : null),
                     $totalAmountWithTax,
                     $securityDeposit,
+                    $deliveryFee,
                     $customerType,
                     $bookingSource,
                     $heardAbout['id'],
@@ -2217,8 +2252,8 @@ class OrderModel {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, total_amount, security_deposit, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, total_amount, security_deposit, delivery_fee, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
@@ -2402,9 +2437,10 @@ class OrderModel {
             $itemsTable = $invoiceItemsTable;
             $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
             $securityDeposit = self::SECURITY_DEPOSIT;
+            $deliveryFee = $this->resolveDeliveryFeeForOrder($form);
             $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
-            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
-            $totalAmount = round($productPreTax + $securityDeposit, 2);
+            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
+            $totalAmount = round($productPreTax + $securityDeposit + $deliveryFee, 2);
             $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
             ob_start();
             include __DIR__ . '/../../Proformas/proforma-template.php';
@@ -2581,7 +2617,8 @@ class OrderModel {
 
         if ($subtotal <= 0 && $totalAmountWithTax > 0) {
             $fallbackDeposit = $totalAmountWithTax >= self::SECURITY_DEPOSIT ? self::SECURITY_DEPOSIT : 0.0;
-            $subtotal = round(max(0, $totalAmountWithTax - $fallbackDeposit), 2);
+            $fallbackDeliveryFee = max(0, (float)($order['delivery_fee'] ?? 0));
+            $subtotal = round(max(0, $totalAmountWithTax - $fallbackDeposit - $fallbackDeliveryFee), 2);
         }
         $pickup_datetime = $pickupDate;
         $return_datetime = $returnDate;
@@ -2656,6 +2693,7 @@ class OrderModel {
         $paymentMethod = (string)($order['payment_method'] ?? '');
         $pickupLocation = (string)($order['pickup_location'] ?? '');
         $deliveryType = (string)($order['delivery_type'] ?? '');
+        $deliveryFee = max(0, round((float)($order['delivery_fee'] ?? 0), 2));
         $subtotal = (float)$subtotal;
         $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
         $storedSecurityDeposit = isset($order['security_deposit']) ? (float)$order['security_deposit'] : null;
@@ -2663,14 +2701,14 @@ class OrderModel {
             ? round($storedSecurityDeposit, 2)
             : 0.0;
         if ($securityDeposit <= 0 && $totalAmountWithTax > 0) {
-            $securityDeposit = round(max(0, $totalAmountWithTax - $productTotalWithTax), 2);
+            $securityDeposit = round(max(0, $totalAmountWithTax - $productTotalWithTax - $deliveryFee), 2);
         }
         if ($totalAmountWithTax <= 0) {
             $securityDeposit = self::SECURITY_DEPOSIT;
-            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
+            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
         }
         $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
-        $totalAmount = round($productPreTax + $securityDeposit, 2);
+        $totalAmount = round($productPreTax + $securityDeposit + $deliveryFee, 2);
         $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
         
         // WRAP PRO-FORMA PDF GENERATION IN TRY-CATCH
@@ -2840,6 +2878,7 @@ class OrderModel {
         $paymentMethod = (string)($order['payment_method'] ?? '');
         $pickupLocation = (string)($order['pickup_location'] ?? '');
         $deliveryType = (string)($order['delivery_type'] ?? '');
+        $deliveryFee = max(0, round((float)($order['delivery_fee'] ?? 0), 2));
 
         $totalAmountWithTax = (float)($order['total_amount'] ?? 0);
         $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
@@ -2848,10 +2887,10 @@ class OrderModel {
             ? round($storedSecurityDeposit, 2)
             : 0.0;
         if ($securityDeposit <= 0 && $totalAmountWithTax > 0) {
-            $securityDeposit = round(max(0, $totalAmountWithTax - $productTotalWithTax), 2);
+            $securityDeposit = round(max(0, $totalAmountWithTax - $productTotalWithTax - $deliveryFee), 2);
         }
         $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
-        $totalAmount = round($productPreTax + $securityDeposit, 2);
+        $totalAmount = round($productPreTax + $securityDeposit + $deliveryFee, 2);
         $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
 
         $invoiceDir = __DIR__ . '/../../Invoices/';
@@ -3167,7 +3206,18 @@ class OrderModel {
             ],
             'quantity' => 1,
         ];
-        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT, 2);
+        $deliveryFee = $this->resolveDeliveryFeeForOrder($post);
+        if ($deliveryFee > 0) {
+            $lineItems[] = [
+                'price_data' => [
+                    'currency' => 'usd',
+                    'product_data' => ['name' => 'Hotel Delivery Fee'],
+                    'unit_amount' => (int) round($deliveryFee * 100),
+                ],
+                'quantity' => 1,
+            ];
+        }
+        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT + $deliveryFee, 2);
 
         $pickup_location_id = $post['pickup_location'] ?? '';
         $pickup_location = '';
@@ -3216,6 +3266,7 @@ class OrderModel {
             'cart_json' => json_encode($cart),
             'total_amount' => (string)$totalAmount,
             'security_deposit' => (string)self::SECURITY_DEPOSIT,
+            'delivery_fee' => (string)$deliveryFee,
             'logged_in_user_id' => (string)($session['user_id'] ?? ''),
             'created_by_admin_id' => (string)($session['admin_id'] ?? ''),
             'created_by_admin_role' => strtolower(trim((string)($session['admin_role'] ?? ''))),
@@ -3308,7 +3359,8 @@ class OrderModel {
             $totalAmount += $price * $qty;
         }
 
-        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT, 2);
+        $deliveryFee = $this->resolveDeliveryFeeForOrder($post);
+        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT + $deliveryFee, 2);
 
         if ($totalAmount <= 0) {
             return ['error' => 'No valid items'];
@@ -3343,6 +3395,7 @@ class OrderModel {
             'sale_type' => htmlspecialchars(trim($post['sale_type'] ?? 'rental')),
             'total_amount' => (string)$totalAmount,
             'security_deposit' => (string)self::SECURITY_DEPOSIT,
+            'delivery_fee' => (string)$deliveryFee,
             'logged_in_user_id' => (string)($session['user_id'] ?? ''),
             'created_by_admin_id' => (string)($session['admin_id'] ?? ''),
             'created_by_admin_role' => strtolower(trim((string)($session['admin_role'] ?? ''))),

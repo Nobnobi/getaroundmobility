@@ -461,8 +461,9 @@ class AdminController extends Controller
             exit;
         }
 
-        if (($orderData['client_weight_option'] ?? '') === '' || strlen((string)$orderData['client_weight_option']) < 2) {
-            $_SESSION['form_errors'] = ['Client weight range is required.'];
+        $weightValue = trim((string)($orderData['client_weight_option'] ?? ''));
+        if ($weightValue === '' || !ctype_digit($weightValue) || (int)$weightValue <= 0) {
+            $_SESSION['form_errors'] = ['Client weight in lbs is required and must be numeric.'];
             header('Location: ' . $newOrderRoute);
             exit;
         }

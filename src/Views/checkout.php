@@ -100,9 +100,9 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     placeholder="e.g. john@email.com">
                             </div>
                             <div class="mb-4 flex flex-col md:flex-row md:items-start gap-2">
-                                <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40 md:pt-2">Client Weight Range</label>
+                                <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40 md:pt-2">Client Weight (lbs)</label>
                                 <div class="w-full max-w-md">
-                                    <input type="text" name="client_weight_option" id="clientWeightRange" maxlength="32" placeholder="e.g. 120-160 lbs" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]" required>
+                                    <input type="number" name="client_weight_option" id="clientWeightRange" min="1" step="1" inputmode="numeric" placeholder="e.g. 160" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]" required>
                                 </div>
                             </div>
                             <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
@@ -148,7 +148,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                         Pickup at store
                                     </label>
                                 </div>
-                                <div id="hotelDropdown" class="mb-4">
+                                <div id="hotelDropdown" class="mb-4 w-42">
                                     <label class="block text-sm font-medium mb-1">Select Partner Hotel</label>
                                     <select name="hotel_id" class="w-full border rounded p-2 border-[#535862]">
                                         <option value="">Select a hotel</option>
@@ -158,6 +158,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                                 data-address2="<?= htmlspecialchars($hotel['address2']) ?>"
                                                 data-state="<?= htmlspecialchars($hotel['state']) ?>"
                                                 data-zip="<?= htmlspecialchars($hotel['zip']) ?>"
+                                                data-delivery-fee="<?= htmlspecialchars(number_format((float)($hotel['delivery_fee'] ?? 0), 2, '.', '')) ?>"
                                             ><?= htmlspecialchars($hotel['name']) ?></option>
                                         <?php endforeach; ?>
                                     </select>
@@ -222,6 +223,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
 
                         <input type="hidden" name="pickup_datetime" id="pickupDatetimeCheckout" value="">
                         <input type="hidden" name="return_datetime" id="returnDatetimeCheckout" value="">
+                        <input type="hidden" name="delivery_fee" id="deliveryFeeInput" value="0.00">
                     </div>
                 </form>
                 
@@ -523,9 +525,9 @@ if (file_exists(__DIR__ . '/../../.env')) {
     function validateClientWeightSelection() {
         const rangeEl = document.getElementById('clientWeightRange');
         if (!rangeEl) return true;
-        const value = String(rangeEl.value || '').trim();
-        if (value.length < 2) {
-            alert('Please enter the client weight range.');
+        const value = Number(rangeEl.value);
+        if (!Number.isFinite(value) || value <= 0) {
+            alert('Please enter a valid client weight in lbs.');
             rangeEl.focus();
             return false;
         }
@@ -630,10 +632,23 @@ if (file_exists(__DIR__ . '/../../.env')) {
         return '/img/placeholder.png';
     }
 
+    function getSelectedDeliveryFee() {
+        const deliveryType = document.querySelector('input[name="delivery_type"]:checked')?.value;
+        if (deliveryType !== 'hotel') return 0;
+
+        const hotelSelect = document.querySelector('select[name="hotel_id"]');
+        if (!hotelSelect) return 0;
+        const selected = hotelSelect.options[hotelSelect.selectedIndex];
+        const rawFee = selected ? selected.getAttribute('data-delivery-fee') : null;
+        const fee = Number(rawFee || 0);
+        return Number.isFinite(fee) && fee > 0 ? fee : 0;
+    }
+
     function renderCheckoutSummary() {
         const SECURITY_DEPOSIT = 100;
         const cart = loadCart();
         const summaryContainer = document.getElementById('checkoutSummary');
+        const deliveryFeeInput = document.getElementById('deliveryFeeInput');
         if (!summaryContainer) return;
         if (cart.length === 0) {
             summaryContainer.innerHTML = '<p class="text-gray-500">Your cart is empty.</p>';
@@ -666,7 +681,11 @@ if (file_exists(__DIR__ . '/../../.env')) {
         const productTotalWithTax = subtotal;
         const pretaxSubtotal = productTotalWithTax / 1.08375;
         const tax = productTotalWithTax - pretaxSubtotal;
-        const total = productTotalWithTax + SECURITY_DEPOSIT;
+        const deliveryFee = getSelectedDeliveryFee();
+        const total = productTotalWithTax + SECURITY_DEPOSIT + deliveryFee;
+        if (deliveryFeeInput) {
+            deliveryFeeInput.value = deliveryFee.toFixed(2);
+        }
         summaryContainer.innerHTML = `
             ${itemsHtml}
             <div class="flex justify-between mb-2">
@@ -680,6 +699,10 @@ if (file_exists(__DIR__ . '/../../.env')) {
             <div class="flex justify-between mb-2">
                 <span>Security deposit</span>
                 <span>$${SECURITY_DEPOSIT.toFixed(2)}</span>
+            </div>
+            <div class="flex justify-between mb-2">
+                <span>Hotel delivery fee</span>
+                <span>$${deliveryFee.toFixed(2)}</span>
             </div>
             <div class="flex justify-between font-bold text-lg mb-6">
                 <span>Total</span>
@@ -701,6 +724,41 @@ if (file_exists(__DIR__ . '/../../.env')) {
         hours = hours % 12;
         if (hours === 0) hours = 12;
         return `${month} ${day}, ${year} ${hours}:${minutes}${meridiem}`;
+    }
+
+    function renderCompletedOrderSummary(order) {
+        const summaryContainer = document.getElementById('checkoutSummary');
+        if (!summaryContainer || !order) return;
+
+        const totalAmount = Number(order.total_amount || 0);
+        const securityDeposit = Number(order.security_deposit || 0);
+        const deliveryFee = Number(order.delivery_fee || 0);
+        const productTotalWithTax = Math.max(0, totalAmount - securityDeposit - deliveryFee);
+        const pretaxSubtotal = productTotalWithTax / 1.08375;
+        const tax = productTotalWithTax - pretaxSubtotal;
+
+        summaryContainer.innerHTML = `
+            <div class="flex justify-between mb-2">
+                <span>Rental subtotal</span>
+                <span>$${pretaxSubtotal.toFixed(2)}</span>
+            </div>
+            <div class="flex justify-between mb-2">
+                <span>Included NV sales tax</span>
+                <span>$${tax.toFixed(2)}</span>
+            </div>
+            <div class="flex justify-between mb-2">
+                <span>Security deposit</span>
+                <span>$${securityDeposit.toFixed(2)}</span>
+            </div>
+            <div class="flex justify-between mb-2">
+                <span>Hotel delivery fee</span>
+                <span>$${deliveryFee.toFixed(2)}</span>
+            </div>
+            <div class="flex justify-between font-bold text-lg mb-6">
+                <span>Total</span>
+                <span>$${totalAmount.toFixed(2)}</span>
+            </div>
+        `;
     }
 
     function renderSelectedDatesSummary() {
@@ -1047,6 +1105,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
                 document.getElementById('confPayment').textContent = paymentLabels[o.payment_method] || o.payment_method;
                 document.getElementById('checkoutForm')?.classList.add('hidden');
                 document.getElementById('orderConfirmation')?.classList.remove('hidden');
+                renderCompletedOrderSummary(o);
                 console.log('[DEBUG] orderConfirmation section displayed.');
                 if (data.emailSent !== undefined) {
                     console.log('[DEBUG] Email sent status:', data.emailSent);
@@ -1323,6 +1382,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             if (pickupSelect) pickupSelect.required = true;
         }
+        renderCheckoutSummary();
     }
 
     hotelRadio.addEventListener('change', toggleDeliveryOptions);
@@ -1335,6 +1395,7 @@ document.addEventListener('DOMContentLoaded', function() {
         address2.value = selected.getAttribute('data-address2') || '';
         zip.value = selected.getAttribute('data-zip') || '';
         state.value = selected.getAttribute('data-state') || '';
+        renderCheckoutSummary();
     });
 
     // Initial state
@@ -1450,6 +1511,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             document.getElementById('checkoutForm')?.classList.add('hidden');
             document.getElementById('orderConfirmation')?.classList.remove('hidden');
+            renderCompletedOrderSummary(o);
             document.getElementById('loadingOverlay')?.classList.add('hidden');
 
             localStorage.removeItem('cart');

@@ -85,6 +85,13 @@ $securityDeposit = isset($securityDeposit)
     ? (float)$securityDeposit
     : (isset($security_deposit) ? (float)$security_deposit : 0.0);
 
+$deliveryFee = isset($deliveryFee)
+    ? (float)$deliveryFee
+    : (isset($delivery_fee)
+        ? (float)$delivery_fee
+        : (isset($order['delivery_fee']) ? (float)$order['delivery_fee'] : 0.0));
+$deliveryFee = round(max(0, $deliveryFee), 2);
+
 $securityDepositReason = isset($securityDepositReason)
     ? trim((string)$securityDepositReason)
     : (isset($security_deposit_reason)
@@ -114,13 +121,13 @@ if ($securityDepositBaseline < 0) {
 }
 
 if ($securityDeposit <= 0 && isset($totalAmountWithTax)) {
-    $securityDeposit = round(max(0, (float)$totalAmountWithTax - $productTotalWithTax), 2);
+    $securityDeposit = round(max(0, (float)$totalAmountWithTax - $productTotalWithTax - $deliveryFee), 2);
 }
 
 $productPreTaxSubtotal = round($productTotalWithTax / 1.08375, 2);
 $tax = isset($tax) ? (float)$tax : round(max(0, $productTotalWithTax - $productPreTaxSubtotal), 2);
-$totalAmount = isset($totalAmount) ? (float)$totalAmount : round($productPreTaxSubtotal + $securityDeposit, 2);
-$totalAmountWithTax = isset($totalAmountWithTax) ? (float)$totalAmountWithTax : round($productTotalWithTax + $securityDeposit, 2);
+$totalAmount = isset($totalAmount) ? (float)$totalAmount : round($productPreTaxSubtotal + $securityDeposit + $deliveryFee, 2);
+$totalAmountWithTax = isset($totalAmountWithTax) ? (float)$totalAmountWithTax : round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
 
 if ($lineSubtotal <= 0) {
     // If line subtotal was not provided, infer it from amount fields.
@@ -279,6 +286,12 @@ $fmtDate = static function ($value): string {
                 <tr class="line">
                     <td>Security Deposit</td>
                     <td class="text-right"><?= $fmtMoney($displayedSecurityDeposit) ?></td>
+                </tr>
+                <?php endif; ?>
+                <?php if ($deliveryFee > 0): ?>
+                <tr class="line">
+                    <td>Hotel Delivery Fee</td>
+                    <td class="text-right"><?= $fmtMoney($deliveryFee) ?></td>
                 </tr>
                 <?php endif; ?>
                 <?php if ($addedSecurityDeposit > 0): ?>

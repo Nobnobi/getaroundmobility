@@ -36,15 +36,34 @@ class LocationsController extends Controller {
     public function index() {
         $this->ensureAdminSession();
 
-        $partnerHotels = $this->partnerHotelModel->getAll();
+        $hotelSearch = trim((string)($_GET['hotel_search'] ?? ''));
+        $hotelPage = max(1, (int)($_GET['hotel_page'] ?? 1));
+        $hotelPerPage = 20;
+        $hotelTotalCount = $this->partnerHotelModel->countFiltered($hotelSearch);
+        $hotelTotalPages = max(1, (int)ceil($hotelTotalCount / $hotelPerPage));
+        if ($hotelPage > $hotelTotalPages) {
+            $hotelPage = $hotelTotalPages;
+        }
+
+        $partnerHotels = $this->partnerHotelModel->getPaginated($hotelSearch, $hotelPage, $hotelPerPage);
         $pickupLocations = $this->pickupLocationModel->getAll();
-        $this->renderAdmin('admin/locations', compact('partnerHotels', 'pickupLocations'));
+        $this->renderAdmin('admin/locations', compact(
+            'partnerHotels',
+            'pickupLocations',
+            'hotelSearch',
+            'hotelPage',
+            'hotelPerPage',
+            'hotelTotalCount',
+            'hotelTotalPages'
+        ));
     }
     public function handlePost() {
         $this->ensureAdminSession();
         $this->ensureManagePermission();
 
         $tab = $_POST['tab'] ?? '';
+        $hotelSearchContext = trim((string)($_POST['hotel_search_context'] ?? ''));
+        $hotelPageContext = max(1, (int)($_POST['hotel_page_context'] ?? 1));
         if ($tab === 'hotels') {
             // Update existing hotels
             if (!empty($_POST['hotels']) && is_array($_POST['hotels'])) {
@@ -60,6 +79,7 @@ class LocationsController extends Controller {
                 $address2s = $_POST['hotels']['new']['address2'] ?? [];
                 $states = $_POST['hotels']['new']['state'] ?? [];
                 $zips = $_POST['hotels']['new']['zip'] ?? [];
+                $deliveryFees = $_POST['hotels']['new']['delivery_fee'] ?? [];
                 for ($i = 0; $i < count($names); $i++) {
                     if (trim($names[$i]) !== '') {
                         $this->partnerHotelModel->add([
@@ -67,7 +87,8 @@ class LocationsController extends Controller {
                             'address1' => $address1s[$i] ?? '',
                             'address2' => $address2s[$i] ?? '',
                             'state' => $states[$i] ?? '',
-                            'zip' => $zips[$i] ?? ''
+                            'zip' => $zips[$i] ?? '',
+                            'delivery_fee' => $deliveryFees[$i] ?? 0
                         ]);
                     }
                 }
@@ -115,7 +136,14 @@ class LocationsController extends Controller {
             }
         }
         $redirectTab = $tab === 'pickups' ? 'pickups' : 'hotels';
-        header('Location: /admin/locations?tab=' . $redirectTab);
+        $redirectParams = ['tab' => $redirectTab];
+        if ($redirectTab === 'hotels') {
+            if ($hotelSearchContext !== '') {
+                $redirectParams['hotel_search'] = $hotelSearchContext;
+            }
+            $redirectParams['hotel_page'] = $hotelPageContext;
+        }
+        header('Location: /admin/locations?' . http_build_query($redirectParams));
         exit;
     }
 }
