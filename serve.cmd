@@ -1,2 +1,2 @@
 cd ./public
-php -S localhost:9999
+php -S localhost:8000

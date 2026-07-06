@@ -217,7 +217,7 @@ $isGuest = empty($_SESSION['user_id']);
                 <span>$${tax.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-4">
-                <span>Security deposit included</span>
+                <span>Refundable Security Deposit</span>
                 <span>-</span>
             </div>
             <div class="flex justify-between font-bold text-lg mb-6">
