@@ -297,6 +297,7 @@ class OrderModel {
         $this->db = Database::getInstance();
         $this->ensureOrderColumns();
         $this->ensureRefundTables();
+        $this->ensureBlockedDatesTable();
     }
 
     private function ensureOrderColumns(): void
@@ -309,6 +310,16 @@ class OrderModel {
         $weightLbsCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'client_weight_lbs'");
         if (!$weightLbsCol || !$weightLbsCol->fetch(\PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE orders ADD COLUMN client_weight_lbs INT NULL AFTER client_weight_option");
+        }
+
+        $clientHeightCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'client_height'");
+        if (!$clientHeightCol || !$clientHeightCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN client_height VARCHAR(24) NULL AFTER client_weight_lbs");
+        }
+
+        $powerChairHandednessCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'power_chair_handedness'");
+        if (!$powerChairHandednessCol || !$powerChairHandednessCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN power_chair_handedness VARCHAR(12) NULL AFTER client_height");
         }
 
         $bookingSourceCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'booking_source'");
@@ -376,6 +387,11 @@ class OrderModel {
             $this->db->exec("ALTER TABLE orders ADD COLUMN delivery_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER security_deposit");
         }
 
+        $returnHotelIdCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'return_hotel_id'");
+        if (!$returnHotelIdCol || !$returnHotelIdCol->fetch(\PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE orders ADD COLUMN return_hotel_id INT NULL AFTER hotel_id");
+        }
+
         $securityDepositReasonCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_reason'");
         if (!$securityDepositReasonCol || !$securityDepositReasonCol->fetch(\PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_reason TEXT NULL AFTER security_deposit");
@@ -425,6 +441,65 @@ class OrderModel {
         if (!$lastRefundAtCol || !$lastRefundAtCol->fetch(\PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE orders ADD COLUMN last_security_deposit_refund_at DATETIME NULL AFTER security_deposit_refunded_amount");
         }
+    }
+
+    private function ensureBlockedDatesTable(): void
+    {
+        $this->db->exec("CREATE TABLE IF NOT EXISTS booking_blocked_dates (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            blocked_date DATE NOT NULL UNIQUE,
+            reason VARCHAR(160) NULL,
+            created_by_admin_id INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    public function getBlockedDates(): array
+    {
+        $stmt = $this->db->query("SELECT blocked_date FROM booking_blocked_dates ORDER BY blocked_date ASC");
+        $rows = $stmt ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+        return array_values(array_filter(array_map(function ($row) {
+            return isset($row['blocked_date']) ? (string)$row['blocked_date'] : '';
+        }, $rows)));
+    }
+
+    public function getBlockedDatesWithReason(): array
+    {
+        $stmt = $this->db->query("SELECT id, blocked_date, reason, created_at FROM booking_blocked_dates ORDER BY blocked_date ASC");
+        return $stmt ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+    }
+
+    public function addBlockedDate(string $blockedDate, ?string $reason, ?int $adminId = null): bool
+    {
+        $stmt = $this->db->prepare("INSERT INTO booking_blocked_dates (blocked_date, reason, created_by_admin_id) VALUES (?, ?, ?)");
+        return (bool)$stmt->execute([$blockedDate, $reason ?: null, $adminId]);
+    }
+
+    public function removeBlockedDateById(int $id): bool
+    {
+        $stmt = $this->db->prepare("DELETE FROM booking_blocked_dates WHERE id = ?");
+        return $stmt->execute([$id]) && $stmt->rowCount() > 0;
+    }
+
+    public function isRangeBlocked(?string $pickupDatetime, ?string $returnDatetime): bool
+    {
+        $pickup = trim((string)$pickupDatetime);
+        $return = trim((string)$returnDatetime);
+        if ($pickup === '' || $return === '') {
+            return false;
+        }
+
+        $pickupTs = strtotime($pickup);
+        $returnTs = strtotime($return);
+        if ($pickupTs === false || $returnTs === false) {
+            return false;
+        }
+        $pickupDate = date('Y-m-d', $pickupTs);
+        $returnDate = date('Y-m-d', $returnTs);
+
+        $stmt = $this->db->prepare("SELECT 1 FROM booking_blocked_dates WHERE blocked_date BETWEEN ? AND ? LIMIT 1");
+        $stmt->execute([$pickupDate, $returnDate]);
+        return (bool)$stmt->fetchColumn();
     }
 
     private function resolveHeardAboutSelection(array $form): array
@@ -1279,15 +1354,15 @@ class OrderModel {
 
         $sql = "INSERT INTO orders (
             user_id, guest_first_name, guest_last_name, guest_email, guest_phone,
-            client_weight_option, client_weight_lbs,
+            client_weight_option, client_weight_lbs, client_height, power_chair_handedness,
             address1, address2, state, zip,
-            pickup_datetime, return_datetime, delivery_type, hotel_id, pickup_location,
+            pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, pickup_location,
             notes, payment_method, payment_provider, total_amount, security_deposit, delivery_fee, status, customer_type, booking_source,
             promo_code, promo_discount, promo_applied_by_admin_id, promo_applied_by_admin_role, promo_applied_by_admin_name,
             created_by_admin_id, created_by_admin_role, created_by_admin_name,
             sale_type
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )";
 
         $stmt = $this->db->prepare($sql);
@@ -1299,6 +1374,8 @@ class OrderModel {
             $orderData['guest_phone'] ?? null,
             $orderData['client_weight_option'] ?? null,
             $orderData['client_weight_lbs'] ?? null,
+            $orderData['client_height'] ?? null,
+            $orderData['power_chair_handedness'] ?? null,
             $orderData['address1'] ?? null,
             $orderData['address2'] ?? null,
             $orderData['state'] ?? null,
@@ -1307,6 +1384,7 @@ class OrderModel {
             $orderData['return_datetime'] ?? null,
             $orderData['delivery_type'] ?? 'preferred',
             $orderData['hotel_id'] ?? null,
+            $orderData['return_hotel_id'] ?? null,
             $orderData['pickup_location'] ?? null,
             $orderData['notes'] ?? null,
             $orderData['payment_method'],
@@ -1443,9 +1521,11 @@ class OrderModel {
         $stmt = $this->db->prepare("
             SELECT o.*,
                    h.name AS hotel_name,
+                   rh.name AS return_hotel_name,
                    pl.name AS pickup_location_name
             FROM orders o
             LEFT JOIN partner_hotels h ON o.hotel_id = h.id
+            LEFT JOIN partner_hotels rh ON o.return_hotel_id = rh.id
             LEFT JOIN pickup_locations pl ON o.pickup_location = pl.id
             WHERE o.order_id = ?
         ");
@@ -2170,6 +2250,11 @@ class OrderModel {
         $clientWeightOption = htmlspecialchars(trim($form['client_weight_option'] ?? ''));
         $clientWeightLbsRaw = $form['client_weight_lbs'] ?? null;
         $clientWeightLbs = (is_numeric($clientWeightLbsRaw) && (int)$clientWeightLbsRaw > 0) ? (int)$clientWeightLbsRaw : null;
+        $clientHeight = htmlspecialchars(trim((string)($form['client_height'] ?? '')));
+        $powerChairHandedness = strtolower(trim((string)($form['power_chair_handedness'] ?? '')));
+        if (!in_array($powerChairHandedness, ['left', 'right'], true)) {
+            $powerChairHandedness = '';
+        }
 
         $cart = $this->normalizeCartForTrustedPricing(
             is_array($cart) ? $cart : [],
@@ -2213,6 +2298,7 @@ class OrderModel {
             ? $form['delivery_type']
             : 'hotel';
         $hotelIdForOrder = !empty($form['hotel_id']) ? $form['hotel_id'] : null;
+        $returnHotelIdForOrder = !empty($form['return_hotel_id']) ? $form['return_hotel_id'] : $hotelIdForOrder;
             // Insert order with error logging
             try {
                 $insertValues = [
@@ -2224,6 +2310,8 @@ class OrderModel {
                     $guest_phone,
                     $clientWeightOption !== '' ? $clientWeightOption : null,
                     $clientWeightLbs,
+                    $clientHeight !== '' ? $clientHeight : null,
+                    $powerChairHandedness !== '' ? $powerChairHandedness : null,
                     $address1,
                     $address2,
                     $state,
@@ -2245,15 +2333,16 @@ class OrderModel {
                     $pickup_datetime,
                     $return_datetime,
                     $deliveryTypeForOrder,
-                    $hotelIdForOrder
+                    $hotelIdForOrder,
+                    $returnHotelIdForOrder
                 ];
                 $myfile = @fopen("order-debug-log.txt", "a");
                 if (is_resource($myfile)) {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, total_amount, security_deposit, delivery_fee, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, total_amount, security_deposit, delivery_fee, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
@@ -3064,7 +3153,7 @@ class OrderModel {
     public function getOrderDetails($orderId) {
         $pdo = $this->db;
         // Fetch order
-        $stmt = $pdo->prepare("SELECT * FROM orders WHERE order_id = ?");
+        $stmt = $pdo->prepare("SELECT o.*, h.name AS hotel_name, rh.name AS return_hotel_name, pl.name AS pickup_location_name FROM orders o LEFT JOIN partner_hotels h ON o.hotel_id = h.id LEFT JOIN partner_hotels rh ON o.return_hotel_id = rh.id LEFT JOIN pickup_locations pl ON o.pickup_location = pl.id WHERE o.order_id = ?");
         $stmt->execute([$orderId]);
         $order = $stmt->fetch(\PDO::FETCH_ASSOC);
         // Fetch order items
@@ -3227,6 +3316,9 @@ class OrderModel {
         if ($deliveryType === 'hotel' && empty($post['hotel_id'])) {
             return ['error' => 'Please select a partner hotel for delivery.'];
         }
+        if ($deliveryType === 'hotel' && empty($post['return_hotel_id'])) {
+            return ['error' => 'Please select the return hotel/address.'];
+        }
         if ($deliveryType === 'pickup' && empty($pickup_location_id)) {
             return ['error' => 'Please select a pickup store.'];
         }
@@ -3250,12 +3342,14 @@ class OrderModel {
             'guest_phone' => preg_replace('/\D/', '', $post['phone'] ?? ''),
             'client_weight_option' => htmlspecialchars(trim($post['client_weight_option'] ?? '')),
             'client_weight_lbs' => is_numeric($post['client_weight_lbs'] ?? null) ? (string) ((int) $post['client_weight_lbs']) : '',
+            'client_height' => htmlspecialchars(trim((string)($post['client_height'] ?? ''))),
             'address1' => htmlspecialchars(trim($post['address1'] ?? '')),
             'address2' => htmlspecialchars(trim($post['address2'] ?? '')),
             'state' => htmlspecialchars(trim($post['state'] ?? '')),
             'zip' => htmlspecialchars(trim($post['zip'] ?? '')),
             'delivery_type' => htmlspecialchars(trim($post['delivery_type'] ?? 'preferred')),
             'hotel_id' => (string)($post['hotel_id'] ?? ''),
+            'return_hotel_id' => (string)($post['return_hotel_id'] ?? ''),
             'pickup_datetime' => htmlspecialchars(trim($post['pickup_datetime'] ?? '')),
             'return_datetime' => htmlspecialchars(trim($post['return_datetime'] ?? '')),
             'pickup_location' => $pickup_location,
@@ -3380,12 +3474,14 @@ class OrderModel {
             'guest_phone' => preg_replace('/\D/', '', $post['phone'] ?? ''),
             'client_weight_option' => htmlspecialchars(trim($post['client_weight_option'] ?? '')),
             'client_weight_lbs' => is_numeric($post['client_weight_lbs'] ?? null) ? (string) ((int) $post['client_weight_lbs']) : '',
+            'client_height' => htmlspecialchars(trim((string)($post['client_height'] ?? ''))),
             'address1' => htmlspecialchars(trim($post['address1'] ?? '')),
             'address2' => htmlspecialchars(trim($post['address2'] ?? '')),
             'state' => htmlspecialchars(trim($post['state'] ?? '')),
             'zip' => htmlspecialchars(trim($post['zip'] ?? '')),
             'delivery_type' => htmlspecialchars(trim($post['delivery_type'] ?? 'preferred')),
             'hotel_id' => (string)($post['hotel_id'] ?? ''),
+            'return_hotel_id' => (string)($post['return_hotel_id'] ?? ''),
             'pickup_datetime' => htmlspecialchars(trim($post['pickup_datetime'] ?? '')),
             'return_datetime' => htmlspecialchars(trim($post['return_datetime'] ?? '')),
             'pickup_location' => $pickup_location,

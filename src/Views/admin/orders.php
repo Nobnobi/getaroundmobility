@@ -139,15 +139,17 @@ $formatDateTime = function ($value) {
                     <?php unset($_SESSION['order_complete_message']); ?>
                 <?php endif; ?>
                 
-                <form method="GET" class="mb-4 rounded-xl border border-[#c6d9e8] bg-gradient-to-r from-[#f8fcff] to-[#eef6fb] p-4 shadow-sm">
+                <form method="GET" class="orders-filter-compact mb-4 rounded-xl border border-[#c6d9e8] bg-gradient-to-r from-[#f8fcff] to-[#eef6fb] p-4 shadow-sm">
                     <input type="hidden" name="sort_by" value="<?= htmlspecialchars($sortByCurrent) ?>">
                     <input type="hidden" name="sort_dir" value="<?= htmlspecialchars($sortDirCurrent) ?>">
 
                     <div class="mb-3 flex flex-wrap items-center gap-2">
                         <span class="text-xs font-semibold text-gray-600">Quick Period (Ongoing Incomplete):</span>
-                        <a href="<?= htmlspecialchars($buildQuickPeriodLink('late')) ?>" class="rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'late' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Late</a>
-                        <a href="<?= htmlspecialchars($buildQuickPeriodLink('today')) ?>" class="rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'today' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Today</a>
-                        <a href="<?= htmlspecialchars($buildQuickPeriodLink('upcoming')) ?>" class="rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'upcoming' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Upcoming</a>
+                        <div class="quick-period-pills">
+                            <a href="<?= htmlspecialchars($buildQuickPeriodLink('late')) ?>" class="rounded-full border text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'late' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Late</a>
+                            <a href="<?= htmlspecialchars($buildQuickPeriodLink('today')) ?>" class="rounded-full border text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'today' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Today</a>
+                            <a href="<?= htmlspecialchars($buildQuickPeriodLink('upcoming')) ?>" class="rounded-full border text-xs font-semibold transition-colors duration-150 <?= $quickPeriodActive === 'upcoming' ? 'border-[#062B41] bg-[#062B41] text-white' : 'border-[#9abbd1] bg-white text-[#0b5f8a] hover:bg-[#e8f4fb]' ?>">Upcoming</a>
+                        </div>
                     </div>
 
                     <div class="mb-3 flex items-center justify-between">
@@ -159,14 +161,14 @@ $formatDateTime = function ($value) {
                     </div>
 
                     <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-9">
-                        <div class="lg:col-span-2">
+                        <div class="filter-field lg:col-span-2">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Order ID</label>
                             <input type="text" name="order_id_search" value="<?= htmlspecialchars($searchTerm ?? '') ?>" placeholder="Search Order ID..." class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                         </div>
 
-                        <div>
+                        <div class="filter-field">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Status</label>
-                            <select name="status" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            <select name="status" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                 <option value="">All</option>
                                 <?php foreach ($statusOptions as $statusOption): ?>
                                     <option value="<?= htmlspecialchars($statusOption) ?>" <?= (($statusFilter ?? '') === $statusOption) ? 'selected' : '' ?>><?= htmlspecialchars(ucfirst($statusOption)) ?></option>
@@ -174,53 +176,53 @@ $formatDateTime = function ($value) {
                             </select>
                         </div>
 
-                        <div>
+                        <div class="filter-field">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Customer Type</label>
-                            <select name="customer_type" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            <select name="customer_type" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                 <option value="">All</option>
                                 <option value="user" <?= (($customerTypeFilter ?? '') === 'user') ? 'selected' : '' ?>>User</option>
                                 <option value="guest" <?= (($customerTypeFilter ?? '') === 'guest') ? 'selected' : '' ?>>Guest</option>
                             </select>
                         </div>
 
-                        <div>
+                        <div class="filter-field">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Sale Type</label>
-                            <select name="sale_type" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            <select name="sale_type" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                 <option value="">All</option>
                                 <option value="rental" <?= (($saleTypeFilter ?? '') === 'rental') ? 'selected' : '' ?>>Rental</option>
                                 <option value="sale" <?= (($saleTypeFilter ?? '') === 'sale') ? 'selected' : '' ?>>Sale</option>
                             </select>
                         </div>
 
-                        <div>
+                        <div class="filter-field">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Booking Source</label>
-                            <select name="booking_source" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            <select name="booking_source" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                 <option value="">All</option>
                                 <option value="walk-in" <?= (($bookingSourceFilter ?? '') === 'walk-in') ? 'selected' : '' ?>>Walk-in</option>
                                 <option value="online" <?= (($bookingSourceFilter ?? '') === 'online') ? 'selected' : '' ?>>Online</option>
                             </select>
                         </div>
 
-                        <div>
+                        <div class="filter-field">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Heard About Us</label>
-                            <select name="heard_about" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            <select name="heard_about" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                 <option value="">All</option>
                                 <option value="others" <?= (($heardAboutFilter ?? '') === 'others') ? 'selected' : '' ?>>Others</option>
                             </select>
                         </div>
 
-                        <div>
+                        <div class="filter-field">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Promo</label>
-                            <select name="promo_usage" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            <select name="promo_usage" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                 <option value="">All</option>
                                 <option value="with" <?= (($promoUsageFilter ?? '') === 'with') ? 'selected' : '' ?>>With Promo</option>
                                 <option value="without" <?= (($promoUsageFilter ?? '') === 'without') ? 'selected' : '' ?>>Without Promo</option>
                             </select>
                         </div>
 
-                        <div>
+                        <div class="filter-field">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Booked By Role</label>
-                            <select name="creator_role" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                            <select name="creator_role" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                 <option value="">All</option>
                                 <option value="partner" <?= (($creatorRoleFilter ?? '') === 'partner') ? 'selected' : '' ?>>Partner</option>
                                 <option value="admin" <?= (($creatorRoleFilter ?? '') === 'admin') ? 'selected' : '' ?>>Admin</option>
@@ -229,7 +231,7 @@ $formatDateTime = function ($value) {
                             </select>
                         </div>
 
-                        <div class="lg:col-span-2">
+                        <div class="filter-field filter-field-wide lg:col-span-2">
                             <label class="mb-1 block text-xs font-semibold text-gray-600">Date Range (Order Date)</label>
                             <div class="grid grid-cols-2 gap-2">
                                 <input id="orderDateFromDisplay" type="text" value="<?= htmlspecialchars($dateFromFilter ?? '') ?>" placeholder="From date" class="js-order-date-display w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
@@ -246,7 +248,7 @@ $formatDateTime = function ($value) {
                 </form>
 
                 <div class="overflow-x-auto">
-                    <table id="ordersTable" class="min-w-full divide-y divide-gray-200">
+                    <table id="ordersTable" class="min-w-full divide-y divide-gray-200 text-xs">
                         <thead class="bg-gray-50">
                             <tr data-order-id="<?= (int)$order['order_id'] ?>">
                                 <th class="px-4 py-2 text-left"><a href="<?= htmlspecialchars($buildSortLink('order_id')) ?>" class="inline-flex items-center gap-1 hover:text-[#0b5f8a]">Order ID <span class="text-xs text-gray-400"><?= ($sortByCurrent === 'order_id') ? ($sortDirCurrent === 'asc' ? '↑' : '↓') : '⇅' ?></span></a></th>
@@ -428,6 +430,61 @@ $formatDateTime = function ($value) {
         </div>
     </div>
 
+    <style>
+        .orders-filter-compact .quick-period-pills {
+            width: 246px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.35rem;
+            flex-shrink: 0;
+        }
+
+        .orders-filter-compact .quick-period-pills a {
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 0.4rem;
+            line-height: 1;
+        }
+
+        .orders-filter-compact .filter-field {
+            max-width: 168px;
+        }
+
+        .orders-filter-compact .filter-field-wide {
+            max-width: 356px;
+        }
+
+        .orders-filter-compact select,
+        .orders-filter-compact input[name="order_id_search"],
+        .orders-filter-compact .js-order-date-display {
+            height: 34px;
+            font-size: 12px;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+
+        @media (max-width: 1023px) {
+            .orders-filter-compact .quick-period-pills {
+                width: 100%;
+                max-width: 246px;
+            }
+
+            .orders-filter-compact .filter-field,
+            .orders-filter-compact .filter-field-wide {
+                max-width: 100%;
+            }
+        }
+
+        #ordersTable th,
+        #ordersTable td {
+            font-size: 12px;
+            padding: 0.35rem 0.55rem;
+            white-space: nowrap;
+        }
+    </style>
+
     <script>
     const ADMIN_CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token'] ?? '') ?>;
     const CAN_REFUND_SECURITY_DEPOSIT = <?= $canRefundSecurityDeposit ? 'true' : 'false' ?>;
@@ -515,6 +572,7 @@ $formatDateTime = function ($value) {
                 const weightDisplay = weightOptionRaw !== ''
                     ? weightOptionRaw
                     : (weightLbsRaw > 0 ? `${weightLbsRaw} lbs` : 'Not specified');
+                const heightDisplay = String(order.client_height || '').trim() || 'Not specified';
                 const heardAboutRaw = String(order.heard_about_label || order.heard_about_display || '').trim();
                 const heardAboutOptionId = Number(order.heard_about_option_id || 0);
                 let heardAboutDisplay = 'Not specified';
@@ -533,13 +591,28 @@ $formatDateTime = function ($value) {
                         <div><span class="font-semibold text-[#062B41]">Email:</span> ${esc(customerEmail)}</div>
                         <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
                         <div><span class="font-semibold text-[#062B41]">Client Weight (lbs):</span> ${esc(weightDisplay)}</div>
+                        <div><span class="font-semibold text-[#062B41]">Client Height:</span> ${esc(heightDisplay)}</div>
                         <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method || 'N/A')}</div>
                         <div><span class="font-semibold text-[#062B41]">Platform:</span> ${esc(String(paymentPlatform).toUpperCase())}</div>
+                        <div><span class="font-semibold text-[#062B41]">Pickup Location:</span> ${esc(order.pickup_location_name || order.pickup_location || 'N/A')}</div>
                         <div><span class="font-semibold text-[#062B41]">Heard About Us:</span> ${esc(heardAboutDisplay)}</div>
                         <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${toOrdinaryTime(order.pickup_datetime)}</div>
                         <div><span class="font-semibold text-[#062B41]">Return:</span> ${toOrdinaryTime(order.return_datetime)}</div>
                         <div><span class="font-semibold text-[#062B41]">Total:</span> $${Number(order.total_amount || 0).toFixed(2)}</div>
                         <div><span class="font-semibold text-[#062B41]">Ordered At:</span> ${toOrdinaryTime(order.order_date)}</div>
+                    </div>
+                `;
+
+                html += `
+                    <div class="mb-4 grid grid-cols-1 gap-2 rounded-xl border-2 border-sky-200 bg-sky-50 p-4 md:grid-cols-2">
+                        <div>
+                            <span class="font-bold text-[#0b5f8a]">Delivery Hotel:</span>
+                            <div class="mt-1 text-base font-semibold text-[#062B41]">${esc(order.hotel_name || 'N/A')}</div>
+                        </div>
+                        <div>
+                            <span class="font-bold text-[#0b5f8a]">Return Hotel:</span>
+                            <div class="mt-1 text-base font-semibold text-[#062B41]">${esc(order.return_hotel_name || order.hotel_name || 'N/A')}</div>
+                        </div>
                     </div>
                 `;
 

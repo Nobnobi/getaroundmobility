@@ -133,6 +133,9 @@ class ProductController extends Controller {
     }
 
     public function save() {
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/products');
+
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
@@ -192,6 +195,7 @@ class ProductController extends Controller {
                         'description' => htmlspecialchars(trim($_POST['description'][$id] ?? '')),
                         'short_description' => htmlspecialchars($this->normalizeShortDescription($_POST['short_description'][$id] ?? '')),
                         'image_url' => htmlspecialchars(trim($imagePath)),
+                        'is_hidden' => !empty($_POST['is_hidden'][$id]) ? 1 : 0,
                     ];
                     $saleType = $saleTypeMap[$id] ?? '';
                     if ($saleType === 'sale') {
@@ -224,6 +228,7 @@ class ProductController extends Controller {
                         'description' => !empty($_POST['description']['new'][$i]) ? htmlspecialchars(trim($_POST['description']['new'][$i])) : 'No description',
                         'short_description' => !empty($_POST['short_description']['new'][$i]) ? htmlspecialchars($this->normalizeShortDescription($_POST['short_description']['new'][$i])) : '',
                         'image_url' => $imagePath !== '' ? htmlspecialchars(trim($imagePath)) : 'No image',
+                        'is_hidden' => !empty($_POST['is_hidden']['new'][$i]) ? 1 : 0,
                     ];
                     $productModel->addProduct($data);
                 }
@@ -236,7 +241,7 @@ class ProductController extends Controller {
 
     public function forSale(){
         $productModel = new ProductModel();
-        $products = $productModel->getProductsForSale();
+        $products = $productModel->getProductsForSale(false);
         $categories = $productModel->getCategories();
 
         $this->render('for-sale', [
@@ -271,7 +276,7 @@ class ProductController extends Controller {
         $csrf_token = $_SESSION['csrf_token'];
 
         $productModel = new ProductModel();
-        $scooters = $productModel->getProductsForSale();
+        $scooters = $productModel->getProductsForSale(false);
         $categories = $productModel->getCategories();
 
         $this->renderAdmin('admin/scooters-for-sale', [
@@ -453,6 +458,10 @@ class ProductController extends Controller {
         $this->ensureManagePermission('/admin/scooters-for-sale');
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['product_id'])) {
+            if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+                http_response_code(403);
+                die('Invalid CSRF token');
+            }
             $productModel = new ProductModel();
             $deleteResult = $productModel->deleteProduct($_POST['product_id']);
             if (!($deleteResult['success'] ?? false)) {
@@ -467,9 +476,9 @@ class ProductController extends Controller {
 
     // ADMIN: Add Product Variation (form display & submission)
     public function addProductVariation() {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/product-variations');
+
         $pdo = \App\Utils\Database::getInstance();
         // Always set CSRF token if missing
         if (empty($_SESSION['csrf_token'])) {
@@ -509,9 +518,8 @@ class ProductController extends Controller {
 
     // ADMIN: List all product variations
     public function listProductVariations() {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->ensureAdminSession();
+
         $pdo = \App\Utils\Database::getInstance();
         $stmt = $pdo->query("SELECT v.*, p.product_name FROM product_variations v JOIN products p ON v.product_id = p.product_id WHERE v.is_active = 1 ORDER BY v.variation_id DESC");
         $variations = $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -525,10 +533,12 @@ class ProductController extends Controller {
     
      // API endpoint: Return product variations as JSON for AJAX
     public function apiProductVariations() {
-        header('Content-Type: application/json');
+        $this->ensureAdminSession();
+        header('Content-Type: application/json; charset=utf-8');
         $product_id = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
         if (!$product_id) {
-            echo json_encode([]);
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid product_id']);
             exit;
         }
         $pdo = \App\Utils\Database::getInstance();
@@ -541,9 +551,9 @@ class ProductController extends Controller {
 
     // Batch save/edit/delete for product variations
     public function saveProductVariations() {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/product-variations');
+
         // CSRF check
         if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
             http_response_code(403);

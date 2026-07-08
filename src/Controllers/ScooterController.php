@@ -204,9 +204,26 @@ class ScooterController extends Controller {
 
 
     public function listByProduct() {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        header('Content-Type: application/json; charset=utf-8');
+        if (empty($_SESSION['admin_id'])) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Unauthorized']);
+            exit;
+        }
+
         $scooterModel = new \App\Models\ScooterModel();
         $product_id = $_GET['product_id'] ?? null;
         $scooters = [];
+        if ($product_id !== null && $product_id !== '' && !ctype_digit((string)$product_id)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid product_id']);
+            exit;
+        }
+
         if ($product_id && ctype_digit((string)$product_id)) {
             $scooters = $scooterModel->getScootersByProductId($product_id);
         }

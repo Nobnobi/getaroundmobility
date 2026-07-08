@@ -38,6 +38,7 @@ $isStaff = ($role === 'staff');
                 <h2 class="text-2xl font-bold text-[#062B41]">Section Content</h2>
             </div>
             <form action="/admin/tips-troubleshooting/section" method="POST" enctype="multipart/form-data" class="space-y-6">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                 <div>
                     <label class="block text-sm font-semibold text-[#062B41] mb-2">Heading</label>
                     <input type="text" name="heading" class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0086C9] focus:border-transparent transition" value="<?= htmlspecialchars($section['heading'] ?? '') ?>" required>
@@ -62,6 +63,7 @@ $isStaff = ($role === 'staff');
                 <h2 class="text-2xl font-bold text-[#062B41]">Add Article</h2>
             </div>
             <form action="/admin/tips-troubleshooting/articles/add" method="POST" enctype="multipart/form-data" class="space-y-6">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                 <div>
                     <label class="block text-sm font-semibold text-[#062B41] mb-2">Title</label>
                     <input type="text" name="title" class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0086C9] focus:border-transparent transition" required>
@@ -109,6 +111,7 @@ $isStaff = ($role === 'staff');
                     <div class="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden hover:shadow-lg transition">
                         <div class="border-l-4 border-[#0086C9] p-6">
                             <form action="/admin/tips-troubleshooting/articles/update" method="POST" enctype="multipart/form-data" class="space-y-5">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                                 <input type="hidden" name="id" value="<?= (int) $article['id'] ?>">
                                 <input type="hidden" name="page" value="<?= (int) $page ?>">
                                 <input type="hidden" name="current_image_path" value="<?= htmlspecialchars((string)($article['image_path'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
@@ -181,6 +184,7 @@ $isStaff = ($role === 'staff');
                             <?php if (!$isStaff): ?>
                             <!-- Featured toggle form (separate from update form to avoid confusion) -->
                             <form action="/admin/tips-troubleshooting/articles/toggle-featured" method="POST" class="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between gap-4">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                                 <input type="hidden" name="id" value="<?= (int) $article['id'] ?>">
                                 <input type="hidden" name="page" value="<?= (int) $page ?>">
                                 <span class="text-sm text-gray-600">Feature this article on the public Tips page?</span>
@@ -240,6 +244,7 @@ $isStaff = ($role === 'staff');
                 <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#0086C9]">Maximum of 6 featured articles</p>
                 <?php if (!empty($featuredArticles)): ?>
                     <form action="/admin/tips-troubleshooting/articles/featured-order" method="POST" id="featuredOrderForm">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                         <input type="hidden" name="page" value="<?= (int) $page ?>">
                         <ul id="featuredSortable" class="space-y-3 mb-6">
                             <?php foreach ($featuredArticles as $fa): ?>

@@ -13,6 +13,7 @@ $isStaff = ($role === 'staff');
             Featured Products
         </h1>
         <form class="bg-white p-6 rounded-2xl shadow-xl max-w-3xl mx-auto" method="post" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
             <div class="mb-4 text-gray-700 text-sm flex items-center gap-2">
                 <svg class="w-5 h-5 text-blue-400 inline-block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 20a8 8 0 100-16 8 8 0 000 16z"/></svg>
                 Select up to <span class="font-semibold">6 products</span> and their variations to feature on the homepage.

@@ -45,6 +45,11 @@ class RentalPriceController extends Controller {
 
         // Handle POST data to update rental prices
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+                http_response_code(403);
+                die('Invalid CSRF token');
+            }
+
             $rentalPriceModel = new RentalPriceModel();
             $days = $_POST['days'] ?? [];
             $prices = $_POST['price'] ?? [];

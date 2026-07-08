@@ -10,6 +10,7 @@
         </div>
     <?php endif; ?>
     <form action="/admin/testimonials/add" method="POST" class="space-y-4">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
         <div>
             <label class="block font-semibold mb-1">Reviewer Name</label>
             <input type="text" name="reviewer_name" class="w-full border rounded px-3 py-2" required>

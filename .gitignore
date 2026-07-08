@@ -38,3 +38,9 @@ Thumbs.db
 
 # Compiled CSS (Tailwind)
 public/css/output.css
+
+
+#docs
+admin-endpoint-security-checklist.md
+get-around-mobility-technical-audit.md
+get-around-mobility-technical-audit.pdf

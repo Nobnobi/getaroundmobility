@@ -56,6 +56,32 @@ class OrderController extends Controller
 
     private $paypalClient;
 
+    private function ensureAdminAuthenticatedJson(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        if (empty($_SESSION['admin_id'])) {
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(401);
+            echo json_encode(['error' => 'Unauthorized']);
+            exit;
+        }
+    }
+
+    private function ensureAdminAuthenticatedRedirect(string $redirectPath = '/admin/login'): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        if (empty($_SESSION['admin_id'])) {
+            header('Location: ' . $redirectPath);
+            exit;
+        }
+    }
+
     private function prepareJsonResponse()
     {
         ob_start();
@@ -89,12 +115,15 @@ class OrderController extends Controller
             'guest_phone' => trim((string)($post['phone'] ?? '')),
             'client_weight_option' => trim((string)($post['client_weight_option'] ?? '')),
             'client_weight_lbs' => trim((string)($post['client_weight_lbs'] ?? '')),
+            'client_height' => trim((string)($post['client_height'] ?? '')),
+            'power_chair_handedness' => trim((string)($post['power_chair_handedness'] ?? '')),
             'address1' => trim((string)($post['address1'] ?? '')),
             'address2' => trim((string)($post['address2'] ?? '')),
             'state' => trim((string)($post['state'] ?? '')),
             'zip' => trim((string)($post['zip'] ?? '')),
             'delivery_type' => trim((string)($post['delivery_type'] ?? 'preferred')),
             'hotel_id' => trim((string)($post['hotel_id'] ?? '')),
+            'return_hotel_id' => trim((string)($post['return_hotel_id'] ?? '')),
             'delivery_fee' => trim((string)($post['delivery_fee'] ?? '')),
             'pickup_datetime' => trim((string)($post['pickup_datetime'] ?? '')),
             'return_datetime' => trim((string)($post['return_datetime'] ?? '')),
@@ -102,12 +131,65 @@ class OrderController extends Controller
             'notes' => trim((string)($post['notes'] ?? '')),
             'heard_about_option_id' => trim((string)($post['heard_about_option_id'] ?? '')),
             'heard_about_other_text' => trim((string)($post['heard_about_other_text'] ?? '')),
+            'acknowledge_id_presence' => trim((string)($post['acknowledge_id_presence'] ?? '')),
             'sale_type' => trim((string)($post['sale_type'] ?? 'rental')),
             'cart_json' => (string)($post['cart'] ?? '[]'),
             'created_by_admin_id' => trim((string)($_SESSION['admin_id'] ?? '')),
             'created_by_admin_role' => trim((string)($_SESSION['admin_role'] ?? '')),
             'created_by_admin_name' => trim((string)($_SESSION['admin_username'] ?? '')),
         ];
+    }
+
+    private function validateIdPresenceAcknowledgement(array $source): ?string
+    {
+        $ack = strtolower(trim((string)($source['acknowledge_id_presence'] ?? '')));
+        if (!in_array($ack, ['1', 'true', 'on', 'yes'], true)) {
+            return 'Please confirm the customer must be present with a valid ID to receive the scooter.';
+        }
+        return null;
+    }
+
+    private function validatePowerChairHandednessRequirement(array $source, array $cart): ?string
+    {
+        // Handedness is now captured as a product variation, not a checkout field.
+        return null;
+    }
+
+    private function validateBookingWindowConstraints(array $source): ?string
+    {
+        $pickupRaw = trim((string)($source['pickup_datetime'] ?? ''));
+        $returnRaw = trim((string)($source['return_datetime'] ?? ''));
+        if ($pickupRaw === '' || $returnRaw === '') {
+            return 'Please select both pickup and return date/time.';
+        }
+
+        $pickupTs = strtotime($pickupRaw);
+        $returnTs = strtotime($returnRaw);
+        if ($pickupTs === false || $returnTs === false) {
+            return 'Invalid pickup/return datetime provided.';
+        }
+
+        $minPickupTs = time() + (24 * 60 * 60);
+        if ($pickupTs < $minPickupTs) {
+            return 'Bookings must be made at least 24 hours in advance.';
+        }
+
+        if ($returnTs <= $pickupTs) {
+            return 'Return date/time must be after pickup date/time.';
+        }
+
+        $pickupMins = ((int)date('G', $pickupTs) * 60) + (int)date('i', $pickupTs);
+        $returnMins = ((int)date('G', $returnTs) * 60) + (int)date('i', $returnTs);
+        if ($pickupMins < 510 || $pickupMins > 1050 || $returnMins < 510 || $returnMins > 1050) {
+            return 'Pickups and returns are available from 8:30 am to 5:30 pm only.';
+        }
+
+        $orderModel = new OrderModel();
+        if ($orderModel->isRangeBlocked($pickupRaw, $returnRaw)) {
+            return 'Selected date is blocked for online bookings. Please choose another date.';
+        }
+
+        return null;
     }
 
     private function resolveHeardAboutSelection(array $source): array
@@ -296,7 +378,7 @@ class OrderController extends Controller
 
             // Validate required fields (including explicit delivery destination selection)
             $deliveryType = $_POST['delivery_type'] ?? 'preferred';
-            if (empty($_POST['first_name']) || empty($_POST['last_name']) || empty($_POST['phone']) || empty($_POST['email']) || empty($_POST['payment']) || empty($_POST['client_weight_option']) || empty($cart)) {
+            if (empty($_POST['first_name']) || empty($_POST['last_name']) || empty($_POST['phone']) || empty($_POST['email']) || empty($_POST['payment']) || empty($_POST['client_weight_option']) || empty($_POST['client_height']) || empty($cart)) {
                 echo "Missing required checkout fields.";
                 exit;
             }
@@ -307,10 +389,31 @@ class OrderController extends Controller
                 exit;
             }
 
+            $bookingWindowError = $this->validateBookingWindowConstraints($_POST);
+            if ($bookingWindowError !== null) {
+                http_response_code(422);
+                echo $bookingWindowError;
+                exit;
+            }
+
+            $handednessError = $this->validatePowerChairHandednessRequirement($_POST, is_array($cart) ? $cart : []);
+            if ($handednessError !== null) {
+                http_response_code(422);
+                echo $handednessError;
+                exit;
+            }
+
             $heardAboutError = $this->validateHeardAboutSelection($_POST);
             if ($heardAboutError !== null) {
                 http_response_code(422);
                 echo $heardAboutError;
+                exit;
+            }
+
+            $idPresenceError = $this->validateIdPresenceAcknowledgement($_POST);
+            if ($idPresenceError !== null) {
+                http_response_code(422);
+                echo $idPresenceError;
                 exit;
             }
 
@@ -322,6 +425,10 @@ class OrderController extends Controller
             } elseif ($deliveryType === 'hotel') {
                 if (empty($_POST['hotel_id'])) {
                     echo "Please select a partner hotel.";
+                    exit;
+                }
+                if (empty($_POST['return_hotel_id'])) {
+                    echo "Please select a return hotel/address.";
                     exit;
                 }
             } else {
@@ -361,6 +468,7 @@ class OrderController extends Controller
     }
 
     public function completeOrder() {
+        $this->ensureAdminAuthenticatedRedirect('/admin/login');
         if (session_status() === PHP_SESSION_NONE) session_start();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
@@ -384,6 +492,7 @@ class OrderController extends Controller
     }
 
     public function cancelOrder() {
+        $this->ensureAdminAuthenticatedRedirect('/admin/login');
         if (session_status() === PHP_SESSION_NONE) session_start();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
@@ -407,18 +516,33 @@ class OrderController extends Controller
     }
 
     public function ajaxOrderDetails() {
+        $this->ensureAdminAuthenticatedJson();
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
         if (empty($_GET['order_id'])) {
             http_response_code(400);
             echo json_encode(['error' => 'Order ID required']);
             exit;
         }
+
         $orderId = intval($_GET['order_id']);
+        if ($orderId <= 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid order ID']);
+            exit;
+        }
+
         $orderModel = new OrderModel();
         $details = $orderModel->getOrderDetails($orderId);
-        header('Content-Type: application/json; charset=utf-8');
-        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-        header('Pragma: no-cache');
-        header('Expires: 0');
+        if (!is_array($details) || (isset($details['order']) && empty($details['order']))) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Order not found']);
+            exit;
+        }
+
         echo json_encode($details);
         exit;
     }
@@ -463,6 +587,45 @@ class OrderController extends Controller
         
         try {
             if (session_status() === PHP_SESSION_NONE) session_start();
+
+            $cart = json_decode($_POST['cart'] ?? '[]', true);
+            if (trim((string)($_POST['client_height'] ?? '')) === '') {
+                ob_end_clean();
+                ob_start();
+                http_response_code(422);
+                echo json_encode(['error' => 'Please select the client height.']);
+                ob_end_flush();
+                exit;
+            }
+            $bookingWindowError = $this->validateBookingWindowConstraints($_POST);
+            if ($bookingWindowError !== null) {
+                ob_end_clean();
+                ob_start();
+                http_response_code(422);
+                echo json_encode(['error' => $bookingWindowError]);
+                ob_end_flush();
+                exit;
+            }
+
+            $idPresenceError = $this->validateIdPresenceAcknowledgement($_POST);
+            if ($idPresenceError !== null) {
+                ob_end_clean();
+                ob_start();
+                http_response_code(422);
+                echo json_encode(['error' => $idPresenceError]);
+                ob_end_flush();
+                exit;
+            }
+
+            $handednessError = $this->validatePowerChairHandednessRequirement($_POST, is_array($cart) ? $cart : []);
+            if ($handednessError !== null) {
+                ob_end_clean();
+                ob_start();
+                http_response_code(422);
+                echo json_encode(['error' => $handednessError]);
+                ob_end_flush();
+                exit;
+            }
 
             $checkoutRef = bin2hex(random_bytes(8));
             $postData = $_POST;
@@ -643,18 +806,22 @@ class OrderController extends Controller
                 'phone' => $meta['guest_phone'] ?? '',
                 'client_weight_option' => $meta['client_weight_option'] ?? '',
                 'client_weight_lbs' => $meta['client_weight_lbs'] ?? '',
+                'client_height' => $meta['client_height'] ?? '',
+                'power_chair_handedness' => $meta['power_chair_handedness'] ?? '',
                 'address1' => $meta['address1'] ?? '',
                 'address2' => $meta['address2'] ?? '',
                 'state' => $meta['state'] ?? '',
                 'zip' => $meta['zip'] ?? '',
                 'delivery_type' => $meta['delivery_type'] ?? 'preferred',
                 'hotel_id' => $meta['hotel_id'] ?? '',
+                'return_hotel_id' => $meta['return_hotel_id'] ?? '',
                 'pickup_datetime' => $meta['pickup_datetime'] ?? '',
                 'return_datetime' => $meta['return_datetime'] ?? '',
                 'pickup_location' => $meta['pickup_location'] ?? '',
                 'notes' => $meta['notes'] ?? '',
                 'heard_about_option_id' => $meta['heard_about_option_id'] ?? '',
                 'heard_about_other_text' => $meta['heard_about_other_text'] ?? '',
+                'acknowledge_id_presence' => $meta['acknowledge_id_presence'] ?? '',
                 'sale_type' => $meta['sale_type'] ?? 'rental',
                 'guest_first_name' => $meta['first_name'] ?? '',
                 'guest_last_name' => $meta['last_name'] ?? '',
@@ -665,6 +832,25 @@ class OrderController extends Controller
                 'created_by_admin_name' => $meta['created_by_admin_name'] ?? '',
                 'payment' => 'card',
             ];
+
+            $bookingWindowError = $this->validateBookingWindowConstraints($postData);
+            if ($bookingWindowError !== null) {
+                return ['error' => $bookingWindowError, 'http_status' => 422];
+            }
+
+            if (trim((string)($postData['client_height'] ?? '')) === '') {
+                return ['error' => 'Please select the client height.', 'http_status' => 422];
+            }
+
+            $idPresenceError = $this->validateIdPresenceAcknowledgement($postData);
+            if ($idPresenceError !== null) {
+                return ['error' => $idPresenceError, 'http_status' => 422];
+            }
+
+            $handednessError = $this->validatePowerChairHandednessRequirement($postData, $cart);
+            if ($handednessError !== null) {
+                return ['error' => $handednessError, 'http_status' => 422];
+            }
 
             try {
                 $orderId = $orderModel->fullOrderProcess($postData, $cart, $_SESSION);
@@ -888,6 +1074,7 @@ class OrderController extends Controller
             $return_datetime = htmlspecialchars(trim($meta->return_datetime ?? ''));
             $delivery_type = htmlspecialchars(trim($meta->delivery_type ?? 'preferred'));
             $hotel_id = isset($meta->hotel_id) && $meta->hotel_id !== '' ? (int)$meta->hotel_id : null;
+            $return_hotel_id = isset($meta->return_hotel_id) && $meta->return_hotel_id !== '' ? (int)$meta->return_hotel_id : null;
             $pickupLocation = htmlspecialchars(trim($meta->pickup_location ?? ''));
             $notes = htmlspecialchars(trim($meta->notes ?? ''));
             $heardAboutResolved = $this->resolveHeardAboutSelection([
@@ -996,9 +1183,9 @@ class OrderController extends Controller
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, delivery_type, hotel_id, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, delivery_fee, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, delivery_fee, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :delivery_type, :hotel_id, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, :delivery_fee, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :delivery_type, :hotel_id, :return_hotel_id, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, :delivery_fee, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
                     )"
                 );
                 $params = [
@@ -1017,6 +1204,7 @@ class OrderController extends Controller
                     ':return_datetime' => $return_datetime,
                     ':delivery_type' => $delivery_type,
                     ':hotel_id' => $hotel_id,
+                    ':return_hotel_id' => $return_hotel_id,
                     ':pickup_location' => $pickupLocation,
                     ':notes' => $notes,
                     ':heard_about_option_id' => $heardAboutOptionId,
@@ -1369,9 +1557,31 @@ class OrderController extends Controller
         }
 
         $formData = $_SESSION['checkout_form_data'] ?? [];
+        if (trim((string)($formData['client_height'] ?? '')) === '') {
+            echo json_encode(['error' => 'Please select the client height.']);
+            exit;
+        }
         $heardAboutError = $this->validateHeardAboutSelection($formData);
         if ($heardAboutError !== null) {
             echo json_encode(['error' => $heardAboutError]);
+            exit;
+        }
+
+        $idPresenceError = $this->validateIdPresenceAcknowledgement($formData);
+        if ($idPresenceError !== null) {
+            echo json_encode(['error' => $idPresenceError]);
+            exit;
+        }
+
+        $bookingWindowError = $this->validateBookingWindowConstraints($formData);
+        if ($bookingWindowError !== null) {
+            echo json_encode(['error' => $bookingWindowError]);
+            exit;
+        }
+
+        $handednessError = $this->validatePowerChairHandednessRequirement($formData, is_array($cart) ? $cart : []);
+        if ($handednessError !== null) {
+            echo json_encode(['error' => $handednessError]);
             exit;
         }
 
@@ -1710,12 +1920,20 @@ class OrderController extends Controller
         $clientWeightOption = htmlspecialchars(trim($formData['client_weight_option'] ?? ''));
         $clientWeightLbsRaw = $formData['client_weight_lbs'] ?? null;
         $clientWeightLbs = (is_numeric($clientWeightLbsRaw) && (int)$clientWeightLbsRaw > 0) ? (int)$clientWeightLbsRaw : null;
+        $clientHeight = htmlspecialchars(trim((string)($formData['client_height'] ?? '')));
+        $powerChairHandedness = strtolower(trim((string)($formData['power_chair_handedness'] ?? '')));
+        if (!in_array($powerChairHandedness, ['left', 'right'], true)) {
+            $powerChairHandedness = '';
+        }
         $notes = htmlspecialchars(trim($formData['notes'] ?? ''));
 
         $deliveryType = $formData['delivery_type'] ?? 'preferred';
 
         if ($deliveryType === 'hotel' && empty($formData['hotel_id'])) {
             throw new \Exception('Please select a partner hotel for delivery before checkout.');
+        }
+        if ($deliveryType === 'hotel' && empty($formData['return_hotel_id'])) {
+            throw new \Exception('Please select the return hotel/address before checkout.');
         }
         if ($deliveryType === 'pickup' && empty($formData['pickup_location'])) {
             throw new \Exception('Please select a pickup store before checkout.');
@@ -1804,17 +2022,17 @@ class OrderController extends Controller
         $heardAboutLabel = $heardAboutResolved['label'];
         $stmt = $pdo->prepare(
             "INSERT INTO orders (
-                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, total_amount, security_deposit, delivery_fee, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, total_amount, security_deposit, delivery_fee, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
-            $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs,
+            $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs, $clientHeight !== '' ? $clientHeight : null, $powerChairHandedness !== '' ? $powerChairHandedness : null,
             $totalAmountWithTax, $securityDeposit, $deliveryFee, date('Y-m-d H:i:s'), 'paid',
             $address1, $address2, $state, $zip, $pickupLocation, $notes,
             $heardAboutOptionId,
             $heardAboutLabel,
             'paypal', 'paypal', $paypalOrderId, $paypalCaptureId, $customerType, $formData['sale_type'] ?? 'rental',
-            $pickup_datetime, $return_datetime, $formData['delivery_type'] ?? 'preferred', $formData['hotel_id'] ?? null
+            $pickup_datetime, $return_datetime, $formData['delivery_type'] ?? 'preferred', $formData['hotel_id'] ?? null, $formData['return_hotel_id'] ?? null
         ]);
         $orderId = $pdo->lastInsertId();
 
@@ -2072,6 +2290,14 @@ class OrderController extends Controller
                 die('Invalid CSRF token');
             }
         }
+
+        $idPresenceError = $this->validateIdPresenceAcknowledgement($_POST);
+        if ($idPresenceError !== null) {
+            http_response_code(422);
+            echo json_encode(['error' => $idPresenceError]);
+            exit;
+        }
+
         $_SESSION['checkout_form_data'] = $_POST;
         echo json_encode(['success' => true]);
         exit;

@@ -51,6 +51,7 @@ $isStaff = ($role === 'staff');
                                 <a href="/admin/testimonials/edit?id=<?= $t['id'] ?>" class="text-blue-600 hover:underline mr-2">Edit</a>
                                 <form action="/admin/testimonials/delete" method="POST" style="display:inline;" onsubmit="return confirm('Delete this testimonial?');">
                                     <input type="hidden" name="id" value="<?= $t['id'] ?>">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                                     <button type="submit" class="text-red-600 hover:underline">Delete</button>
                                 </form>
                             <?php else: ?>

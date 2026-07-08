@@ -1,13 +1,39 @@
 (function () {
-    function getNearest15Min() {
-        var now = new Date();
-        now.setSeconds(0, 0);
-        var minutes = now.getMinutes();
+    var BUSINESS_OPEN_MINUTES = (8 * 60) + 30;
+    var BUSINESS_CLOSE_MINUTES = (17 * 60) + 30;
+    var MIN_ADVANCE_MINUTES = 24 * 60;
+
+    function normalizeToBusinessHours(date) {
+        var normalized = new Date(date);
+        normalized.setSeconds(0, 0);
+
+        var minutes = normalized.getMinutes();
         var remainder = minutes % 15;
         if (remainder !== 0) {
-            now.setMinutes(minutes + (15 - remainder));
+            normalized.setMinutes(minutes + (15 - remainder));
         }
-        return now;
+
+        while (true) {
+            var totalMinutes = (normalized.getHours() * 60) + normalized.getMinutes();
+            if (totalMinutes < BUSINESS_OPEN_MINUTES) {
+                normalized.setHours(8, 30, 0, 0);
+                break;
+            }
+            if (totalMinutes > BUSINESS_CLOSE_MINUTES) {
+                normalized.setDate(normalized.getDate() + 1);
+                normalized.setHours(8, 30, 0, 0);
+                continue;
+            }
+            break;
+        }
+
+        return normalized;
+    }
+
+    function getNearest15Min() {
+        var now = new Date();
+        now.setMinutes(now.getMinutes() + MIN_ADVANCE_MINUTES);
+        return normalizeToBusinessHours(now);
     }
 
     function pad(n) {
@@ -203,6 +229,7 @@
 
     function initFlatpickr() {
         if (typeof window.flatpickr !== 'function') return;
+        if (document.getElementById('dateTimeSelectionModal')) return;
 
         var pickupInput = document.getElementById('pickupDatetime');
         var returnInput = document.getElementById('returnDatetime');
@@ -363,16 +390,18 @@
         var pickupInput = document.getElementById('pickupDatetime');
         var returnInput = document.getElementById('returnDatetime');
         var searchForm = document.querySelector('form[action="/search"]');
+        var usesModalPicker = !!document.getElementById('dateTimeSelectionModal');
 
-        if (pickupInput && localStorage.getItem('pickupDatetime')) {
+        if (!usesModalPicker && pickupInput && localStorage.getItem('pickupDatetime')) {
             pickupInput.value = localStorage.getItem('pickupDatetime');
         }
-        if (returnInput && localStorage.getItem('returnDatetime')) {
+        if (!usesModalPicker && returnInput && localStorage.getItem('returnDatetime')) {
             returnInput.value = localStorage.getItem('returnDatetime');
         }
 
         var dateInputs = [pickupInput, returnInput].filter(Boolean);
-        dateInputs.forEach(function (input) {
+        if (!usesModalPicker) {
+            dateInputs.forEach(function (input) {
             var key = input.id;
             input.addEventListener('change', function (e) {
                 localStorage.setItem(key, input.value);
@@ -386,7 +415,8 @@
                 if (typeof window.updateEquipmentPrices === 'function') window.updateEquipmentPrices();
                 if (e && typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
             }, true);
-        });
+            });
+        }
 
         var closeBtn = document.getElementById('cartDateChangeModalCloseBtn');
         if (closeBtn) {

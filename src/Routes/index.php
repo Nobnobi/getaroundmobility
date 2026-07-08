@@ -27,6 +27,7 @@ $router->get('/checkout', HomeController::class, 'checkout');
 $router->get('/contact', HomeController::class, 'contact');
 $router->get('/tips-troubleshooting', HomeController::class, 'tipsTroubleshooting');
 $router->get('/api/rental-price', HomeController::class, 'rentalPriceQuote');
+$router->get('/api/blocked-dates', AdminController::class, 'getBlockedDatesApi');
 
 $router->get('/for-sale', ProductController::class, 'forSale');
 
@@ -107,6 +108,7 @@ $router->get('/walkin-booking/availability', AdminController::class, 'walkinBook
 |--------------------------------------------------------------------------
 */
 $router->get('/admin/orders', AdminController::class, 'orders');
+$router->get('/admin/blocked-dates', AdminController::class, 'blockedDates');
 $router->get('/admin/orders/analytics', AdminController::class, 'orderAnalytics');
 $router->get('/admin/orders/new', AdminController::class, 'newOrder');
 $router->get('/admin/orders/availability', AdminController::class, 'newOrderAvailability');
@@ -119,6 +121,8 @@ $router->post('/admin/orders/complete', OrderController::class, 'completeOrder')
 $router->post('/admin/orders/cancel', OrderController::class, 'cancelOrder');
 $router->post('/admin/orders/security-deposit', AdminController::class, 'updateSecurityDeposit');
 $router->post('/admin/orders/security-deposit/refund', AdminController::class, 'refundSecurityDeposit');
+$router->post('/admin/orders/blocked-dates/add', AdminController::class, 'addBlockedDate');
+$router->post('/admin/orders/blocked-dates/delete', AdminController::class, 'removeBlockedDate');
 
 $router->post('/admin/orders/new', AdminController::class, 'processNewOrder');
 

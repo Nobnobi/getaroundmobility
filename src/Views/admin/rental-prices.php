@@ -62,10 +62,12 @@ $isStaff = ($role === 'staff');
     // Variation and price data from PHP
     const rentalPrices = <?php echo json_encode($rentalPrices); ?>;
     const variations = <?php echo json_encode($variations); ?>;
+    const csrfToken = <?= json_encode($_SESSION['csrf_token'] ?? '') ?>;
 
     function renderPriceForm(productId, productName, productVariations) {
         let html = `<form method="post" action="/admin/rental-prices/save" id="rentalPriceForm" class="flex flex-col min-h-0">
-            <input type="hidden" name="product_id" value="${productId}">`;
+            <input type="hidden" name="product_id" value="${productId}">
+            <input type="hidden" name="csrf_token" value="${csrfToken}">`;
         // Tabs for variations (styled like locations.php)
         let tabs = '';
         let tabContents = '';

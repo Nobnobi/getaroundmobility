@@ -7,8 +7,8 @@ $isStaff = ($role === 'staff');
 // echo('ROLE: ' . $role . ' | isStaff: ' . ($isStaff ? 'yes' : 'no'));
 ?>
 
-    <div class="flex flex-1 items-center justify-center w-full">
-        <div class="bg-white rounded-2xl shadow-xl p-10 w-full max-w-7xl mx-auto border border-gray-200">
+    <div class="flex flex-1 w-full px-3 lg:px-5">
+        <div class="bg-white rounded-2xl shadow-xl p-6 lg:p-8 w-full max-w-[98vw] mx-auto border border-gray-200">
             <header class="mb-8 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                 <h1 class="text-3xl font-bold text-[#062B41] tracking-tight">Products</h1>
                 <input type="text" id="searchInput" placeholder="Search product..." class="border border-gray-300 rounded-lg px-4 py-2 w-full md:w-72 focus:ring-2 focus:ring-[#062B41] focus:outline-none">
@@ -35,7 +35,7 @@ $isStaff = ($role === 'staff');
                 <form method="post" action="/admin/products/save" enctype="multipart/form-data" id="productForm"<?= $isStaff ? ' onsubmit="return false;"' : '' ?>>
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token ?? '') ?>">
                     <input type="hidden" name="deleted_ids" id="deletedIds">
-                    <div class="overflow-x-auto">
+                    <div class="overflow-x-auto lg:overflow-x-visible">
                         <table class="min-w-full bg-white rounded-xl shadow text-center" id="productTable">
                             <thead class="bg-[#062B41] text-white">
                                 <tr>
@@ -47,8 +47,9 @@ $isStaff = ($role === 'staff');
                                     <th class="py-3 px-4">Short Description</th>
                                     <th class="py-3 px-4">Description</th>
                                     <th class="py-3 px-4">Image URL</th>
+                                    <th class="py-3 px-3 min-w-[130px]">Visible on Website</th>
                                     <?php if (!$isStaff): ?>
-                                        <th class="py-3 px-4 rounded-tr-xl">Actions</th>
+                                        <th class="py-3 px-3 rounded-tr-xl min-w-[150px]">Actions</th>
                                     <?php endif; ?>
                                 </tr>
                             </thead>
@@ -56,11 +57,11 @@ $isStaff = ($role === 'staff');
                                 <?php foreach ($products as $product): ?>
                                 <tr class="hover:bg-gray-100 transition-colors">
                                     <td class="py-2 px-4 border-b border-gray-200 font-semibold text-gray-700"><?= $product['product_id'] ?></td>
-                                    <td class="py-2 px-4 border-b border-gray-200 whitespace-normal break-words min-w-[220px] max-w-[500px]">
-                                        <input type="text" name="product_name[<?= $product['product_id'] ?>]" value="<?= htmlspecialchars($product['product_name']) ?>" class="border border-gray-300 rounded-lg px-4 py-2 w-full text-base focus:ring-2 focus:ring-[#062B41] focus:outline-none" style="min-width:180px;max-width:480px;" disabled>
+                                    <td class="py-2 px-3 border-b border-gray-200 whitespace-normal break-words min-w-[160px] max-w-[260px]">
+                                        <input type="text" name="product_name[<?= $product['product_id'] ?>]" value="<?= htmlspecialchars($product['product_name']) ?>" class="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm focus:ring-2 focus:ring-[#062B41] focus:outline-none" style="min-width:140px;max-width:240px;" disabled>
                                     </td>
-                                    <td class="py-2 px-4 border-b border-gray-200 whitespace-normal break-words min-w-[160px] max-w-[320px]">
-                                        <select name="product_category_id[<?= $product['product_id'] ?>]" class="border border-gray-300 rounded-lg px-4 py-2 w-full text-base focus:ring-2 focus:ring-[#062B41] focus:outline-none" style="min-width:140px;max-width:300px;" disabled>
+                                    <td class="py-2 px-3 border-b border-gray-200 whitespace-normal break-words min-w-[120px] max-w-[180px]">
+                                        <select name="product_category_id[<?= $product['product_id'] ?>]" class="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm focus:ring-2 focus:ring-[#062B41] focus:outline-none" style="min-width:110px;max-width:170px;" disabled>
                                             <?php foreach ($categories as $cat): ?>
                                                 <option value="<?= $cat['category_id'] ?>" <?= $cat['category_id'] == $product['product_category_id'] ? 'selected' : '' ?>>
                                                     <?= htmlspecialchars($cat['category_name']) ?>
@@ -68,17 +69,17 @@ $isStaff = ($role === 'staff');
                                             <?php endforeach; ?>
                                         </select>
                                     </td>
-                                    <td class="py-2 px-4 border-b border-gray-200">
+                                    <td class="py-2 px-3 border-b border-gray-200">
                                         <input type="number" step="0.01" name="price[<?= $product['product_id'] ?>]" value="<?= $product['price'] ?>" class="border border-gray-300 rounded-lg px-2 py-1 w-full text-xs focus:ring-2 focus:ring-[#062B41] focus:outline-none" disabled>
                                     </td>
-                                    <td class="py-2 px-4 border-b border-gray-200">
+                                    <td class="py-2 px-3 border-b border-gray-200">
                                         <input type="number" 
                                                name="stock_quantity[<?= $product['product_id'] ?>]" 
                                                value="<?= $product['scooter_count'] ?>" 
                                                class="border border-gray-300 rounded-lg px-2 py-1 w-full text-xs bg-gray-100 cursor-not-allowed" 
                                                readonly>
                                     </td>
-                                    <td class="py-2 px-4 border-b border-gray-200">
+                                    <td class="py-2 px-3 border-b border-gray-200">
                                         <?php
                                         $shortRaw = (string) ($product['short_description'] ?? '');
                                         $shortParts = preg_split('/\r\n|\r|\n|\|\|/', $shortRaw) ?: [];
@@ -108,10 +109,10 @@ $isStaff = ($role === 'staff');
                                             <button type="button" class="edit-notes-btn inline-flex items-center gap-1 rounded bg-[#0086C9] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#006a9c] cursor-pointer" style="display:none;">Edit Notes</button>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="py-2 px-4 border-b border-gray-200">
+                                    <td class="py-2 px-3 border-b border-gray-200">
                                         <input type="text" name="description[<?= $product['product_id'] ?>]" value="<?= htmlspecialchars($product['description'] ?? '') ?>" class="border border-gray-300 rounded-lg px-2 py-1 w-full text-xs focus:ring-2 focus:ring-[#062B41] focus:outline-none" disabled>
                                     </td>
-                                    <td class="py-2 px-4 border-b border-gray-200">
+                                    <td class="py-2 px-3 border-b border-gray-200">
                                         <input type="hidden" name="image_url[<?= $product['product_id'] ?>]" value="<?= htmlspecialchars($product['image_url'] ?? '') ?>" class="product-image-url-input">
                                         <div class="flex items-center gap-2">
                                             <button type="button" class="hover:cursor-pointer product-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors" data-product-id="<?= $product['product_id'] ?>">Browse</button>
@@ -119,8 +120,15 @@ $isStaff = ($role === 'staff');
                                         </div>
                                         <input type="file" name="product_image[<?= $product['product_id'] ?>]" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-product-id="<?= $product['product_id'] ?>">
                                     </td>
+                                    <td class="py-2 px-3 border-b border-gray-200">
+                                        <input type="hidden" name="is_hidden[<?= $product['product_id'] ?>]" value="0" disabled>
+                                        <label class="inline-flex items-center gap-2 text-xs text-gray-700">
+                                            <input type="checkbox" name="is_hidden[<?= $product['product_id'] ?>]" value="1" <?= !empty($product['is_hidden']) ? 'checked' : '' ?> disabled class="website-visible-toggle h-4 w-4 rounded border-gray-300 text-[#062B41] focus:ring-[#062B41]">
+                                            <span class="visibility-state-label font-semibold"><?= !empty($product['is_hidden']) ? 'Hidden' : 'Visible' ?></span>
+                                        </label>
+                                    </td>
                                     <?php if (!$isStaff): ?>
-                                    <td class="py-2 px-4 border-b border-gray-200">
+                                    <td class="py-2 px-3 border-b border-gray-200 min-w-[150px]">
                                         <button type="button" class="deleteBtn bg-red-500 text-white px-3 py-1 rounded-lg shadow hover:bg-red-600 text-xs transition-colors cursor-pointer" data-id="<?= htmlspecialchars($product['product_id']) ?>" style="display:none;">Delete</button>
                                     </td>
                                     <?php endif; ?>
@@ -158,7 +166,11 @@ $isStaff = ($role === 'staff');
             if (editBtn) {
                 editBtn.onclick = function() {
                     isEditMode = true;
-                    document.querySelectorAll('input[type="text"], input[type="number"], select, textarea').forEach(e => e.disabled = false);
+                    document.querySelectorAll('input, select, textarea').forEach(e => {
+                        if (!e.hasAttribute('readonly')) {
+                            e.disabled = false;
+                        }
+                    });
                     document.querySelectorAll('.deleteBtn').forEach(e => e.style.display = 'inline-block');
                     document.querySelectorAll('.edit-notes-btn').forEach(e => e.style.display = 'inline-flex');
                     const actionButtons = document.getElementById('actionButtons');
@@ -220,6 +232,13 @@ $isStaff = ($role === 'staff');
                     </div>
                     <input type="file" name="product_image[new][]" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-row-type="new">
                 </td>
+                <td class="py-1 px-2 border-b">
+                    <input type="hidden" name="is_hidden[new][]" value="0">
+                    <label class="inline-flex items-center gap-2 text-xs text-gray-700">
+                        <input type="checkbox" name="is_hidden[new][]" value="1" class="website-visible-toggle h-4 w-4 rounded border-gray-300 text-[#062B41] focus:ring-[#062B41]">
+                        <span class="visibility-state-label font-semibold">Visible</span>
+                    </label>
+                </td>
                 <td class="py-1 px-2 border-b"><button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs" style="display:inline-block;">Delete</button></td>
                     `;
                     row.querySelector('.deleteBtn').onclick = function() {
@@ -230,6 +249,7 @@ $isStaff = ($role === 'staff');
                         row.remove();
                     };
                     bindNotesButtons(row);
+                    initVisibilityToggles(row);
                     if (isEditMode) {
                         row.querySelectorAll('.edit-notes-btn').forEach(btn => btn.style.display = 'inline-flex');
                     }
@@ -250,6 +270,27 @@ $isStaff = ($role === 'staff');
             }
 
             // Product image file picker functionality
+            function updateVisibilityLabel(checkbox) {
+                const row = checkbox.closest('tr');
+                const label = row ? row.querySelector('.visibility-state-label') : null;
+                if (label) {
+                    label.textContent = checkbox.checked ? 'Hidden' : 'Visible';
+                }
+            }
+
+            function handleVisibilityToggleChange(e) {
+                updateVisibilityLabel(e.currentTarget);
+            }
+
+            function initVisibilityToggles(container) {
+                if (!container) return;
+                container.querySelectorAll('.website-visible-toggle').forEach(checkbox => {
+                    checkbox.removeEventListener('change', handleVisibilityToggleChange);
+                    checkbox.addEventListener('change', handleVisibilityToggleChange);
+                    updateVisibilityLabel(checkbox);
+                });
+            }
+
             function initProductImagePickers(container) {
                 if (!container) return;
                 const browseBtns = container.querySelectorAll('.product-image-browse-btn');
@@ -294,6 +335,7 @@ $isStaff = ($role === 'staff');
 
             // Initialize on page load
             initProductImagePickers(document.getElementById('productTable'));
+            initVisibilityToggles(document.getElementById('productTable'));
 
             let activeNotesRow = null;
 

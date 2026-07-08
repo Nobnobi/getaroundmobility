@@ -61,6 +61,11 @@ class LocationsController extends Controller {
         $this->ensureAdminSession();
         $this->ensureManagePermission();
 
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
         $tab = $_POST['tab'] ?? '';
         $hotelSearchContext = trim((string)($_POST['hotel_search_context'] ?? ''));
         $hotelPageContext = max(1, (int)($_POST['hotel_page_context'] ?? 1));

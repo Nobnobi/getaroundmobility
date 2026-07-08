@@ -450,9 +450,20 @@ function renderCart() {
                     <span class="text-blue-600 font-semibold">$${lineTotal.toFixed(2)}</span>
                 </li>`;
         });
-        // Render total outside the scrollable list
+        // Render summary outside the scrollable list (tax already included in prices)
         if (cartTotalRow) {
-            cartTotalRow.innerHTML = `<span>Total</span><span class="text-blue-600">$${total.toFixed(2)}</span>`;
+            const TAX_FACTOR = 1.08375;
+            const SECURITY_DEPOSIT = 100;
+            const pretaxSubtotal = total / TAX_FACTOR;
+            const tax = total - pretaxSubtotal;
+            const grandTotal = total + SECURITY_DEPOSIT;
+            cartTotalRow.innerHTML = `
+                <div class="w-full space-y-1 text-sm">
+                    <div class="flex justify-between"><span>Subtotal (before tax)</span><span>$${pretaxSubtotal.toFixed(2)}</span></div>
+                    <div class="flex justify-between"><span>Included NV sales tax</span><span>$${tax.toFixed(2)}</span></div>
+                    <div class="flex justify-between"><span>Refundable deposit</span><span>$${SECURITY_DEPOSIT.toFixed(2)}</span></div>
+                    <div class="flex justify-between font-bold border-t pt-1 mt-1"><span>Total</span><span class="text-blue-600">$${grandTotal.toFixed(2)}</span></div>
+                </div>`;
         }
     }
 
@@ -1033,7 +1044,18 @@ function renderMobileCart() {
                 </li>`;
         });
         if (cartTotalRow) {
-            cartTotalRow.innerHTML = `<span>Total</span><span class="text-blue-600">$${total.toFixed(2)}</span>`;
+            const TAX_FACTOR = 1.08375;
+            const SECURITY_DEPOSIT = 100;
+            const pretaxSubtotal = total / TAX_FACTOR;
+            const tax = total - pretaxSubtotal;
+            const grandTotal = total + SECURITY_DEPOSIT;
+            cartTotalRow.innerHTML = `
+                <div class="w-full space-y-1 text-sm">
+                    <div class="flex justify-between"><span>Subtotal (before tax)</span><span>$${pretaxSubtotal.toFixed(2)}</span></div>
+                    <div class="flex justify-between"><span>Included NV sales tax</span><span>$${tax.toFixed(2)}</span></div>
+                    <div class="flex justify-between"><span>Refundable deposit</span><span>$${SECURITY_DEPOSIT.toFixed(2)}</span></div>
+                    <div class="flex justify-between font-bold border-t pt-1 mt-1"><span>Total</span><span class="text-blue-600">$${grandTotal.toFixed(2)}</span></div>
+                </div>`;
         }
     }
 

@@ -29,6 +29,7 @@ $hotelTotalCountValue = isset($hotelTotalCount) ? max(0, (int)$hotelTotalCount) 
             <div id="tab-content-hotels" class="tab-content">
                 <form method="post" action="/admin/locations?tab=hotels<?= $hotelSearchValue !== '' ? '&hotel_search=' . urlencode($hotelSearchValue) : '' ?>&hotel_page=<?= (int)$hotelPageValue ?>" id="hotelsForm">
                     <input type="hidden" name="tab" value="hotels">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                     <input type="hidden" name="hotel_search_context" value="<?= htmlspecialchars($hotelSearchValue) ?>">
                     <input type="hidden" name="hotel_page_context" value="<?= (int)$hotelPageValue ?>">
                     <div class="flex items-center mb-6">
@@ -112,6 +113,7 @@ $hotelTotalCountValue = isset($hotelTotalCount) ? max(0, (int)$hotelTotalCount) 
             <div id="tab-content-pickups" class="tab-content hidden">
                 <form method="post" action="/admin/locations?tab=pickups" id="pickupsForm">
                     <input type="hidden" name="tab" value="pickups">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                     <div class="flex items-center mb-6">
                         <h3 class="text-2xl font-bold text-blue-800 flex items-center gap-2 mr-4">Pickup Locations</h3>
                         <?php if (!$isStaff): ?>

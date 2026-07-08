@@ -106,6 +106,20 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                 </div>
                             </div>
                             <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
+                                <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40">Client Height (ft)</label>
+                                <div class="w-full max-w-md">
+                                    <select id="clientHeight" name="client_height" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]" required>
+                                        <option value="" selected disabled>Select height (ft)</option>
+                                        <option value="under-5-0">Under 5'0"</option>
+                                        <option value="5-0-5-3">5'0" - 5'3"</option>
+                                        <option value="5-4-5-7">5'4" - 5'7"</option>
+                                        <option value="5-8-5-11">5'8" - 5'11"</option>
+                                        <option value="6-0-6-3">6'0" - 6'3"</option>
+                                        <option value="over-6-3">Over 6'3"</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
                                 <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40">Where did you hear about us?</label>
                                 <div class="w-full max-w-md">
                                 <select id="heardAboutOption" name="heard_about_option_id" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] md:w-72" required>
@@ -148,7 +162,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                         Pickup at store
                                     </label>
                                 </div>
-                                <div id="hotelDropdown" class="mb-4 w-42">
+                                <div id="hotelDropdown" class="mb-4 w-90">
                                     <label class="block text-sm font-medium mb-1">Select Partner Hotel</label>
                                     <select name="hotel_id" class="w-full border rounded p-2 border-[#535862]">
                                         <option value="">Select a hotel</option>
@@ -162,6 +176,22 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                             ><?= htmlspecialchars($hotel['name']) ?></option>
                                         <?php endforeach; ?>
                                     </select>
+                                </div>
+                                <div id="returnHotelSection" class="flex flex-col mb-4 w-90">
+                                    <div class="mb-1">
+                                        <label class="font-semibold text-gray-800 mb-4 text-lg">Return Hotel / Address</label>
+                                        <label class="mt-2 flex items-center gap-1 text-xs text-gray-600">
+                                            <input type="checkbox" id="sameAsDeliveryAddress" class="accent-[#0086C9]">
+                                            Same as delivery address
+                                        </label>
+                                    </div>
+                                    <select name="return_hotel_id" id="returnHotelSelect" class="w-full border rounded p-2 border-[#535862]">
+                                        <option value="">Select return hotel</option>
+                                        <?php foreach ($partnerHotels as $hotel): ?>
+                                            <option value="<?= $hotel['id'] ?>"><?= htmlspecialchars($hotel['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <input type="hidden" id="returnHotelMirror" value="">
                                 </div>
                                 <div id="addressFields">
                                     <input type="text" name="address1" class="w-full border rounded p-2 mb-2" required placeholder="Address Line 1">
@@ -207,6 +237,12 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     <input type="checkbox" name="agree_policy" required class="mr-2">
                                     <span>I agree to the&nbsp;</span>
                                     <a onclick="openPolicyModal()" class="text-blue-600 underline cursor-pointer">rental policy and terms</a>
+                                </div>
+                                <div class="mt-2 rounded-md border border-[#d1d5db] bg-[#f8fbfd] px-3 py-2">
+                                    <label class="flex items-start gap-2 text-sm text-[#374151]">
+                                        <input type="checkbox" id="acknowledgeIdPresence" name="acknowledge_id_presence" value="1" required class="mt-1">
+                                        <span>I understand I must be present with a valid ID to receive the scooter.</span>
+                                    </label>
                                 </div>
                             </div>
                         </div>
@@ -289,6 +325,10 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     <div class="flex/CVE flex justify-between" id="confHotelRow" style="display:none;">
                                         <span class="font-medium">Hotel:</span>
                                         <span id="confHotelName" class="font-bold text-[#0086C9]">—</span>
+                                    </div>
+                                    <div class="flex justify-between" id="confReturnHotelRow" style="display:none;">
+                                        <span class="font-medium">Return Hotel:</span>
+                                        <span id="confReturnHotelName" class="font-bold text-[#0086C9]">—</span>
                                     </div>
                                     <div class="flex justify-between" id="confPickupLocationRow" style="display:none;">
                                         <span class="font-medium">Pickup Location:</span>
@@ -489,6 +529,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
     function validateDeliverySelection() {
         const deliveryType = document.querySelector('input[name="delivery_type"]:checked')?.value;
         const hotelDropdown = document.querySelector('select[name="hotel_id"]');
+        const returnHotelDropdown = document.querySelector('select[name="return_hotel_id"]');
         const pickupDropdown = document.querySelector('select[name="pickup_location"]');
 
         if (deliveryType === 'hotel') {
@@ -501,6 +542,11 @@ if (file_exists(__DIR__ . '/../../.env')) {
             }
             if (!hotelDropdown || !hotelDropdown.value) {
                 alert('Please select a partner hotel for delivery.');
+                return false;
+            }
+
+            if (returnHotelDropdown && !returnHotelDropdown.value) {
+                alert('Please select the return hotel/address.');
                 return false;
             }
         }
@@ -529,6 +575,62 @@ if (file_exists(__DIR__ . '/../../.env')) {
         if (!Number.isFinite(value) || value <= 0) {
             alert('Please enter a valid client weight in lbs.');
             rangeEl.focus();
+            return false;
+        }
+        return true;
+    }
+
+    function validateClientHeightSelection() {
+        const heightEl = document.getElementById('clientHeight');
+        if (!heightEl) return true;
+        const value = String(heightEl.value || '').trim();
+        if (!value) {
+            alert('Please select the client height.');
+            heightEl.focus();
+            return false;
+        }
+        return true;
+    }
+
+    function syncReturnHotelSelection() {
+        const deliverySelect = document.querySelector('select[name="hotel_id"]');
+        const returnSelect = document.getElementById('returnHotelSelect');
+        const returnMirror = document.getElementById('returnHotelMirror');
+        const sameCheckbox = document.getElementById('sameAsDeliveryAddress');
+        const deliveryType = document.querySelector('input[name="delivery_type"]:checked')?.value;
+        if (!deliverySelect || !returnSelect || !returnMirror || !sameCheckbox) return;
+
+        if (deliveryType !== 'hotel') {
+            returnSelect.disabled = false;
+            returnSelect.classList.remove('bg-gray-100', 'cursor-not-allowed');
+            returnMirror.value = '';
+            returnMirror.removeAttribute('name');
+            return;
+        }
+
+        if (sameCheckbox.checked) {
+            returnSelect.value = deliverySelect.value;
+            returnMirror.value = deliverySelect.value;
+            returnMirror.name = 'return_hotel_id';
+            returnSelect.disabled = true;
+            returnSelect.classList.add('bg-gray-100', 'cursor-not-allowed');
+        } else {
+            returnSelect.disabled = false;
+            returnSelect.classList.remove('bg-gray-100', 'cursor-not-allowed');
+            returnMirror.value = '';
+            returnMirror.removeAttribute('name');
+        }
+    }
+
+    function validateReturnHotelSelection() {
+        const deliveryType = document.querySelector('input[name="delivery_type"]:checked')?.value;
+        const returnSelect = document.getElementById('returnHotelSelect');
+        if (!returnSelect) return true;
+        if (deliveryType !== 'hotel') return true;
+
+        if (!String(returnSelect.value || '').trim()) {
+            alert('Please select a return hotel/address.');
+            returnSelect.focus();
             return false;
         }
         return true;
@@ -689,7 +791,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
         summaryContainer.innerHTML = `
             ${itemsHtml}
             <div class="flex justify-between mb-2">
-                <span>Rental subtotal</span>
+                <span>Subtotal (before tax)</span>
                 <span>$${pretaxSubtotal.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
@@ -697,7 +799,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                 <span>$${tax.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
-                <span>Security deposit</span>
+                <span>Refundable security deposit</span>
                 <span>$${SECURITY_DEPOSIT.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
@@ -739,7 +841,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
 
         summaryContainer.innerHTML = `
             <div class="flex justify-between mb-2">
-                <span>Rental subtotal</span>
+                <span>Subtotal (before tax)</span>
                 <span>$${pretaxSubtotal.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
@@ -747,7 +849,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                 <span>$${tax.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
-                <span>Security deposit</span>
+                <span>Refundable security deposit</span>
                 <span>$${securityDeposit.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
@@ -789,6 +891,7 @@ window.addEventListener('storage', function(e) {
 document.addEventListener('DOMContentLoaded', renderCheckoutSummary);
 document.addEventListener('DOMContentLoaded', renderSelectedDatesSummary);
 document.addEventListener('DOMContentLoaded', setupHeardAboutFields);
+document.addEventListener('DOMContentLoaded', syncReturnHotelSelection);
 
 const stripePk = "<?= $_ENV['STRIPE_PUBLISHABLE'] ?>";
 const stripeClient = stripePk ? Stripe(stripePk) : null;
@@ -864,11 +967,16 @@ function resolveConfirmationDelivery(order) {
     const selectedHotelName = (selectedHotelOption && selectedHotelOption.value)
         ? selectedHotelOption.textContent.trim()
         : '';
+    const selectedReturnHotelOption = document.querySelector('#returnHotelSelect option:checked');
+    const selectedReturnHotelName = (selectedReturnHotelOption && selectedReturnHotelOption.value)
+        ? selectedReturnHotelOption.textContent.trim()
+        : '';
 
     return {
         type,
         deliveryLabel: type === 'pickup' ? 'Pickup at Store' : 'Deliver to Partner Hotel',
         hotelName: order?.hotel_name || selectedHotelName || 'Selected Hotel',
+        returnHotelName: order?.return_hotel_name || selectedReturnHotelName || 'Selected Hotel',
         pickupName: order?.pickup_location_name || order?.pickup_location || 'Selected Store'
     };
 }
@@ -897,6 +1005,14 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
     }
 
     if (!validateClientWeightSelection()) {
+        return;
+    }
+
+    if (!validateClientHeightSelection()) {
+        return;
+    }
+
+    if (!validateReturnHotelSelection()) {
         return;
     }
 
@@ -983,13 +1099,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
 
     const pickupDate = new Date(String(pickupVal).replace(' ', 'T'));
     const returnDate = new Date(String(returnVal).replace(' ', 'T'));
-    const now = new Date();
-    now.setSeconds(0, 0);
-    const minutes = now.getMinutes();
-    const remainder = minutes % 15;
-    if (remainder !== 0) {
-        now.setMinutes(minutes + (15 - remainder));
-    }
+    const minPickupDate = new Date(Date.now() + (24 * 60 * 60 * 1000));
 
     if (isNaN(pickupDate) || isNaN(returnDate)) {
         alert('Invalid pickup/return date selected. Please select your dates again.');
@@ -1000,8 +1110,19 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
         return;
     }
 
-    if (pickupDate < now || returnDate < now) {
-        alert('Past dates are not allowed. Please select valid pickup and return dates again.');
+    if (pickupDate < minPickupDate || returnDate < minPickupDate) {
+        alert('Bookings must be made at least 24 hours in advance. Please select your dates again.');
+        localStorage.removeItem('pickupDatetime');
+        localStorage.removeItem('returnDatetime');
+        document.getElementById('pickupDatetimeCheckout').value = '';
+        document.getElementById('returnDatetimeCheckout').value = '';
+        return;
+    }
+
+    const pickupMins = (pickupDate.getHours() * 60) + pickupDate.getMinutes();
+    const returnMins = (returnDate.getHours() * 60) + returnDate.getMinutes();
+    if (pickupMins < 510 || pickupMins > 1050 || returnMins < 510 || returnMins > 1050) {
+        alert('Pickups and returns are available from 8:30 am to 5:30 pm only.');
         localStorage.removeItem('pickupDatetime');
         localStorage.removeItem('returnDatetime');
         document.getElementById('pickupDatetimeCheckout').value = '';
@@ -1088,10 +1209,13 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
                     ? formatCheckoutDateTime(o.return_datetime) : '—';
                 const deliveryInfo = resolveConfirmationDelivery(o);
                 document.getElementById('confHotelRow').style.display = 'none';
+                document.getElementById('confReturnHotelRow').style.display = 'none';
                 document.getElementById('confPickupLocationRow').style.display = 'none';
                 if (deliveryInfo.type === 'hotel') {
                     document.getElementById('confHotelRow').style.display = 'flex';
                     document.getElementById('confHotelName').textContent = deliveryInfo.hotelName;
+                    document.getElementById('confReturnHotelRow').style.display = 'flex';
+                    document.getElementById('confReturnHotelName').textContent = deliveryInfo.returnHotelName;
                 } else if (deliveryInfo.type === 'pickup') {
                     document.getElementById('confPickupLocationRow').style.display = 'flex';
                     document.getElementById('confPickupLocation').textContent = deliveryInfo.pickupName;
@@ -1243,6 +1367,18 @@ function renderPayPalButton() {
                 throw new Error('Please select where you heard about us.');
             }
 
+            if (!validateClientWeightSelection()) {
+                throw new Error('Please enter a valid client weight in lbs.');
+            }
+
+            if (!validateClientHeightSelection()) {
+                throw new Error('Please select the client height.');
+            }
+
+            if (!validateReturnHotelSelection()) {
+                throw new Error('Please select a return hotel/address.');
+            }
+
             // Validate delivery selection (hotel or pickup store required)
             if (!validateDeliverySelection()) {
                 throw new Error('Delivery selection invalid');
@@ -1253,6 +1389,12 @@ function renderPayPalButton() {
             if (!policyCheckbox || !policyCheckbox.checked) {
                 alert('You must agree to the rental policy and terms before proceeding.');
                 throw new Error('Policy not agreed');
+            }
+
+            const idPresenceCheckbox = document.querySelector('input[name="acknowledge_id_presence"]');
+            if (!idPresenceCheckbox || !idPresenceCheckbox.checked) {
+                alert('Please confirm that the customer must be present with a valid ID to receive the scooter.');
+                throw new Error('ID presence acknowledgement not checked');
             }
 
             const form = document.getElementById('checkoutForm');
@@ -1345,6 +1487,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const zip = addressFields.querySelector('input[name="zip"]');
     const pickupSection = document.getElementById('pickupLocationSection');
     const pickupSelect = pickupSection.querySelector('select[name="pickup_location"]');
+    const returnHotelSelect = document.getElementById('returnHotelSelect');
+    const sameAsDeliveryAddress = document.getElementById('sameAsDeliveryAddress');
 
     function clearAddressFields() {
         address1.value = '';
@@ -1382,6 +1526,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             if (pickupSelect) pickupSelect.required = true;
         }
+        syncReturnHotelSelection();
         renderCheckoutSummary();
     }
 
@@ -1395,8 +1540,21 @@ document.addEventListener('DOMContentLoaded', function() {
         address2.value = selected.getAttribute('data-address2') || '';
         zip.value = selected.getAttribute('data-zip') || '';
         state.value = selected.getAttribute('data-state') || '';
+        syncReturnHotelSelection();
         renderCheckoutSummary();
     });
+
+    if (sameAsDeliveryAddress) {
+        sameAsDeliveryAddress.addEventListener('change', syncReturnHotelSelection);
+    }
+
+    if (returnHotelSelect) {
+        returnHotelSelect.addEventListener('change', function() {
+            if (sameAsDeliveryAddress && sameAsDeliveryAddress.checked) {
+                syncReturnHotelSelection();
+            }
+        });
+    }
 
     // Initial state
     toggleDeliveryOptions();
@@ -1490,11 +1648,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const deliveryInfo = resolveConfirmationDelivery(o);
             document.getElementById('confHotelRow').style.display = 'none';
+            document.getElementById('confReturnHotelRow').style.display = 'none';
             document.getElementById('confPickupLocationRow').style.display = 'none';
 
             if (deliveryInfo.type === 'hotel') {
                 document.getElementById('confHotelRow').style.display = 'flex';
                 document.getElementById('confHotelName').textContent = deliveryInfo.hotelName;
+                document.getElementById('confReturnHotelRow').style.display = 'flex';
+                document.getElementById('confReturnHotelName').textContent = deliveryInfo.returnHotelName;
             } else if (deliveryInfo.type === 'pickup') {
                 document.getElementById('confPickupLocationRow').style.display = 'flex';
                 document.getElementById('confPickupLocation').textContent = deliveryInfo.pickupName;

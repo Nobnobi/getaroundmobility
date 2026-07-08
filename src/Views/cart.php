@@ -201,24 +201,27 @@ $isGuest = empty($_SESSION['user_id']);
             });
         });
 
-        // Calculate summary (right column)
-        const tax = subtotal * 0.12; // Example: 12% tax
-        const total = subtotal + tax;
+        // Prices are tax-inclusive. Show tax breakdown without adding it again.
+        const TAX_FACTOR = 1.08375;
+        const SECURITY_DEPOSIT = 100;
+        const pretaxSubtotal = subtotal / TAX_FACTOR;
+        const tax = subtotal - pretaxSubtotal;
+        const total = subtotal + SECURITY_DEPOSIT;
         const ctaText = getCheckoutButtonText(cart);
 
         summaryContainer.innerHTML = `
             <h2 class="text-lg font-semibold mb-4">Order Summary</h2>
             <div class="flex justify-between mb-2">
-                <span>Order subtotal</span>
-                <span>$${subtotal.toFixed(2)}</span>
+                <span>Subtotal (before tax)</span>
+                <span>$${pretaxSubtotal.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
-                <span>Tax included</span>
+                <span>Included NV sales tax</span>
                 <span>$${tax.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-4">
                 <span>Refundable Security Deposit</span>
-                <span>-</span>
+                <span>$${SECURITY_DEPOSIT.toFixed(2)}</span>
             </div>
             <div class="flex justify-between font-bold text-lg mb-6">
                 <span>Total</span>

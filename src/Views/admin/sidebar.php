@@ -31,6 +31,13 @@ $role = strtolower($_SESSION['admin_role'] ?? '');
             Order Analytics
         </a>
 
+        <a href="/admin/blocked-dates" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">
+            <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            Blocked Dates
+        </a>
+
         <a href="/admin/rental-prices" class="flex items-center py-2 px-4 rounded hover:bg-white hover:text-black transition-colors font-semibold text-base">
             <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 10c-4.41 0-8-1.79-8-4V6c0-2.21 3.59-4 8-4s8 1.79 8 4v8c0 2.21-3.59 4-8 4z" />

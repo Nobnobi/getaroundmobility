@@ -503,6 +503,7 @@ window.fbAsyncInit = function() {
 <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
 
 
-<script src="/js/homepage.js?v=1" defer></script>
+<?php $homepageJsVersion = is_file(dirname(__DIR__, 2) . '/public/js/homepage.js') ? filemtime(dirname(__DIR__, 2) . '/public/js/homepage.js') : time(); ?>
+<script src="/js/homepage.js?v=<?= $homepageJsVersion ?>" defer></script>
 
 

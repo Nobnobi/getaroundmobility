@@ -235,8 +235,108 @@ class AdminController extends Controller
             'page' => $page,
             'perPage' => $perPage,
             'totalOrders' => $totalOrders,
-            'totalPages' => $totalPages
+            'totalPages' => $totalPages,
         ]);
+    }
+
+    public function blockedDates() {
+        $this->requireAdmin();
+        if (!isset($_SESSION['admin_id'])) {
+            header('Location: /admin/login');
+            exit;
+        }
+
+        $role = strtolower((string)($_SESSION['admin_role'] ?? ''));
+        $canEdit = in_array($role, ['superadmin', 'admin'], true);
+
+        $orderModel = new OrderModel();
+        $blockedDates = method_exists($orderModel, 'getBlockedDatesWithReason')
+            ? $orderModel->getBlockedDatesWithReason()
+            : [];
+
+        $this->renderAdmin('admin/blocked-dates', [
+            'blockedDates' => $blockedDates,
+            'canEditBlockedDates' => $canEdit,
+        ]);
+    }
+
+    public function getBlockedDatesApi() {
+        $orderModel = new OrderModel();
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'blocked_dates' => $orderModel->getBlockedDates(),
+        ]);
+        exit;
+    }
+
+    public function addBlockedDate() {
+        $this->requireAdmin();
+        $role = strtolower((string)($_SESSION['admin_role'] ?? ''));
+        if (!in_array($role, ['superadmin', 'admin'], true)) {
+            http_response_code(403);
+            die('Forbidden');
+        }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            header('Location: /admin/blocked-dates');
+            exit;
+        }
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $blockedDate = trim((string)($_POST['blocked_date'] ?? ''));
+        $reason = trim((string)($_POST['reason'] ?? ''));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $blockedDate)) {
+            $_SESSION['order_cancel_message'] = 'Invalid blocked date format.';
+            header('Location: /admin/blocked-dates');
+            exit;
+        }
+
+        $orderModel = new OrderModel();
+        try {
+            $orderModel->addBlockedDate($blockedDate, $reason !== '' ? $reason : null, isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null);
+            $_SESSION['order_complete_message'] = 'Blocked date saved successfully.';
+        } catch (\Throwable $e) {
+            $_SESSION['order_cancel_message'] = 'Unable to save blocked date. It may already exist.';
+        }
+
+        header('Location: /admin/blocked-dates');
+        exit;
+    }
+
+    public function removeBlockedDate() {
+        $this->requireAdmin();
+        $role = strtolower((string)($_SESSION['admin_role'] ?? ''));
+        if (!in_array($role, ['superadmin', 'admin'], true)) {
+            http_response_code(403);
+            die('Forbidden');
+        }
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            header('Location: /admin/blocked-dates');
+            exit;
+        }
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $blockedDateId = isset($_POST['blocked_date_id']) ? (int)$_POST['blocked_date_id'] : 0;
+        if ($blockedDateId <= 0) {
+            $_SESSION['order_cancel_message'] = 'Invalid blocked date record.';
+            header('Location: /admin/blocked-dates');
+            exit;
+        }
+
+        $orderModel = new OrderModel();
+        if ($orderModel->removeBlockedDateById($blockedDateId)) {
+            $_SESSION['order_complete_message'] = 'Blocked date removed successfully.';
+        } else {
+            $_SESSION['order_cancel_message'] = 'Blocked date could not be removed.';
+        }
+
+        header('Location: /admin/blocked-dates');
+        exit;
     }
 
     public function orderAnalytics() {
@@ -289,13 +389,9 @@ class AdminController extends Controller
     }
 
     public function approveOrder() {
-        // Allow both 'admin' and 'superadmin' (case-insensitive)
-        session_start();
-        $role = strtolower($_SESSION['admin_role'] ?? '');
-        if (empty($_SESSION['admin_id']) || !in_array($role, ['admin', 'superadmin'])) {
-            header('Location: /admin/login');
-            exit;
-        }
+        $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/orders');
+
         $orderId = isset($_POST['order_id']) ? intval($_POST['order_id']) : null;
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
@@ -307,11 +403,9 @@ class AdminController extends Controller
     }
 
     public function completeOrder() {
-        session_start();
-        if (empty($_SESSION['admin_id'])) {
-            header('Location: /admin/login');
-            exit;
-        }
+        $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/orders');
+
         $orderId = isset($_POST['order_id']) ? intval($_POST['order_id']) : null;
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
@@ -744,11 +838,9 @@ class AdminController extends Controller
     }
 
     public function rejectOrder() {
-        $this->requireAdmin();
-        if (!isset($_SESSION['admin_id'])) {
-            header('Location: /admin/login');
-            exit;
-        }
+        $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/orders');
+
         $orderId = isset($_POST['order_id']) ? intval($_POST['order_id']) : null;
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
@@ -760,11 +852,9 @@ class AdminController extends Controller
     }
 
     public function markAsPaid() {
-        $this->requireAdmin();
-        if (!isset($_SESSION['admin_id'])) {
-            header('Location: /admin/login');
-            exit;
-        }
+        $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/orders');
+
         $orderId = isset($_POST['order_id']) ? intval($_POST['order_id']) : null;
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
@@ -1004,6 +1094,18 @@ class AdminController extends Controller
         }
     }
 
+    private function requirePostWithCsrf(string $redirectPath): void {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            header('Location: ' . $redirectPath);
+            exit;
+        }
+
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+    }
+
     private function requireWalkinBookingAuth(): void {
         if (empty($_SESSION['admin_id'])) {
             header('Location: /walkin-booking/login');
@@ -1029,6 +1131,7 @@ class AdminController extends Controller
         // Handle form submission
         $success = false;
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $this->requirePostWithCsrf('/admin/featured-products');
             $productIds = $_POST['product_id'] ?? [];
             $variationIds = $_POST['variation_id'] ?? [];
             // Clear all featured slots and featured_variation_id
@@ -1348,6 +1451,7 @@ class AdminController extends Controller
         $testimonialsModel = new \App\Models\TestimonialsModel();
         $error = '';
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $this->requirePostWithCsrf('/admin/testimonials/add');
             $reviewer_name = htmlspecialchars(trim($_POST['reviewer_name'] ?? ''));
             $review_text = htmlspecialchars(trim($_POST['review_text'] ?? ''));
             $star_rating = intval($_POST['star_rating'] ?? 5);
@@ -1376,6 +1480,7 @@ class AdminController extends Controller
         $testimonial = $testimonialsModel->getTestimonialById($id);
         $error = '';
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $this->requirePostWithCsrf('/admin/testimonials/edit?id=' . urlencode((string)$id));
             $reviewer_name = htmlspecialchars(trim($_POST['reviewer_name'] ?? ''));
             $review_text = htmlspecialchars(trim($_POST['review_text'] ?? ''));
             $star_rating = intval($_POST['star_rating'] ?? 5);
@@ -1395,6 +1500,7 @@ class AdminController extends Controller
 
     public function deleteTestimonial() {
         $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/testimonials');
         require_once __DIR__ . '/../Models/TestimonialsModel.php';
         $testimonialsModel = new \App\Models\TestimonialsModel();
         $id = isset($_POST['id']) ? intval($_POST['id']) : null;
@@ -1439,6 +1545,7 @@ class AdminController extends Controller
 
     public function toggleFeaturedTipsArticle() {
         $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/tips-troubleshooting');
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $tipsModel = new TipsTroubleshootingModel();
@@ -1485,6 +1592,7 @@ class AdminController extends Controller
 
     public function saveTipsTroubleshootingSection() {
         $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/tips-troubleshooting');
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $tipsModel = new TipsTroubleshootingModel();
@@ -1505,6 +1613,7 @@ class AdminController extends Controller
 
     public function addTipsTroubleshootingArticle() {
         $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/tips-troubleshooting');
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $tipsModel = new TipsTroubleshootingModel();
@@ -1536,6 +1645,7 @@ class AdminController extends Controller
 
     public function updateTipsTroubleshootingArticle() {
         $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/tips-troubleshooting');
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $tipsModel = new TipsTroubleshootingModel();
@@ -1570,6 +1680,7 @@ class AdminController extends Controller
 
     public function deleteTipsTroubleshootingArticle() {
         $this->requireAdmin(['admin', 'superadmin']);
+        $this->requirePostWithCsrf('/admin/tips-troubleshooting');
         require_once __DIR__ . '/../Models/TipsTroubleshootingModel.php';
 
         $id = (int) ($_POST['id'] ?? 0);

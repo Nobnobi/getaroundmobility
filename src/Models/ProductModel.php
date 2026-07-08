@@ -9,7 +9,7 @@ use PDO;
 class ProductModel{
         // Update a general product (no sale_type change)
         public function updateProduct($product_id, $data){
-            $stmt = $this->db->prepare("UPDATE products SET product_name=?, product_category_id=?, price=?, description=?, short_description=?, image_url=? WHERE product_id=?");
+                $stmt = $this->db->prepare("UPDATE products SET product_name=?, product_category_id=?, price=?, description=?, short_description=?, image_url=?, is_hidden=? WHERE product_id=?");
             $stmt->execute([
                 $data['product_name'],
                 $data['product_category_id'],
@@ -17,6 +17,7 @@ class ProductModel{
                 $data['description'],
                 $data['short_description'] ?? null,
                 $data['image_url'],
+                    isset($data['is_hidden']) ? (int)$data['is_hidden'] : 0,
                 $product_id
             ]);
         }
@@ -35,6 +36,11 @@ class ProductModel{
         $shortDescCol = $this->db->query("SHOW COLUMNS FROM products LIKE 'short_description'");
         if (!$shortDescCol || !$shortDescCol->fetch(PDO::FETCH_ASSOC)) {
             $this->db->exec("ALTER TABLE products ADD COLUMN short_description VARCHAR(255) NULL AFTER description");
+        }
+
+        $hiddenCol = $this->db->query("SHOW COLUMNS FROM products LIKE 'is_hidden'");
+        if (!$hiddenCol || !$hiddenCol->fetch(PDO::FETCH_ASSOC)) {
+            $this->db->exec("ALTER TABLE products ADD COLUMN is_hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER image_url");
         }
     }
 
@@ -62,6 +68,7 @@ class ProductModel{
             JOIN categories c ON p.product_category_id = c.category_id
             LEFT JOIN product_variations v ON v.variation_id = p.featured_variation_id
             WHERE p.featured_slot IS NOT NULL
+                            AND COALESCE(p.is_hidden, 0) = 0
             ORDER BY p.featured_slot ASC
         ";
         $stmt = $this->db->query($sql);
@@ -239,7 +246,7 @@ class ProductModel{
 
         // Build product query
         $params = [];
-        $where = "WHERE 1=1";
+        $where = "WHERE COALESCE(p.is_hidden, 0) = 0";
         if ($selectedCategory && $selectedCategory !== 'all') {
             $where .= " AND c.category_name = ?";
             $params[] = $selectedCategory;
@@ -326,7 +333,7 @@ class ProductModel{
         $offset = ($page - 1) * $perPage;
 
         // Build WHERE clause
-        $where = "1=1";
+        $where = "COALESCE(p.is_hidden, 0) = 0";
         $params = [];
 
         if ($query !== '') {
@@ -479,13 +486,15 @@ class ProductModel{
         ];
     }
 
-    public function getProductsForSale()
+    public function getProductsForSale(bool $includeHidden = false)
     {
+        $hiddenClause = $includeHidden ? '' : ' AND COALESCE(p.is_hidden, 0) = 0';
         $stmt = $this->db->prepare("
             SELECT p.*, 
                 (SELECT COUNT(*) FROM scooters s WHERE s.product_id = p.product_id AND s.status = 'available') AS available_scooter_count
             FROM products p
             WHERE p.sale_type = 'sale'
+            $hiddenClause
         ");
         $stmt->execute();
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -528,7 +537,7 @@ class ProductModel{
     }
 
     public function updateProductForSale($product_id, $data){
-        $stmt = $this->db->prepare("UPDATE products SET product_name=?, product_category_id=?, price=?, description=?, short_description=?, image_url=?, sale_type='sale' WHERE product_id=?");
+        $stmt = $this->db->prepare("UPDATE products SET product_name=?, product_category_id=?, price=?, description=?, short_description=?, image_url=?, is_hidden=?, sale_type='sale' WHERE product_id=?");
         $stmt->execute([
             $data['product_name'],
             $data['product_category_id'],
@@ -536,6 +545,7 @@ class ProductModel{
             $data['description'],
             $data['short_description'] ?? null,
             $data['image_url'],
+            isset($data['is_hidden']) ? (int)$data['is_hidden'] : 0,
             $product_id
         ]);
     }
@@ -552,6 +562,21 @@ class ProductModel{
         }
 
         try {
+            $historyStmt = $this->db->prepare("SELECT COUNT(*) FROM order_items WHERE product_id = ?");
+            $historyStmt->execute([$productId]);
+            $hasOrderHistory = ((int)$historyStmt->fetchColumn()) > 0;
+
+            if ($hasOrderHistory) {
+                $softHideStmt = $this->db->prepare("UPDATE products SET is_hidden = 1, featured_slot = NULL, featured_variation_id = NULL WHERE product_id = ?");
+                $softHideStmt->execute([$productId]);
+
+                return [
+                    'success' => true,
+                    'code' => 'SOFT_HIDDEN_HISTORY',
+                    'message' => 'Product has order history and cannot be hard-deleted. It has been hidden from the website instead.',
+                ];
+            }
+
             $this->db->beginTransaction();
 
             // Delete inventory stock rows first (scooters) before deleting variations/product.
@@ -592,6 +617,19 @@ class ProductModel{
         } catch (\PDOException $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
+            }
+
+            try {
+                $softHideStmt = $this->db->prepare("UPDATE products SET is_hidden = 1, featured_slot = NULL, featured_variation_id = NULL WHERE product_id = ?");
+                $softHideStmt->execute([$productId]);
+
+                return [
+                    'success' => true,
+                    'code' => 'SOFT_HIDDEN_FALLBACK',
+                    'message' => 'Hard delete was blocked by related records. Product has been hidden from the website instead.',
+                ];
+            } catch (\Throwable $fallbackException) {
+                // Keep original error handling response if fallback also fails.
             }
 
             return [
@@ -757,14 +795,15 @@ class ProductModel{
 
     // Add a general product (no is_available, no sale_type)
     public function addProduct($data) {
-        $stmt = $this->db->prepare("INSERT INTO products (product_name, product_category_id, price, description, short_description, image_url) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt = $this->db->prepare("INSERT INTO products (product_name, product_category_id, price, description, short_description, image_url, is_hidden) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([
             $data['product_name'],
             $data['product_category_id'],
             $data['price'],
             $data['description'],
             $data['short_description'] ?? null,
-            $data['image_url']
+            $data['image_url'],
+            isset($data['is_hidden']) ? (int)$data['is_hidden'] : 0
         ]);
     }
 
