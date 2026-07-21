@@ -22,6 +22,13 @@ $isStaff = ($role === 'staff');
                 </div>
                 <?php unset($_SESSION['product_delete_warnings']); ?>
             <?php endif; ?>
+            <?php if (!empty($_SESSION['product_upload_error'])): ?>
+                <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
+                    <div class="font-semibold mb-1">Image upload was not accepted</div>
+                    <div><?= htmlspecialchars($_SESSION['product_upload_error']) ?></div>
+                </div>
+                <?php unset($_SESSION['product_upload_error']); ?>
+            <?php endif; ?>
             <div class="bg-gray-50 rounded-xl shadow-inner p-6">
                 <div class="flex flex-col md:flex-row md:items-center gap-4 mb-6">
                     <h2 class="text-xl font-bold text-gray-800">Products Table</h2>
@@ -118,7 +125,7 @@ $isStaff = ($role === 'staff');
                                             <button type="button" class="hover:cursor-pointer product-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors" data-product-id="<?= $product['product_id'] ?>">Browse</button>
                                             <span class="product-image-filename text-xs text-gray-600"><?= !empty($product['image_url']) ? htmlspecialchars(basename($product['image_url'])) : 'No file chosen.' ?></span>
                                         </div>
-                                        <input type="file" name="product_image[<?= $product['product_id'] ?>]" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-product-id="<?= $product['product_id'] ?>">
+                                        <input type="file" name="product_image[<?= $product['product_id'] ?>]" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp" data-product-id="<?= $product['product_id'] ?>">
                                     </td>
                                     <td class="py-2 px-3 border-b border-gray-200">
                                         <input type="hidden" name="is_hidden[<?= $product['product_id'] ?>]" value="0" disabled>
@@ -230,7 +237,7 @@ $isStaff = ($role === 'staff');
                         <button type="button" class="product-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors" data-row-type="new">Browse</button>
                         <span class="product-image-filename text-xs text-gray-600">No file chosen.</span>
                     </div>
-                    <input type="file" name="product_image[new][]" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-row-type="new">
+                    <input type="file" name="product_image[new][]" class="sr-only product-image-file-input" accept=".jpg,.jpeg,.png,.webp" data-row-type="new">
                 </td>
                 <td class="py-1 px-2 border-b">
                     <input type="hidden" name="is_hidden[new][]" value="0">

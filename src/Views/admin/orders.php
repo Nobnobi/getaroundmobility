@@ -11,8 +11,12 @@ $roleLabels = [
     'staff' => 'Staff',
     'partner' => 'Partner'
 ];
-$roleKey = $_SESSION['admin_role'] ?? 'admin';
-$canRefundSecurityDeposit = in_array(strtolower((string)$roleKey), ['admin', 'superadmin'], true);
+$rawRoleKey = $_SESSION['admin_role'] ?? 'admin';
+$roleKey = strtolower(str_replace(['_', '-', ' '], '', (string)$rawRoleKey));
+$canManageMoneyActions = in_array($roleKey, ['admin', 'superadmin'], true);
+$canManageSecurityDeposit = $roleKey === 'superadmin';
+$canRefundSecurityDeposit = $roleKey === 'superadmin';
+$canCompleteOrders = in_array($roleKey, ['staff', 'admin', 'superadmin'], true);
 $roleLabel = $roleLabels[$roleKey] ?? ucfirst($roleKey);
 
 $statusOptions = ['pending', 'approved', 'paid', 'completed', 'cancelled'];
@@ -243,6 +247,12 @@ $formatDateTime = function ($value) {
                     </div>
 
                     <div class="mt-3 flex justify-end gap-2">
+                        <?php
+                            $ordersExportQuery = $_GET;
+                            unset($ordersExportQuery['page']);
+                            $ordersExportUrl = '/admin/orders/export' . (!empty($ordersExportQuery) ? ('?' . http_build_query($ordersExportQuery)) : '');
+                        ?>
+                        <a href="<?= htmlspecialchars($ordersExportUrl) ?>" class="cursor-pointer rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 shadow hover:bg-emerald-100 transition-colors duration-150">Export CSV</a>
                         <button type="submit" class="cursor-pointer rounded-lg bg-[#062B41] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#08456b] transition-colors duration-150">Apply Filters</button>
                     </div>
                 </form>
@@ -339,7 +349,7 @@ $formatDateTime = function ($value) {
 
                                 <!-- ACTIONS -->
                                 <td class="px-4 py-2 space-x-2">
-                                    <?php if ($order['status'] === 'pending'): ?>
+                                    <?php if ($order['status'] === 'pending' && $canManageMoneyActions): ?>
                                         <form method="post" action="/admin/orders/approve" class="inline">
                                             <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
@@ -350,13 +360,13 @@ $formatDateTime = function ($value) {
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                             <button type="submit" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600 cursor-pointer">Reject</button>
                                         </form>
-                                    <?php elseif ($order['status'] === 'approved'): ?>
+                                    <?php elseif ($order['status'] === 'approved' && $canManageMoneyActions): ?>
                                         <form method="post" action="/admin/orders/paid" class="inline">
                                             <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                             <button type="submit" class="bg-yellow-500 text-white px-2 py-1 rounded text-xs hover:bg-yellow-600 cursor-pointer">Mark as Paid</button>
                                         </form>
-                                    <?php elseif ($order['status'] === 'paid'): ?>
+                                    <?php elseif ($order['status'] === 'paid' && $canCompleteOrders): ?>
                                         <form method="post" action="/admin/orders/complete" class="inline order-complete-form">
                                             <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
@@ -364,6 +374,8 @@ $formatDateTime = function ($value) {
                                             <input type="hidden" name="security_deposit_refunded_amount" value="<?= htmlspecialchars((string)($order['security_deposit_refunded_amount'] ?? '0')) ?>">
                                             <button type="submit" class="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600 cursor-pointer">Complete</button>
                                         </form>
+                                    <?php else: ?>
+                                        <span class="text-xs text-gray-400">No actions</span>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -487,6 +499,7 @@ $formatDateTime = function ($value) {
 
     <script>
     const ADMIN_CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token'] ?? '') ?>;
+    const CAN_MANAGE_SECURITY_DEPOSIT = <?= $canManageSecurityDeposit ? 'true' : 'false' ?>;
     const CAN_REFUND_SECURITY_DEPOSIT = <?= $canRefundSecurityDeposit ? 'true' : 'false' ?>;
 
     function showOrderActionLoadingState(title, message) {
@@ -712,6 +725,7 @@ $formatDateTime = function ($value) {
                         <div class="mt-1 text-xs text-[#7c3e00]">Refunded so far: <span class="font-semibold">$${refundedTotal.toFixed(2)}</span> | Remaining refundable: <span class="font-semibold">$${refundableRemaining.toFixed(2)}</span></div>
                         <div class="mt-1 text-xs text-[#7c3e00]">Adjust this amount for damage hold or when the default deposit is not enough. Order total will be recalculated automatically.</div>
                         ${depositReason ? `<div class="mt-2 rounded-md border border-amber-300 bg-white/70 p-2 text-xs text-[#7c3e00]"><span class="font-semibold">Latest reason:</span> ${esc(depositReason)}${depositUpdatedAt ? ` <span class="text-[#9a5310]">(${esc(toOrdinaryTime(depositUpdatedAt))})</span>` : ''}</div>` : ''}
+                        ${CAN_MANAGE_SECURITY_DEPOSIT ? `
                         <form class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-12 md:items-end" data-security-deposit-form>
                             <input type="hidden" name="order_id" value="${Number(order.order_id || orderId)}">
                             <div class="md:col-span-3">
@@ -742,6 +756,7 @@ $formatDateTime = function ($value) {
                             <button type="submit" class="md:col-span-2 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 cursor-pointer">Save Deposit</button>
                         </form>
                         <div class="mt-2 text-xs" data-security-deposit-feedback></div>
+                        ` : `<div class="mt-2 rounded-md border border-amber-300 bg-white/70 p-2 text-xs text-[#7c3e00]">Only Super Admin can change security deposit amounts.</div>`}
 
                         <div class="mt-4 border-t border-amber-200 pt-3">
                             <div class="font-semibold text-[#7c3e00]">Return Security Deposit</div>
@@ -796,7 +811,7 @@ $formatDateTime = function ($value) {
                                 <button type="submit" class="md:col-span-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 cursor-pointer" ${refundableRemaining > 0 ? '' : 'disabled'}>${refundableRemaining > 0 ? 'Refund Deposit' : 'No Balance'}</button>
                             </form>
                             <div class="mt-2 text-xs" data-security-deposit-refund-feedback></div>
-                            ` : `<div class="mt-2 rounded-md border border-amber-300 bg-white/70 p-2 text-xs text-[#7c3e00]">Only Admin and Super Admin can process security deposit refunds.</div>`}
+                            ` : `<div class="mt-2 rounded-md border border-amber-300 bg-white/70 p-2 text-xs text-[#7c3e00]">Only Super Admin can process security deposit refunds.</div>`}
 
                             <div class="mt-3 rounded-md border border-amber-300 bg-white/70 p-2">
                                 <div class="text-xs font-semibold text-[#7c3e00] mb-1">Refund History</div>

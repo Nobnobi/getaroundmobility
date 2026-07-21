@@ -14,6 +14,10 @@ docusign_private.key
 
 config/
 
+# Database backups
+backups/
+*.sql
+
 # Debug logs
 order-debug-log.txt
 stripe-debug.txt

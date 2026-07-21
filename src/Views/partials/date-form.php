@@ -150,6 +150,13 @@
     window.emphasizeRentalForm = emphasizeRentalForm;
 
     document.addEventListener('DOMContentLoaded', function() {
+        ['cartDateChangeModal', 'dateTimeSelectionModal'].forEach(function(modalId) {
+            const modalEl = document.getElementById(modalId);
+            if (!modalEl || modalEl.dataset.movedToBody === '1') return;
+            document.body.appendChild(modalEl);
+            modalEl.dataset.movedToBody = '1';
+        });
+
         const pickupInput = document.getElementById('pickupDatetime');
         const returnInput = document.getElementById('returnDatetime');
         if (!pickupInput || !returnInput) return;

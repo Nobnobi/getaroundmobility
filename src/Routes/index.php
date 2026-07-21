@@ -108,11 +108,13 @@ $router->get('/walkin-booking/availability', AdminController::class, 'walkinBook
 |--------------------------------------------------------------------------
 */
 $router->get('/admin/orders', AdminController::class, 'orders');
+$router->get('/admin/orders/export', AdminController::class, 'exportOrdersCsv');
 $router->get('/admin/blocked-dates', AdminController::class, 'blockedDates');
 $router->get('/admin/orders/analytics', AdminController::class, 'orderAnalytics');
 $router->get('/admin/orders/new', AdminController::class, 'newOrder');
 $router->get('/admin/orders/availability', AdminController::class, 'newOrderAvailability');
 $router->get('/admin/orders/details', OrderController::class, 'ajaxOrderDetails');
+$router->get('/admin/orders/document', OrderController::class, 'downloadOrderDocument');
 
 $router->post('/admin/orders/approve', AdminController::class, 'approveOrder');
 $router->post('/admin/orders/reject', AdminController::class, 'rejectOrder');
@@ -184,6 +186,8 @@ $router->get('/admin/api/product-variations', ProductController::class, 'apiProd
 |--------------------------------------------------------------------------
 */
 $router->get('/admin/promo-codes', AdminController::class, 'promoCodes');
+$router->get('/admin/audit-logs', AdminController::class, 'auditLogs');
+$router->get('/admin/audit-logs/export', AdminController::class, 'exportSecurityLogsCsv');
 $router->post('/admin/promo-codes/save', AdminController::class, 'savePromoCode');
 $router->post('/admin/promo-codes/delete', AdminController::class, 'deletePromoCode');
 $router->get('/admin/heard-about-options', AdminController::class, 'heardAboutOptions');

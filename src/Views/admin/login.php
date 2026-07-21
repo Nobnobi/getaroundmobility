@@ -23,7 +23,7 @@
         <h2 class="text-3xl font-bold mb-8 text-center text-gray-800">Admin Log In</h2>
         
         <form method="post" action="/admin/login">
-            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
             
             <div class="mb-6">
                 <input type="text" name="username" id="username" required 

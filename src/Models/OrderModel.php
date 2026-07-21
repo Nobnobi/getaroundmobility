@@ -97,6 +97,51 @@ class OrderModel {
                 return $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
             }
 
+            private function getPrivateDocumentDir(string $folder): string {
+                $baseDir = dirname(__DIR__, 2) . '/storage/documents';
+                $targetDir = $baseDir . '/' . trim($folder, '/');
+                if (!is_dir($targetDir) && !@mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+                    throw new \RuntimeException('Unable to create the document storage directory.');
+                }
+
+                return rtrim($targetDir, '/\\') . '/';
+            }
+
+            public function resolveOrderDocumentPath(int $orderId, string $type): ?string {
+                $map = [
+                    'contract' => [
+                        dirname(__DIR__, 2) . '/storage/documents/contracts/contract-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/storage/documents/contractscontract-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/Contracts/contract-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/public/Contracts/contract-' . $orderId . '.pdf',
+                    ],
+                    'invoice' => [
+                        dirname(__DIR__, 2) . '/storage/documents/invoices/invoice-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/storage/documents/invoicesinvoice-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/Invoices/invoice-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/public/Invoices/invoice-' . $orderId . '.pdf',
+                    ],
+                    'proforma' => [
+                        dirname(__DIR__, 2) . '/storage/documents/proformas/proforma-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/storage/documents/proformasproforma-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/Proformas/proforma-' . $orderId . '.pdf',
+                        dirname(__DIR__, 2) . '/public/Proformas/proforma-' . $orderId . '.pdf',
+                    ],
+                ];
+
+                if (!isset($map[$type])) {
+                    return null;
+                }
+
+                foreach ($map[$type] as $candidate) {
+                    if (is_file($candidate) && is_readable($candidate)) {
+                        return $candidate;
+                    }
+                }
+
+                return null;
+            }
+
             private ?bool $orderRefundsHasRefundMethodColumn = null;
 
             private function hasOrderRefundMethodColumn(): bool {
@@ -607,6 +652,46 @@ class OrderModel {
             $refs['provider_paypal_capture_id'] ?? null,
             $orderId,
         ]);
+    }
+
+    public function findOrderIdByProviderReference(array $refs): ?int
+    {
+        $provider = strtolower(trim((string)($refs['payment_provider'] ?? ($refs['provider'] ?? ''))));
+        $fields = [
+            'provider_payment_intent_id',
+            'provider_charge_id',
+            'provider_paypal_order_id',
+            'provider_paypal_capture_id',
+        ];
+
+        $clauses = [];
+        $params = [];
+        foreach ($fields as $field) {
+            $value = trim((string)($refs[$field] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $clauses[] = "({$field} IS NOT NULL AND {$field} = ?)";
+            $params[] = $value;
+        }
+
+        if (empty($clauses)) {
+            return null;
+        }
+
+        $where = implode(' OR ', $clauses);
+        if (in_array($provider, ['stripe', 'paypal'], true)) {
+            $sql = "SELECT order_id FROM orders WHERE payment_provider = ? AND ({$where}) ORDER BY order_id DESC LIMIT 1";
+            array_unshift($params, $provider);
+        } else {
+            $sql = "SELECT order_id FROM orders WHERE {$where} ORDER BY order_id DESC LIMIT 1";
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $orderId = (int)$stmt->fetchColumn();
+
+        return $orderId > 0 ? $orderId : null;
     }
 
     public function refundSecurityDeposit(int $orderId, float $amount, string $reason, ?int $adminId = null, ?string $refundMethod = null): array
@@ -1181,7 +1266,7 @@ class OrderModel {
                     $params = array_merge($params, $reservedScootersGlobal);
                 }
 
-                $sql = "SELECT s.scooter_id FROM scooters s WHERE s.product_id = ?{$variationClause} AND s.status = 'available' AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.scooter_id = s.scooter_id AND r.status IN ('pending','confirmed','paid') AND NOT (r.return_datetime <= ? OR r.pickup_datetime >= ?)){$excludeClause} ORDER BY s.scooter_id ASC LIMIT 1";
+                $sql = "SELECT s.scooter_id FROM scooters s WHERE s.product_id = ?{$variationClause} AND s.status = 'available' AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.scooter_id = s.scooter_id AND r.status IN ('pending','confirmed','paid') AND NOT (r.return_datetime <= ? OR r.pickup_datetime >= ?)){$excludeClause} ORDER BY s.scooter_id ASC LIMIT 1 FOR UPDATE";
                 if (is_resource($debugFile)) {
                     fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Scooter assignment SQL: {$sql}\nParams: " . print_r($params, true));
                 }
@@ -1813,6 +1898,163 @@ class OrderModel {
         return $results;
     }
 
+    public function getOrdersExportRows(array $filters, int $limit = 20000): array
+    {
+        $limit = max(1, min(50000, $limit));
+
+        $where = [];
+        $params = [];
+
+        $searchTerm = trim((string)($filters['order_id_search'] ?? ''));
+        if ($searchTerm !== '') {
+            $where[] = 'CAST(o.order_id AS CHAR) LIKE ?';
+            $params[] = '%' . $searchTerm . '%';
+        }
+
+        $status = strtolower(trim((string)($filters['status'] ?? '')));
+        if ($status !== '') {
+            $where[] = 'LOWER(o.status) = ?';
+            $params[] = $status;
+        }
+
+        $customerType = strtolower(trim((string)($filters['customer_type'] ?? '')));
+        if ($customerType !== '') {
+            $where[] = 'LOWER(o.customer_type) = ?';
+            $params[] = $customerType;
+        }
+
+        $saleType = strtolower(trim((string)($filters['sale_type'] ?? '')));
+        if ($saleType !== '') {
+            $where[] = 'LOWER(o.sale_type) = ?';
+            $params[] = $saleType;
+        }
+
+        $bookingSource = strtolower(trim((string)($filters['booking_source'] ?? '')));
+        if ($bookingSource === 'walk-in') {
+            $where[] = "(LOWER(COALESCE(o.booking_source, '')) = 'walk-in' OR LOWER(COALESCE(o.pickup_location, '')) = 'walk-in booking')";
+        } elseif ($bookingSource === 'online') {
+            $where[] = "(LOWER(COALESCE(o.booking_source, 'online')) = 'online' AND LOWER(COALESCE(o.pickup_location, '')) <> 'walk-in booking')";
+        }
+
+        $heardAboutExpr = "COALESCE(NULLIF(TRIM(o.heard_about_label), ''), NULLIF(TRIM(hao.label), ''), 'Not specified')";
+        $heardAbout = trim((string)($filters['heard_about'] ?? ''));
+        if ($heardAbout !== '') {
+            if ($heardAbout === 'others') {
+                $where[] = "o.heard_about_option_id IS NULL AND TRIM(COALESCE(o.heard_about_label, '')) <> ''";
+            } else {
+                $where[] = $heardAboutExpr . ' = ?';
+                $params[] = $heardAbout;
+            }
+        }
+
+        $promoUsage = strtolower(trim((string)($filters['promo_usage'] ?? '')));
+        if ($promoUsage === 'with') {
+            $where[] = "(o.promo_code IS NOT NULL AND o.promo_code <> '')";
+        } elseif ($promoUsage === 'without') {
+            $where[] = "(o.promo_code IS NULL OR o.promo_code = '')";
+        }
+
+        $creatorRole = strtolower(trim((string)($filters['creator_role'] ?? '')));
+        if ($creatorRole !== '') {
+            $where[] = "LOWER(COALESCE(o.created_by_admin_role, '')) = ?";
+            $params[] = $creatorRole;
+        }
+
+        $quickPeriod = strtolower(trim((string)($filters['quick_period'] ?? '')));
+        if (in_array($quickPeriod, ['late', 'today', 'upcoming'], true)) {
+            $where[] = "LOWER(COALESCE(o.status, '')) IN ('pending', 'approved', 'paid')";
+            if ($quickPeriod === 'late') {
+                $where[] = 'DATE(o.return_datetime) < CURDATE()';
+            } elseif ($quickPeriod === 'today') {
+                $where[] = 'DATE(o.pickup_datetime) <= CURDATE() AND DATE(o.return_datetime) >= CURDATE()';
+            } elseif ($quickPeriod === 'upcoming') {
+                $where[] = 'DATE(o.pickup_datetime) > CURDATE()';
+            }
+        }
+
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
+        $dateTo = trim((string)($filters['date_to'] ?? ''));
+        if ($dateFrom !== '' && $dateTo !== '') {
+            $where[] = '(DATE(o.pickup_datetime) <= ? AND DATE(o.return_datetime) >= ?)';
+            $params[] = $dateTo;
+            $params[] = $dateFrom;
+        } elseif ($dateFrom !== '') {
+            $where[] = 'DATE(o.return_datetime) >= ?';
+            $params[] = $dateFrom;
+        } elseif ($dateTo !== '') {
+            $where[] = 'DATE(o.pickup_datetime) <= ?';
+            $params[] = $dateTo;
+        }
+
+        $whereSql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
+
+        $stmt = $this->db->prepare("
+            SELECT
+                o.order_id,
+                o.order_date,
+                o.status,
+                o.customer_type,
+                o.sale_type,
+                o.booking_source,
+                CASE
+                    WHEN LOWER(COALESCE(o.booking_source, '')) = 'walk-in'
+                        OR LOWER(COALESCE(o.pickup_location, '')) = 'walk-in booking'
+                    THEN 'Walk-in'
+                    ELSE 'Online'
+                END AS booking_source_display,
+                TRIM(CONCAT(COALESCE(o.guest_first_name, ''), ' ', COALESCE(o.guest_last_name, ''))) AS customer_name,
+                o.guest_email,
+                o.guest_phone,
+                o.pickup_datetime,
+                o.return_datetime,
+                o.delivery_type,
+                h.name AS delivery_hotel_name,
+                NULLIF(TRIM(CONCAT_WS(', ',
+                    NULLIF(TRIM(h.address1), ''),
+                    NULLIF(TRIM(h.address2), ''),
+                    NULLIF(TRIM(h.state), ''),
+                    NULLIF(TRIM(h.zip), '')
+                )), '') AS delivery_hotel_address,
+                rh.name AS pickup_hotel_name,
+                NULLIF(TRIM(CONCAT_WS(', ',
+                    NULLIF(TRIM(rh.address1), ''),
+                    NULLIF(TRIM(rh.address2), ''),
+                    NULLIF(TRIM(rh.state), ''),
+                    NULLIF(TRIM(rh.zip), '')
+                )), '') AS pickup_hotel_address,
+                o.pickup_location,
+                pl.name AS pickup_location_name,
+                pl.address AS pickup_location_address,
+                o.total_amount,
+                o.security_deposit,
+                o.delivery_fee,
+                o.promo_code,
+                o.promo_discount,
+                {$heardAboutExpr} AS heard_about_display,
+                o.created_by_admin_name,
+                o.created_by_admin_role,
+                oi.order_item_id,
+                oi.product_id,
+                oi.product_name,
+                oi.variation_name,
+                oi.quantity,
+                oi.price AS item_price,
+                oi.scooter_id
+            FROM orders o
+            LEFT JOIN heard_about_options hao ON hao.id = o.heard_about_option_id
+            LEFT JOIN partner_hotels h ON o.hotel_id = h.id
+            LEFT JOIN partner_hotels rh ON o.return_hotel_id = rh.id
+            LEFT JOIN pickup_locations pl ON o.pickup_location = pl.id
+            LEFT JOIN order_items oi ON oi.order_id = o.order_id
+            {$whereSql}
+            ORDER BY o.order_id DESC, oi.order_item_id ASC
+            LIMIT {$limit}
+        ");
+        $stmt->execute($params);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
     // Update order status to 'approved'
     public function approveOrder($orderId) {
         $stmt = $this->db->prepare("UPDATE orders SET status = 'approved' WHERE order_id = ?");
@@ -2271,8 +2513,21 @@ class OrderModel {
             $guestId = $stmt->fetchColumn();
             if (!$guestId) {
                 $fullAddress = $address1 . ($address2 ? " " . $address2 : "");
-                $stmt = $this->db->prepare("INSERT INTO guests (first_name, last_name, email, phone, address) VALUES (?, ?, ?, ?, ?)");
-                $stmt->execute([$first_name, $last_name, $email, $phone, $fullAddress]);
+                $guestName = trim($first_name . ' ' . $last_name);
+                if ($guestName === '') {
+                    $guestName = trim((string)$email);
+                }
+
+                try {
+                    // Legacy/newer schema variant with split first/last name columns.
+                    $stmt = $this->db->prepare("INSERT INTO guests (first_name, last_name, email, phone, address) VALUES (?, ?, ?, ?, ?)");
+                    $stmt->execute([$first_name, $last_name, $email, $phone, $fullAddress]);
+                } catch (\PDOException $e) {
+                    // Fallback for schema variant using a single `name` column.
+                    $stmt = $this->db->prepare("INSERT INTO guests (name, email, phone, address) VALUES (?, ?, ?, ?)");
+                    $stmt->execute([$guestName, $email, $phone, $fullAddress]);
+                }
+
                 $guestId = $this->db->lastInsertId();
             }
         }
@@ -2281,19 +2536,27 @@ class OrderModel {
         foreach ($cart as $item) {
             $totalAmount += $item['qty'] * $item['price'];
         }
-        $productTotalWithTax = round($totalAmount, 2);
-        $securityDeposit = self::SECURITY_DEPOSIT;
         $deliveryFee = $this->resolveDeliveryFeeForOrder($form);
-        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
+        $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee);
+        $productTotalWithTax = $totals['product_total_with_tax'];
+        $securityDeposit = $totals['security_deposit'];
+        $totalAmountWithTax = $totals['total_amount_with_tax'];
         $pickup_datetime = $form['pickup_datetime'] ?? null;
         $return_datetime = $form['return_datetime'] ?? null;
         $bookingSource = htmlspecialchars(trim((string)($form['booking_source'] ?? 'online')));
+        $bookingSourceForAdminCheck = strtolower(trim((string)($form['booking_source'] ?? 'online')));
+        $isAdminOrigin = in_array($bookingSourceForAdminCheck, ['walk-in', 'walkin', 'admin', 'kiosk'], true);
         $heardAbout = $this->resolveHeardAboutSelection($form);
-        $createdByAdminId = isset($form['created_by_admin_id']) && is_numeric($form['created_by_admin_id'])
-            ? (int)$form['created_by_admin_id']
-            : (isset($session['admin_id']) && is_numeric($session['admin_id']) ? (int)$session['admin_id'] : null);
-        $createdByAdminRole = strtolower(trim((string)($form['created_by_admin_role'] ?? ($session['admin_role'] ?? ''))));
-        $createdByAdminName = trim((string)($form['created_by_admin_name'] ?? ($session['admin_username'] ?? '')));
+        $createdByAdminId = null;
+        $createdByAdminRole = '';
+        $createdByAdminName = '';
+        if ($isAdminOrigin) {
+            $createdByAdminId = isset($form['created_by_admin_id']) && is_numeric($form['created_by_admin_id'])
+                ? (int)$form['created_by_admin_id']
+                : (isset($session['admin_id']) && is_numeric($session['admin_id']) ? (int)$session['admin_id'] : null);
+            $createdByAdminRole = strtolower(trim((string)($form['created_by_admin_role'] ?? ($session['admin_role'] ?? ''))));
+            $createdByAdminName = trim((string)($form['created_by_admin_name'] ?? ($session['admin_username'] ?? '')));
+        }
         $deliveryTypeForOrder = in_array(($form['delivery_type'] ?? ''), ['hotel', 'pickup'], true)
             ? $form['delivery_type']
             : 'hotel';
@@ -2320,6 +2583,8 @@ class OrderModel {
                     $notes,
                     $payment,
                     strtolower((string)$payment) === 'paypal' ? 'paypal' : (strtolower((string)$payment) === 'card' ? 'stripe' : null),
+                    trim((string)($form['provider_payment_intent_id'] ?? '')) !== '' ? trim((string)$form['provider_payment_intent_id']) : null,
+                    trim((string)($form['provider_charge_id'] ?? '')) !== '' ? trim((string)$form['provider_charge_id']) : null,
                     $totalAmountWithTax,
                     $securityDeposit,
                     $deliveryFee,
@@ -2341,8 +2606,8 @@ class OrderModel {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, total_amount, security_deposit, delivery_fee, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, provider_payment_intent_id, provider_charge_id, total_amount, security_deposit, delivery_fee, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
@@ -2475,13 +2740,7 @@ class OrderModel {
             $dompdf->loadHtml($html);
             $dompdf->setPaper('A4', 'portrait');
             $dompdf->render();
-            $pdfDir = __DIR__ . '/../../Contracts/';
-            if ((!is_dir($pdfDir) && !@mkdir($pdfDir, 0777, true)) || !is_writable($pdfDir)) {
-                $pdfDir = __DIR__ . '/../../public/Contracts/';
-                if (!is_dir($pdfDir) && !@mkdir($pdfDir, 0777, true)) {
-                    throw new \RuntimeException('Unable to create Contracts directory.');
-                }
-            }
+            $pdfDir = $this->getPrivateDocumentDir('contracts');
             $contractTarget = $pdfDir . "contract-{$orderId}.pdf";
             $written = @file_put_contents($contractTarget, $dompdf->output());
             if ($written === false || !is_file($contractTarget) || filesize($contractTarget) === 0) {
@@ -2524,13 +2783,14 @@ class OrderModel {
             $deliveryType = (string)($delivery_type ?? '');
 
             $itemsTable = $invoiceItemsTable;
-            $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
-            $securityDeposit = self::SECURITY_DEPOSIT;
             $deliveryFee = $this->resolveDeliveryFeeForOrder($form);
-            $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
-            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
-            $totalAmount = round($productPreTax + $securityDeposit + $deliveryFee, 2);
-            $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
+            $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($subtotal, $discountAmount, self::SECURITY_DEPOSIT, $deliveryFee);
+            $productTotalWithTax = $totals['product_total_with_tax'];
+            $securityDeposit = $totals['security_deposit'];
+            $productPreTax = $totals['product_pre_tax'];
+            $totalAmountWithTax = $totals['total_amount_with_tax'];
+            $totalAmount = $totals['total_amount'];
+            $tax = $totals['tax'];
             ob_start();
             include __DIR__ . '/../../Proformas/proforma-template.php';
             $invoiceHtml = ob_get_clean();
@@ -2541,13 +2801,7 @@ class OrderModel {
             $invoiceDompdf->loadHtml($invoiceHtml);
             $invoiceDompdf->setPaper('A4', 'portrait');
             $invoiceDompdf->render();
-            $proformaDir = __DIR__ . '/../../Proformas/';
-            if ((!is_dir($proformaDir) && !@mkdir($proformaDir, 0777, true)) || !is_writable($proformaDir)) {
-                $proformaDir = __DIR__ . '/../../public/Proformas/';
-                if (!is_dir($proformaDir) && !@mkdir($proformaDir, 0777, true)) {
-                    throw new \RuntimeException('Unable to create Proformas directory.');
-                }
-            }
+            $proformaDir = $this->getPrivateDocumentDir('proformas');
             $invoiceTarget = $proformaDir . "proforma-{$orderId}.pdf";
             $written = @file_put_contents($invoiceTarget, $invoiceDompdf->output());
             if ($written === false || !is_file($invoiceTarget) || filesize($invoiceTarget) === 0) {
@@ -2712,23 +2966,11 @@ class OrderModel {
         $pickup_datetime = $pickupDate;
         $return_datetime = $returnDate;
 
-        $contractDir = __DIR__ . '/../../Contracts/';
-        $invoiceDir = __DIR__ . '/../../Proformas/';
-        if ((!is_dir($contractDir) && !@mkdir($contractDir, 0777, true)) || !is_writable($contractDir)) {
-            $contractDir = __DIR__ . '/../../public/Contracts/';
-            if (!is_dir($contractDir) && !@mkdir($contractDir, 0777, true)) {
-                $contractDir = null;
-            }
-        }
-        if ((!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) || !is_writable($invoiceDir)) {
-            $invoiceDir = __DIR__ . '/../../public/Proformas/';
-            if (!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) {
-                $invoiceDir = null;
-            }
-        }
+        $contractDir = $this->getPrivateDocumentDir('contracts');
+        $invoiceDir = $this->getPrivateDocumentDir('proformas');
 
-        $pdfPath = $contractDir ? $contractDir . "contract-{$orderId}.pdf" : null;
-        $invoicePath = $invoiceDir ? $invoiceDir . "proforma-{$orderId}.pdf" : null;
+        $pdfPath = $contractDir . "contract-{$orderId}.pdf";
+        $invoicePath = $invoiceDir . "proforma-{$orderId}.pdf";
 
         // WRAP PDF GENERATION IN TRY-CATCH
         try {
@@ -2794,11 +3036,12 @@ class OrderModel {
         }
         if ($totalAmountWithTax <= 0) {
             $securityDeposit = self::SECURITY_DEPOSIT;
-            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
+            $totalAmountWithTax = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, $deliveryFee)['total_amount_with_tax'];
         }
-        $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
-        $totalAmount = round($productPreTax + $securityDeposit + $deliveryFee, 2);
-        $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
+        $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, $deliveryFee);
+        $productPreTax = $totals['product_pre_tax'];
+        $totalAmount = $totals['total_amount'];
+        $tax = $totals['tax'];
         
         // WRAP PRO-FORMA PDF GENERATION IN TRY-CATCH
         try {
@@ -2978,17 +3221,12 @@ class OrderModel {
         if ($securityDeposit <= 0 && $totalAmountWithTax > 0) {
             $securityDeposit = round(max(0, $totalAmountWithTax - $productTotalWithTax - $deliveryFee), 2);
         }
-        $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
-        $totalAmount = round($productPreTax + $securityDeposit + $deliveryFee, 2);
-        $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
+        $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, $deliveryFee);
+        $productPreTax = $totals['product_pre_tax'];
+        $totalAmount = $totals['total_amount'];
+        $tax = $totals['tax'];
 
-        $invoiceDir = __DIR__ . '/../../Invoices/';
-        if ((!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) || !is_writable($invoiceDir)) {
-            $invoiceDir = __DIR__ . '/../../public/Invoices/';
-            if (!is_dir($invoiceDir) && !@mkdir($invoiceDir, 0777, true)) {
-                return false;
-            }
-        }
+        $invoiceDir = $this->getPrivateDocumentDir('invoices');
         $invoicePath = $invoiceDir . "invoice-{$orderId}.pdf";
 
         ob_start();
@@ -3166,44 +3404,9 @@ class OrderModel {
         }
 
         // Build web URLs that are always public, and mirror legacy files if needed.
-        $contractPdf = null;
-        $contractPublicPath = __DIR__ . '/../../public/Contracts/contract-' . $orderId . '.pdf';
-        $contractLegacyPath = __DIR__ . '/../../Contracts/contract-' . $orderId . '.pdf';
-        if (!is_dir(dirname($contractPublicPath))) {
-            @mkdir(dirname($contractPublicPath), 0777, true);
-        }
-        if (!file_exists($contractPublicPath) && file_exists($contractLegacyPath) && is_readable($contractLegacyPath)) {
-            @copy($contractLegacyPath, $contractPublicPath);
-        }
-        if (file_exists($contractPublicPath) && is_readable($contractPublicPath)) {
-            $contractPdf = ($scriptDir !== '' ? $scriptDir : '') . '/Contracts/contract-' . $orderId . '.pdf';
-        }
-
-        $invoicePdf = null;
-        $invoicePublicPath = __DIR__ . '/../../public/Invoices/invoice-' . $orderId . '.pdf';
-        $invoiceLegacyPath = __DIR__ . '/../../Invoices/invoice-' . $orderId . '.pdf';
-        if (!is_dir(dirname($invoicePublicPath))) {
-            @mkdir(dirname($invoicePublicPath), 0777, true);
-        }
-        if (!file_exists($invoicePublicPath) && file_exists($invoiceLegacyPath) && is_readable($invoiceLegacyPath)) {
-            @copy($invoiceLegacyPath, $invoicePublicPath);
-        }
-        if (file_exists($invoicePublicPath) && is_readable($invoicePublicPath)) {
-            $invoicePdf = ($scriptDir !== '' ? $scriptDir : '') . '/Invoices/invoice-' . $orderId . '.pdf';
-        }
-
-        $proformaPdf = null;
-        $proformaPublicPath = __DIR__ . '/../../public/Proformas/proforma-' . $orderId . '.pdf';
-        $proformaLegacyPath = __DIR__ . '/../../Proformas/proforma-' . $orderId . '.pdf';
-        if (!is_dir(dirname($proformaPublicPath))) {
-            @mkdir(dirname($proformaPublicPath), 0777, true);
-        }
-        if (!file_exists($proformaPublicPath) && file_exists($proformaLegacyPath) && is_readable($proformaLegacyPath)) {
-            @copy($proformaLegacyPath, $proformaPublicPath);
-        }
-        if (file_exists($proformaPublicPath) && is_readable($proformaPublicPath)) {
-            $proformaPdf = ($scriptDir !== '' ? $scriptDir : '') . '/Proformas/proforma-' . $orderId . '.pdf';
-        }
+        $contractPdf = '/admin/orders/document?order_id=' . $orderId . '&type=contract';
+        $invoicePdf = '/admin/orders/document?order_id=' . $orderId . '&type=invoice';
+        $proformaPdf = '/admin/orders/document?order_id=' . $orderId . '&type=proforma';
 
         $refundData = $this->getOrderRefundData((int)$orderId);
         return [
@@ -3306,7 +3509,7 @@ class OrderModel {
                 'quantity' => 1,
             ];
         }
-        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT + $deliveryFee, 2);
+        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee)['total_amount_with_tax'];
 
         $pickup_location_id = $post['pickup_location'] ?? '';
         $pickup_location = '';
@@ -3454,7 +3657,7 @@ class OrderModel {
         }
 
         $deliveryFee = $this->resolveDeliveryFeeForOrder($post);
-        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT + $deliveryFee, 2);
+        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee)['total_amount_with_tax'];
 
         if ($totalAmount <= 0) {
             return ['error' => 'No valid items'];

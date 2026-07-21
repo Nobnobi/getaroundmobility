@@ -21,6 +21,13 @@ $isStaff = ($role === 'staff');
             </div>
             <?php unset($_SESSION['product_delete_warnings']); ?>
         <?php endif; ?>
+        <?php if (!empty($_SESSION['product_upload_error'])): ?>
+            <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
+                <div class="font-semibold mb-1">Image upload was not accepted</div>
+                <div><?= htmlspecialchars($_SESSION['product_upload_error']) ?></div>
+            </div>
+            <?php unset($_SESSION['product_upload_error']); ?>
+        <?php endif; ?>
         <div class="bg-gray-50 rounded-xl shadow-inner p-6">
             <div class="flex flex-col md:flex-row md:items-center gap-4 mb-6">
                 <h2 class="text-xl font-bold text-gray-800">Scooters For Sale Table</h2>
@@ -79,7 +86,7 @@ $isStaff = ($role === 'staff');
                                         <button type="button" class="sale-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors cursor-pointer" data-product-id="<?= $scooter['product_id'] ?>" style="display:none;">Browse</button>
                                         <span class="sale-image-filename text-xs text-gray-600"><?= !empty($scooter['image_url']) ? htmlspecialchars(basename($scooter['image_url'])) : 'No file chosen.' ?></span>
                                     </div>
-                                    <input type="file" name="scooter_image[<?= $scooter['product_id'] ?>]" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-product-id="<?= $scooter['product_id'] ?>">
+                                    <input type="file" name="scooter_image[<?= $scooter['product_id'] ?>]" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp" data-product-id="<?= $scooter['product_id'] ?>">
                                 </td>
                                 <td class="py-2 px-4 border-b border-gray-200">
                                     <?php if (!$isStaff): ?>
@@ -157,7 +164,7 @@ $isStaff = ($role === 'staff');
                     <button type="button" class="sale-image-browse-btn px-2 py-1 rounded bg-gray-100 border border-gray-300 hover:bg-gray-200 text-xs transition-colors cursor-pointer" data-row-type="new">Browse</button>
                     <span class="sale-image-filename text-xs text-gray-600">No file chosen.</span>
                 </div>
-                <input type="file" name="scooter_image[new][]" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp,.svg" data-row-type="new">
+                <input type="file" name="scooter_image[new][]" class="sr-only sale-image-file-input" accept=".jpg,.jpeg,.png,.webp" data-row-type="new">
             </td>
             <!-- is_available column removed for new rows -->
             <td class="py-1 px-2 border-b"><button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs" style="display:inline-block;">Delete</button></td>

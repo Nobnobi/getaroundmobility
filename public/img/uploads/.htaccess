@@ -1,0 +1,12 @@
+Options -Indexes
+
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8 .phar .cgi .pl .py .sh .asp .aspx .jsp
+RemoveType .php .phtml .php3 .php4 .php5 .php7 .php8 .phar .cgi .pl .py .sh .asp .aspx .jsp
+
+<FilesMatch "\.(php|phtml|php3|php4|php5|php7|php8|phar|cgi|pl|py|sh|bat|cmd|exe|dll|com|msi|asp|aspx|jsp|htaccess|htpasswd)$">
+    Require all denied
+</FilesMatch>

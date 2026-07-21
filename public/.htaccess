@@ -1,5 +1,9 @@
 Options -Indexes
 
+<FilesMatch "^(debug\.php|diag\.php|vendor-test\.php|.*-debug-log\.txt|order-debug-log\.txt|mail-debug-log\.txt|stripe-webhook-logs\.txt|paypal-create-order-logs\.txt|paypal-order-logs\.txt)$">
+	Require all denied
+</FilesMatch>
+
 RewriteEngine On
 
 <IfModule mod_php.c>

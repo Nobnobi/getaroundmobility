@@ -232,13 +232,15 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     <input type="radio" name="payment" value="paypal" id="paymentPaypal" class="form-radio" required>
                                     <span>Paypal</span>
                                 </label>
-                                <!-- Move the policy agreement checkbox here -->
-                                <div class="flex items-center mt-2">
-                                    <input type="checkbox" name="agree_policy" required class="mr-2">
-                                    <span>I agree to the&nbsp;</span>
-                                    <a onclick="openPolicyModal()" class="text-blue-600 underline cursor-pointer">rental policy and terms</a>
-                                </div>
-                                <div class="mt-2 rounded-md border border-[#d1d5db] bg-[#f8fbfd] px-3 py-2">
+                                <div id="checkoutAcknowledgements" class="mt-2 rounded-md border border-[#d1d5db] bg-[#f8fbfd] px-3 py-3 space-y-3">
+                                    <p class="text-sm font-semibold text-[#1f2937]">Required acknowledgements</p>
+                                    <label class="flex items-start gap-2 text-sm text-[#374151]">
+                                        <input type="checkbox" id="agreePolicyCheckbox" name="agree_policy" required class="mt-1">
+                                        <span>
+                                            I agree to the
+                                            <button type="button" onclick="openPolicyModal()" class="text-blue-600 underline cursor-pointer">rental policy and terms</button>
+                                        </span>
+                                    </label>
                                     <label class="flex items-start gap-2 text-sm text-[#374151]">
                                         <input type="checkbox" id="acknowledgeIdPresence" name="acknowledge_id_presence" value="1" required class="mt-1">
                                         <span>I understand I must be present with a valid ID to receive the scooter.</span>
@@ -678,6 +680,37 @@ if (file_exists(__DIR__ . '/../../.env')) {
         return true;
     }
 
+    function ensureAcknowledgementsChecked() {
+        const section = document.getElementById('checkoutAcknowledgements');
+        const policyCheckbox = document.getElementById('agreePolicyCheckbox') || document.querySelector('input[name="agree_policy"]');
+        const idPresenceCheckbox = document.getElementById('acknowledgeIdPresence') || document.querySelector('input[name="acknowledge_id_presence"]');
+
+        let firstMissing = null;
+        if (!policyCheckbox || !policyCheckbox.checked) {
+            firstMissing = policyCheckbox;
+        } else if (!idPresenceCheckbox || !idPresenceCheckbox.checked) {
+            firstMissing = idPresenceCheckbox;
+        }
+
+        if (!firstMissing) {
+            return true;
+        }
+
+        if (section && typeof section.scrollIntoView === 'function') {
+            section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        if (typeof firstMissing.focus === 'function') {
+            firstMissing.focus({ preventScroll: true });
+        }
+
+        if (typeof firstMissing.reportValidity === 'function') {
+            firstMissing.reportValidity();
+        }
+
+        return false;
+    }
+
     function loadCart() {
         const keysToTry = ['cart', 'getaround_cart', 'cart_items'];
         for (const key of keysToTry) {
@@ -1020,6 +1053,10 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
         return;
     }
 
+    if (!ensureAcknowledgementsChecked()) {
+        return;
+    }
+
     const paymentChecked = document.querySelector('input[name="payment"]:checked');
     if (!paymentChecked) {
         alert('Please select a payment option.');
@@ -1060,10 +1097,35 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
             }
 
             if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
+                const acknowledgeIdPresenceValue = (document.querySelector('input[name="acknowledge_id_presence"]')?.checked) ? '1' : '0';
+                const agreePolicyValue = (document.querySelector('input[name="agree_policy"]')?.checked) ? '1' : '0';
+                const liveFormData = new FormData(form);
+                const liveCheckoutSnapshot = {};
+                const liveKeys = [
+                    'first_name', 'last_name', 'email', 'phone',
+                    'client_weight_option', 'client_height',
+                    'address1', 'address2', 'state', 'zip',
+                    'delivery_type', 'hotel_id', 'return_hotel_id',
+                    'pickup_datetime', 'return_datetime', 'pickup_location',
+                    'notes', 'heard_about_option_id', 'heard_about_other_text',
+                    'sale_type'
+                ];
+                liveKeys.forEach(function(key) {
+                    if (liveFormData.has(key)) {
+                        liveCheckoutSnapshot[key] = String(liveFormData.get(key) || '').trim();
+                    }
+                });
+
                 const finalizeResponse = await fetch(appUrl('/stripe-finalize-payment'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ payment_intent_id: result.paymentIntent.id })
+                    body: JSON.stringify({
+                        payment_intent_id: result.paymentIntent.id,
+                        acknowledge_id_presence: acknowledgeIdPresenceValue,
+                        agree_policy: agreePolicyValue,
+                        cart_json: localStorage.getItem('cart') || '[]',
+                        checkout_snapshot: liveCheckoutSnapshot
+                    })
                 });
                 const finalizeData = await finalizeResponse.json();
                 if (!finalizeResponse.ok || !finalizeData || finalizeData.error) {
@@ -1384,17 +1446,8 @@ function renderPayPalButton() {
                 throw new Error('Delivery selection invalid');
             }
 
-            // Check if policy checkbox is ticked
-            const policyCheckbox = document.querySelector('input[name="agree_policy"]');
-            if (!policyCheckbox || !policyCheckbox.checked) {
-                alert('You must agree to the rental policy and terms before proceeding.');
-                throw new Error('Policy not agreed');
-            }
-
-            const idPresenceCheckbox = document.querySelector('input[name="acknowledge_id_presence"]');
-            if (!idPresenceCheckbox || !idPresenceCheckbox.checked) {
-                alert('Please confirm that the customer must be present with a valid ID to receive the scooter.');
-                throw new Error('ID presence acknowledgement not checked');
+            if (!ensureAcknowledgementsChecked()) {
+                throw new Error('Acknowledgements incomplete');
             }
 
             const form = document.getElementById('checkoutForm');
@@ -1463,8 +1516,13 @@ function renderPayPalButton() {
                 throw new Error(result?.error || 'PayPal capture failed.');
             }
             
+            if (result.redirect_url) {
+                window.location.href = appUrl(result.redirect_url);
+                return;
+            }
+
             if (result.status === 'COMPLETED' || result.status === 'APPROVED') {
-                window.location.href = appUrl('/paypal-return'); // This triggers our new secure redirect
+                throw new Error('PayPal payment completed, but the local order redirect was not returned.');
             }
         } catch (err) {
             alert('Payment failed: ' + err.message);
@@ -1598,7 +1656,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function openPolicyModal() {
         document.getElementById('policyModal').classList.remove('hidden');
         // Sync modal checkbox with main checkbox
-        document.getElementById('modalAgreeCheckbox').checked = document.querySelector('input[name="agree_policy"]').checked;
+        const modalAgreeCheckbox = document.getElementById('modalAgreeCheckbox');
+        const mainCheckbox = document.querySelector('input[name="agree_policy"]');
+        if (modalAgreeCheckbox && mainCheckbox) {
+            modalAgreeCheckbox.checked = mainCheckbox.checked;
+        }
     }
 
     function closePolicyModal() {

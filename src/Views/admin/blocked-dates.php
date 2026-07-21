@@ -17,6 +17,15 @@ $formatCreatedAt = static function ($value) {
     $ts = strtotime((string)$value);
     return $ts ? date('M j, Y g:i a', $ts) : (string)$value;
 };
+
+$blockedDateKeys = [];
+foreach ($blockedDates as $blocked) {
+    $value = trim((string)($blocked['blocked_date'] ?? ''));
+    if ($value !== '') {
+        $blockedDateKeys[] = $value;
+    }
+}
+$blockedDateKeys = array_values(array_unique($blockedDateKeys));
 ?>
 
 <body class="bg-gray-100 min-h-screen flex">
@@ -70,7 +79,7 @@ $formatCreatedAt = static function ($value) {
                                     <?php if ($canEditBlockedDates): ?>
                                         <form method="POST" action="/admin/orders/blocked-dates/add" class="space-y-3">
                                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars((string)($_SESSION['csrf_token'] ?? '')) ?>">
-                                            <input type="date" name="blocked_date" class="w-full rounded-xl border border-[#D9D9D9] bg-white px-4 py-3 text-sm text-[#062B41] focus:outline-none focus:ring-2 focus:ring-[#0086C9]" required>
+                                            <input type="text" id="blockedDateInput" name="blocked_date" class="w-full rounded-xl border border-[#D9D9D9] bg-white px-4 py-3 text-sm text-[#062B41] focus:outline-none focus:ring-2 focus:ring-[#0086C9]" placeholder="Select blocked date" autocomplete="off" required>
                                             <input type="text" name="reason" maxlength="160" placeholder="Reason (example: Christmas Day)" class="w-full rounded-xl border border-[#D9D9D9] bg-white px-4 py-3 text-sm text-[#062B41] focus:outline-none focus:ring-2 focus:ring-[#0086C9]">
                                             <button type="submit" class="w-full cursor-pointer rounded-xl bg-[#0086C9] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#066fa6]">Save blocked date</button>
                                         </form>
@@ -154,4 +163,48 @@ $formatCreatedAt = static function ($value) {
             </div>
         </main>
     </div>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" integrity="sha384-2f8Q8CVR3RF4S+N4M2QvUWIJw4fQv4EeG+9A4M8NV6M6fV8Vs7Y0xGJf4Qx6C9vA" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const input = document.getElementById('blockedDateInput');
+        if (!input || typeof flatpickr !== 'function') return;
+
+        const blockedDates = new Set(<?= json_encode($blockedDateKeys, JSON_UNESCAPED_SLASHES) ?>);
+
+        flatpickr(input, {
+            dateFormat: 'Y-m-d',
+            altInput: true,
+            altFormat: 'F j, Y',
+            disableMobile: true,
+            defaultDate: 'today',
+            onDayCreate: function(_dObj, _dStr, _fp, dayElem) {
+                const dayDate = dayElem.dateObj;
+                if (!dayDate) return;
+                const yyyy = dayDate.getFullYear();
+                const mm = String(dayDate.getMonth() + 1).padStart(2, '0');
+                const dd = String(dayDate.getDate()).padStart(2, '0');
+                const key = `${yyyy}-${mm}-${dd}`;
+                if (blockedDates.has(key)) {
+                    dayElem.classList.add('admin-blocked-date');
+                    dayElem.setAttribute('title', 'Already blocked date');
+                }
+            }
+        });
+    });
+    </script>
+    <style>
+    .flatpickr-day.admin-blocked-date {
+        background: #fff3cd;
+        border-color: #facc15;
+        color: #92400e;
+        font-weight: 700;
+    }
+    .flatpickr-day.admin-blocked-date:hover {
+        background: #fde68a;
+        border-color: #f59e0b;
+        color: #78350f;
+    }
+    </style>
 </body>

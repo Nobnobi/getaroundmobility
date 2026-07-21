@@ -2,42 +2,12 @@
 namespace App\Controllers;
 use App\Controller;
 use App\Models\ProductModel;
+use App\Services\AdminImageUploadService;
 
 class ProductController extends Controller {
     private function storeUploadedAdminImage(array $imageFile, string $prefix): ?string
     {
-        $errorCode = (int) ($imageFile['error'] ?? UPLOAD_ERR_NO_FILE);
-        if ($errorCode === UPLOAD_ERR_NO_FILE) {
-            return null;
-        }
-        if ($errorCode !== UPLOAD_ERR_OK) {
-            throw new \RuntimeException('Image upload failed.');
-        }
-
-        $uploadDir = dirname(__DIR__, 2) . '/public/img/uploads';
-        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
-            throw new \RuntimeException('Unable to create the image upload folder.');
-        }
-
-        $originalName = (string) ($imageFile['name'] ?? '');
-        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
-        if (!in_array($extension, $allowedExtensions, true)) {
-            throw new \RuntimeException('Please upload JPG, PNG, WEBP, or SVG images only.');
-        }
-
-        $tmpFile = (string) ($imageFile['tmp_name'] ?? '');
-        if ($tmpFile === '') {
-            throw new \RuntimeException('Invalid uploaded image.');
-        }
-
-        $fileName = $prefix . '-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
-        $destination = $uploadDir . '/' . $fileName;
-        if (!move_uploaded_file($tmpFile, $destination)) {
-            throw new \RuntimeException('Unable to save the uploaded image.');
-        }
-
-        return '/img/uploads/' . $fileName;
+        return (new AdminImageUploadService())->store($imageFile, $prefix, 'Image upload failed.');
     }
 
     private function extractUploadedFile(array $files, string $field, array $path): ?array
@@ -102,6 +72,22 @@ class ProductController extends Controller {
             header('Location: ' . $redirect);
             exit;
         }
+    }
+
+    private function appendAdminAuditLog(string $message): void {
+        $logDir = dirname(__DIR__, 2) . '/storage/logs';
+        if (!is_dir($logDir) && !mkdir($logDir, 0775, true) && !is_dir($logDir)) {
+            return;
+        }
+
+        $entry = sprintf(
+            "%s [%s] %s\n",
+            date('Y-m-d H:i:s'),
+            trim((string)($_SESSION['admin_username'] ?? 'admin')),
+            $message
+        );
+
+        @file_put_contents($logDir . '/admin-audit.log', $entry, FILE_APPEND | LOCK_EX);
     }
     
     
@@ -174,15 +160,24 @@ class ProductController extends Controller {
             // Get sale_type for each product
             $allProducts = $productModel->getAllProducts();
             $saleTypeMap = [];
+            $hiddenMap = [];
             foreach ($allProducts as $prod) {
                 $saleTypeMap[$prod['product_id']] = $prod['sale_type'] ?? '';
+                $hiddenMap[$prod['product_id']] = !empty($prod['is_hidden']) ? 1 : 0;
             }
             foreach ($_POST['product_name'] as $id => $name) {
                 if ($id !== 'new') {
+                    $currentHidden = $hiddenMap[$id] ?? 0;
                     $imagePath = htmlspecialchars(trim($_POST['image_url'][$id] ?? ''));
                     $uploadedImage = $this->extractUploadedFile($_FILES, 'product_image', [$id]);
                     if ($uploadedImage) {
-                        $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'product');
+                        try {
+                            $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'product');
+                        } catch (\RuntimeException $exception) {
+                            $_SESSION['product_upload_error'] = $exception->getMessage();
+                            header('Location: /admin/products');
+                            exit;
+                        }
                         if ($uploadedPath !== null) {
                             $imagePath = $uploadedPath;
                         }
@@ -198,10 +193,20 @@ class ProductController extends Controller {
                         'is_hidden' => !empty($_POST['is_hidden'][$id]) ? 1 : 0,
                     ];
                     $saleType = $saleTypeMap[$id] ?? '';
+                    $newHidden = !empty($data['is_hidden']) ? 1 : 0;
                     if ($saleType === 'sale') {
                         $productModel->updateProductForSale($id, $data);
                     } else {
                         $productModel->updateProduct($id, $data);
+                    }
+
+                    if ((int)$currentHidden !== (int)$newHidden) {
+                        $this->appendAdminAuditLog(sprintf(
+                            'Product ID %d visibility changed from %s to %s.',
+                            (int)$id,
+                            $currentHidden ? 'hidden' : 'visible',
+                            $newHidden ? 'hidden' : 'visible'
+                        ));
                     }
                 }
             }
@@ -215,7 +220,13 @@ class ProductController extends Controller {
                     $imagePath = !empty($_POST['image_url']['new'][$i]) ? htmlspecialchars(trim($_POST['image_url']['new'][$i])) : '';
                     $uploadedImage = $this->extractUploadedFile($_FILES, 'product_image', ['new', $i]);
                     if ($uploadedImage) {
-                        $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'product');
+                        try {
+                            $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'product');
+                        } catch (\RuntimeException $exception) {
+                            $_SESSION['product_upload_error'] = $exception->getMessage();
+                            header('Location: /admin/products');
+                            exit;
+                        }
                         if ($uploadedPath !== null) {
                             $imagePath = $uploadedPath;
                         }
@@ -231,6 +242,9 @@ class ProductController extends Controller {
                         'is_hidden' => !empty($_POST['is_hidden']['new'][$i]) ? 1 : 0,
                     ];
                     $productModel->addProduct($data);
+                    if (!empty($data['is_hidden'])) {
+                        $this->appendAdminAuditLog(sprintf('New product "%s" was created hidden.', $newName));
+                    }
                 }
             }
         }
@@ -365,7 +379,13 @@ class ProductController extends Controller {
                 $imagePath = htmlspecialchars(trim($_POST['image_url'][$id] ?? ''));
                 $uploadedImage = $this->extractUploadedFile($_FILES, 'scooter_image', [$id]);
                 if ($uploadedImage) {
-                    $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                    try {
+                        $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                    } catch (\RuntimeException $exception) {
+                        $_SESSION['product_upload_error'] = $exception->getMessage();
+                        header('Location: /admin/scooters-for-sale');
+                        exit;
+                    }
                     if ($uploadedPath !== null) {
                         $imagePath = $uploadedPath;
                     }
@@ -393,7 +413,13 @@ class ProductController extends Controller {
                     $imagePath = !empty($_POST['image_url']['new'][$i]) ? htmlspecialchars(trim($_POST['image_url']['new'][$i])) : '';
                     $uploadedImage = $this->extractUploadedFile($_FILES, 'scooter_image', ['new', $i]);
                     if ($uploadedImage) {
-                        $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                        try {
+                            $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                        } catch (\RuntimeException $exception) {
+                            $_SESSION['product_upload_error'] = $exception->getMessage();
+                            header('Location: /admin/scooters-for-sale');
+                            exit;
+                        }
                         if ($uploadedPath !== null) {
                             $imagePath = $uploadedPath;
                         }
@@ -430,7 +456,13 @@ class ProductController extends Controller {
             $imagePath = htmlspecialchars(trim((string)($_POST['image_url'] ?? '')));
             $uploadedImage = $this->extractUploadedFile($_FILES, 'scooter_image', [$_POST['product_id']]);
             if ($uploadedImage) {
-                $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                try {
+                    $uploadedPath = $this->storeUploadedAdminImage($uploadedImage, 'scooter');
+                } catch (\RuntimeException $exception) {
+                    $_SESSION['product_upload_error'] = $exception->getMessage();
+                    header('Location: /admin/scooters-for-sale');
+                    exit;
+                }
                 if ($uploadedPath !== null) {
                     $imagePath = $uploadedPath;
                 }

@@ -8,14 +8,25 @@ use App\Models\AdminModel;
 use App\Models\OrderModel;
 use App\Models\ProductModel;
 use App\Models\PromoCodeModel;
+use App\Models\AdminAuditLogModel;
+use App\Models\AdminLoginAttemptModel;
 use App\Models\HeardAboutOptionModel;
 use App\Models\ReservationModel;
 use App\Models\TipsTroubleshootingModel;
+use App\Services\AdminImageUploadService;
 
 class AdminController extends Controller
 {
     public function __construct() {
         if (session_status() === PHP_SESSION_NONE) {
+            $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+            session_set_cookie_params([
+                'lifetime' => 0,
+                'path' => '/',
+                'secure' => $secure,
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
             session_start();
         }
         if (empty($_SESSION['csrf_token'])) {
@@ -30,20 +41,36 @@ class AdminController extends Controller
 
     public function processLogin() {
         // Do NOT check for admin session here!
-        $username = htmlspecialchars(trim($_POST['username'] ?? ''));
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $username = trim((string)($_POST['username'] ?? ''));
         $password = $_POST['password'] ?? '';
+        $ipAddress = $this->getLoginIpAddress();
+        $throttle = new AdminLoginAttemptModel();
+        $lockout = $throttle->getLockout('admin', $username, $ipAddress);
+        if ($lockout['locked']) {
+            $error = $this->formatLoginLockoutMessage((int)$lockout['remaining_seconds']);
+            require __DIR__ . '/../Views/admin/login.php';
+            return;
+        }
 
         $pdo = \App\Utils\Database::getInstance();
         $adminModel = new AdminModel($pdo);
         $admin = $adminModel->findByUsername($username);
 
         if ($admin && password_verify($password, $admin['password'])) {
+            $throttle->recordSuccess('admin', $username, $ipAddress);
+            session_regenerate_id(true);
             $_SESSION['admin_id'] = $admin['id'];
             $_SESSION['admin_username'] = $admin['username'];
             $_SESSION['admin_role'] = $admin['role'];
             header('Location: /admin/orders');
             exit;
         } else {
+            $throttle->recordFailure('admin', $username, $ipAddress);
             $error = "Invalid username or password.";
             require __DIR__ . '/../Views/admin/login.php';
         }
@@ -63,14 +90,24 @@ class AdminController extends Controller
             die('Invalid CSRF token');
         }
 
-        $username = htmlspecialchars(trim($_POST['username'] ?? ''));
+        $username = trim((string)($_POST['username'] ?? ''));
         $password = $_POST['password'] ?? '';
+        $ipAddress = $this->getLoginIpAddress();
+        $throttle = new AdminLoginAttemptModel();
+        $lockout = $throttle->getLockout('walkin', $username, $ipAddress);
+        if ($lockout['locked']) {
+            $error = $this->formatLoginLockoutMessage((int)$lockout['remaining_seconds']);
+            require __DIR__ . '/../Views/admin/walkin-login.php';
+            return;
+        }
 
         $pdo = \App\Utils\Database::getInstance();
         $adminModel = new AdminModel($pdo);
         $admin = $adminModel->findByUsername($username);
 
         if ($admin && password_verify($password, $admin['password'])) {
+            $throttle->recordSuccess('walkin', $username, $ipAddress);
+            session_regenerate_id(true);
             $_SESSION['admin_id'] = $admin['id'];
             $_SESSION['admin_username'] = $admin['username'];
             $_SESSION['admin_role'] = $admin['role'];
@@ -78,6 +115,7 @@ class AdminController extends Controller
             exit;
         }
 
+        $throttle->recordFailure('walkin', $username, $ipAddress);
         $error = 'Invalid username or password.';
         require __DIR__ . '/../Views/admin/walkin-login.php';
     }
@@ -296,6 +334,10 @@ class AdminController extends Controller
         $orderModel = new OrderModel();
         try {
             $orderModel->addBlockedDate($blockedDate, $reason !== '' ? $reason : null, isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null);
+            $this->logAdminAction('blocked_date_added', 'blocked_date', null, [
+                'blocked_date' => $blockedDate,
+                'reason' => $reason !== '' ? $reason : null,
+            ]);
             $_SESSION['order_complete_message'] = 'Blocked date saved successfully.';
         } catch (\Throwable $e) {
             $_SESSION['order_cancel_message'] = 'Unable to save blocked date. It may already exist.';
@@ -330,6 +372,7 @@ class AdminController extends Controller
 
         $orderModel = new OrderModel();
         if ($orderModel->removeBlockedDateById($blockedDateId)) {
+            $this->logAdminAction('blocked_date_removed', 'blocked_date', $blockedDateId);
             $_SESSION['order_complete_message'] = 'Blocked date removed successfully.';
         } else {
             $_SESSION['order_cancel_message'] = 'Blocked date could not be removed.';
@@ -397,6 +440,9 @@ class AdminController extends Controller
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
             $orderModel->approveOrder($orderId);
+            $this->logAdminAction('order_approved', 'order', $orderId, [
+                'new_status' => 'approved',
+            ]);
         }
         header('Location: /admin/orders');
         exit;
@@ -411,6 +457,10 @@ class AdminController extends Controller
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
             $orderModel->completeOrder($orderId);
+            $this->logAdminAction('order_completed', 'order', $orderId, [
+                'new_status' => 'completed',
+                'handler' => 'admin_controller',
+            ]);
         }
         header('Location: /admin/orders');
         exit;
@@ -448,7 +498,7 @@ class AdminController extends Controller
         foreach ($products as &$product) {
             if (!isset($product['product_id'])) continue;
             $product['variations'] = [];
-            $stmt = $db->prepare("SELECT variation_id, variation_name FROM product_variations WHERE product_id = ? ORDER BY variation_name ASC");
+            $stmt = $db->prepare("SELECT variation_id, variation_name FROM product_variations WHERE product_id = ? AND is_active = 1 ORDER BY variation_name ASC");
             $stmt->execute([$product['product_id']]);
             $product['variations'] = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         }
@@ -753,7 +803,7 @@ class AdminController extends Controller
         $dompdf->setPaper('A4', 'portrait');
         $dompdf->render();
 
-        $pdfDir = __DIR__ . '/../../Contracts/';
+        $pdfDir = dirname(__DIR__, 2) . '/storage/documents/contracts/';
         if (!is_dir($pdfDir)) mkdir($pdfDir, 0777, true);
         file_put_contents($pdfDir . "contract-{$order_id}.pdf", $dompdf->output());
         $pdfPath = $pdfDir . "contract-{$order_id}.pdf";
@@ -793,7 +843,7 @@ class AdminController extends Controller
         $invoiceDompdf->setPaper('A4', 'portrait');
         $invoiceDompdf->render();
 
-        $invoiceDir = __DIR__ . '/../../Proformas/';
+        $invoiceDir = dirname(__DIR__, 2) . '/storage/documents/proformas/';
         if (!is_dir($invoiceDir)) mkdir($invoiceDir, 0777, true);
         file_put_contents($invoiceDir . "proforma-{$order_id}.pdf", $invoiceDompdf->output());
         $invoicePath = $invoiceDir . "proforma-{$order_id}.pdf";
@@ -846,6 +896,9 @@ class AdminController extends Controller
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
             $orderModel->rejectOrder($orderId);
+            $this->logAdminAction('order_rejected', 'order', $orderId, [
+                'new_status' => 'cancelled',
+            ]);
         }
         header('Location: /admin/orders');
         exit;
@@ -860,6 +913,9 @@ class AdminController extends Controller
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
             $orderModel->markAsPaid($orderId);
+            $this->logAdminAction('order_marked_paid', 'order', $orderId, [
+                'new_status' => 'paid',
+            ]);
         }
         header('Location: /admin/orders');
         exit;
@@ -876,6 +932,11 @@ class AdminController extends Controller
             ]);
             exit;
         }
+
+        $this->requireAdminRoleJson(
+            ['superadmin'],
+            'Only Super Admin can update security deposit amounts.'
+        );
 
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
@@ -943,6 +1004,11 @@ class AdminController extends Controller
             exit;
         }
 
+        $this->logAdminAction('security_deposit_updated', 'order', $orderId, [
+            'security_deposit' => $securityDeposit,
+            'reason' => $reason,
+        ]);
+
         echo json_encode([
             'success' => true,
             'message' => 'Security deposit updated.',
@@ -963,15 +1029,10 @@ class AdminController extends Controller
             exit;
         }
 
-        $role = strtolower(trim((string)($_SESSION['admin_role'] ?? '')));
-        if (!in_array($role, ['admin', 'superadmin'], true)) {
-            http_response_code(403);
-            echo json_encode([
-                'error' => 'Only Admin and Super Admin can refund security deposits.',
-                'forbidden' => true,
-            ]);
-            exit;
-        }
+        $this->requireAdminRoleJson(
+            ['superadmin'],
+            'Only Super Admin can refund security deposits.'
+        );
 
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
@@ -1051,6 +1112,15 @@ class AdminController extends Controller
             exit;
         }
 
+        $this->logAdminAction('security_deposit_refunded', 'order', $orderId, [
+            'refund_amount' => $refundAmount,
+            'refund_method' => $refundMethod !== '' ? $refundMethod : null,
+            'reason' => $reason,
+            'payment_provider' => $result['refund']['payment_provider'] ?? null,
+            'provider_refund_id' => $result['refund']['provider_refund_id'] ?? null,
+            'status' => $result['refund']['status'] ?? null,
+        ]);
+
         echo json_encode([
             'success' => true,
             'message' => 'Security deposit refund processed.',
@@ -1078,20 +1148,120 @@ class AdminController extends Controller
             exit;
         }
         if ($roles) {
-            $userRole = strtolower($_SESSION['admin_role'] ?? '');
-            if (is_array($roles)) {
-                $allowed = array_map('strtolower', $roles);
-                if (!in_array($userRole, $allowed)) {
-                    header('Location: /admin/orders');
-                    exit;
-                }
-            } else {
-                if ($userRole !== strtolower($roles)) {
-                    header('Location: /admin/orders');
-                    exit;
-                }
+            $allowed = is_array($roles) ? $roles : [$roles];
+            $this->requireAdminRoleRedirect($allowed, '/admin/orders');
+        }
+    }
+
+    private function getLoginIpAddress(): string
+    {
+        $candidates = [
+            $_SERVER['HTTP_CF_CONNECTING_IP'] ?? null,
+            $_SERVER['HTTP_X_FORWARDED_FOR'] ?? null,
+            $_SERVER['REMOTE_ADDR'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (!$candidate) {
+                continue;
+            }
+            $ip = trim(explode(',', (string)$candidate)[0]);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                return $ip;
             }
         }
+
+        return '0.0.0.0';
+    }
+
+    private function formatLoginLockoutMessage(int $remainingSeconds): string
+    {
+        $minutes = max(1, (int)ceil($remainingSeconds / 60));
+        return 'Too many failed attempts. Please try again in ' . $minutes . ' minute' . ($minutes === 1 ? '' : 's') . '.';
+    }
+
+    private function streamCsv(string $filename, array $headers, array $rows): void
+    {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+        $output = fopen('php://output', 'w');
+        fputcsv($output, $headers);
+        foreach ($rows as $row) {
+            fputcsv($output, $row);
+        }
+        fclose($output);
+        exit;
+    }
+
+    private function buildOrdersFilterFromRequest(): array
+    {
+        $searchTerm = isset($_GET['order_id_search']) ? trim((string)$_GET['order_id_search']) : '';
+        $statusFilter = isset($_GET['status']) ? trim((string)$_GET['status']) : '';
+        $customerTypeFilter = isset($_GET['customer_type']) ? trim((string)$_GET['customer_type']) : '';
+        $saleTypeFilter = isset($_GET['sale_type']) ? trim((string)$_GET['sale_type']) : '';
+        $bookingSourceFilter = isset($_GET['booking_source']) ? trim((string)$_GET['booking_source']) : '';
+        $heardAboutFilter = isset($_GET['heard_about']) ? trim((string)$_GET['heard_about']) : '';
+        $promoUsageFilter = isset($_GET['promo_usage']) ? trim((string)$_GET['promo_usage']) : '';
+        $creatorRoleFilter = isset($_GET['creator_role']) ? trim((string)$_GET['creator_role']) : '';
+        $quickPeriodFilter = isset($_GET['quick_period']) ? strtolower(trim((string)$_GET['quick_period'])) : '';
+        $dateFromFilter = isset($_GET['date_from']) ? trim((string)$_GET['date_from']) : '';
+        $dateToFilter = isset($_GET['date_to']) ? trim((string)$_GET['date_to']) : '';
+        $sortBy = isset($_GET['sort_by']) ? trim((string)$_GET['sort_by']) : 'order_id';
+        $sortDir = isset($_GET['sort_dir']) ? trim((string)$_GET['sort_dir']) : 'desc';
+
+        if (!in_array(strtolower($statusFilter), ['pending', 'approved', 'paid', 'completed', 'cancelled'], true)) {
+            $statusFilter = '';
+        }
+        if (!in_array(strtolower($customerTypeFilter), ['user', 'guest'], true)) {
+            $customerTypeFilter = '';
+        }
+        if (!in_array(strtolower($saleTypeFilter), ['rental', 'sale'], true)) {
+            $saleTypeFilter = '';
+        }
+        if (!in_array(strtolower($bookingSourceFilter), ['walk-in', 'online'], true)) {
+            $bookingSourceFilter = '';
+        }
+        if (!in_array(strtolower($promoUsageFilter), ['with', 'without'], true)) {
+            $promoUsageFilter = '';
+        }
+        if (!in_array(strtolower($creatorRoleFilter), ['superadmin', 'admin', 'staff', 'partner'], true)) {
+            $creatorRoleFilter = '';
+        }
+        if (!in_array($quickPeriodFilter, ['late', 'today', 'upcoming'], true)) {
+            $quickPeriodFilter = '';
+        }
+        if ($dateFromFilter !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFromFilter)) {
+            $dateFromFilter = '';
+        }
+        if ($dateToFilter !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateToFilter)) {
+            $dateToFilter = '';
+        }
+        if (!in_array($sortBy, ['order_id', 'sale_type', 'total_amount', 'sales_amount', 'refund_amount', 'status', 'order_date', 'pickup_datetime', 'return_datetime'], true)) {
+            $sortBy = 'order_id';
+        }
+        $sortDir = strtolower($sortDir) === 'asc' ? 'asc' : 'desc';
+
+        return [
+            'order_id_search' => $searchTerm,
+            'status' => strtolower($statusFilter),
+            'customer_type' => strtolower($customerTypeFilter),
+            'sale_type' => strtolower($saleTypeFilter),
+            'booking_source' => strtolower($bookingSourceFilter),
+            'heard_about' => $heardAboutFilter,
+            'promo_usage' => strtolower($promoUsageFilter),
+            'creator_role' => strtolower($creatorRoleFilter),
+            'quick_period' => $quickPeriodFilter,
+            'date_from' => $dateFromFilter,
+            'date_to' => $dateToFilter,
+            'sort_by' => $sortBy,
+            'sort_dir' => $sortDir,
+        ];
     }
 
     private function requirePostWithCsrf(string $redirectPath): void {
@@ -1178,6 +1348,209 @@ class AdminController extends Controller
         $this->renderAdmin('admin/promo-codes', ['promoCodes' => $codes]);
     }
 
+    public function auditLogs() {
+        $this->requireAdmin(['superadmin']);
+
+        $activeTab = ($_GET['tab'] ?? 'audit') === 'login-attempts' ? 'login-attempts' : 'audit';
+        $filters = [
+            'action' => trim((string)($_GET['action'] ?? '')),
+            'admin_id' => isset($_GET['admin_id']) ? (int)$_GET['admin_id'] : 0,
+            'target_type' => trim((string)($_GET['target_type'] ?? '')),
+            'date_from' => trim((string)($_GET['date_from'] ?? '')),
+            'date_to' => trim((string)($_GET['date_to'] ?? '')),
+            'search' => trim((string)($_GET['search'] ?? '')),
+        ];
+        $loginAttemptFilters = [
+            'login_area' => trim((string)($_GET['login_area'] ?? '')),
+            'username' => trim((string)($_GET['login_username'] ?? '')),
+            'result' => trim((string)($_GET['login_result'] ?? '')),
+            'date_from' => trim((string)($_GET['login_date_from'] ?? '')),
+            'date_to' => trim((string)($_GET['login_date_to'] ?? '')),
+            'search' => trim((string)($_GET['login_search'] ?? '')),
+        ];
+
+        $page = max(1, (int)($_GET['audit_page'] ?? 1));
+        $loginAttemptPage = max(1, (int)($_GET['login_page'] ?? 1));
+        $perPage = 15;
+        $auditModel = new AdminAuditLogModel();
+        $loginAttemptModel = new AdminLoginAttemptModel();
+        $totalLogs = $auditModel->countLogs($filters);
+        $totalPages = max(1, (int)ceil($totalLogs / $perPage));
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+        $totalLoginAttempts = $loginAttemptModel->countAttempts($loginAttemptFilters);
+        $totalLoginAttemptPages = max(1, (int)ceil($totalLoginAttempts / $perPage));
+        if ($loginAttemptPage > $totalLoginAttemptPages) {
+            $loginAttemptPage = $totalLoginAttemptPages;
+        }
+
+        $this->renderAdmin('admin/audit-logs', [
+            'activeTab' => $activeTab,
+            'logs' => $auditModel->getLogs($filters, $page, $perPage),
+            'actions' => $auditModel->getActions(),
+            'adminOptions' => $auditModel->getAdminOptions(),
+            'filters' => $filters,
+            'page' => $page,
+            'perPage' => $perPage,
+            'totalLogs' => $totalLogs,
+            'totalPages' => $totalPages,
+            'loginAttempts' => $loginAttemptModel->getAttempts($loginAttemptFilters, $loginAttemptPage, $perPage),
+            'loginAttemptFilters' => $loginAttemptFilters,
+            'loginAreas' => $loginAttemptModel->getLoginAreas(),
+            'loginAttemptUsernames' => $loginAttemptModel->getAttemptUsernames(),
+            'loginAttemptPage' => $loginAttemptPage,
+            'totalLoginAttempts' => $totalLoginAttempts,
+            'totalLoginAttemptPages' => $totalLoginAttemptPages,
+        ]);
+    }
+
+    public function exportSecurityLogsCsv() {
+        $this->requireAdmin(['superadmin']);
+
+        $tab = ($_GET['tab'] ?? 'audit') === 'login-attempts' ? 'login-attempts' : 'audit';
+        if ($tab === 'login-attempts') {
+            $filters = [
+                'login_area' => trim((string)($_GET['login_area'] ?? '')),
+                'username' => trim((string)($_GET['login_username'] ?? '')),
+                'result' => trim((string)($_GET['login_result'] ?? '')),
+                'date_from' => trim((string)($_GET['login_date_from'] ?? '')),
+                'date_to' => trim((string)($_GET['login_date_to'] ?? '')),
+                'search' => trim((string)($_GET['login_search'] ?? '')),
+            ];
+            $rows = (new AdminLoginAttemptModel())->getAttempts($filters, 1, 5000);
+            $this->streamCsv('login-attempts-' . date('Y-m-d') . '.csv', [
+                'ID', 'Attempted At', 'Login Area', 'Username', 'IP Address', 'Result'
+            ], array_map(static function ($row) {
+                return [
+                    $row['id'] ?? '',
+                    $row['attempted_at'] ?? '',
+                    $row['login_area'] ?? '',
+                    $row['username'] ?? '',
+                    $row['ip_address'] ?? '',
+                    !empty($row['successful']) ? 'Success' : 'Failed',
+                ];
+            }, $rows));
+        }
+
+        $filters = [
+            'action' => trim((string)($_GET['action'] ?? '')),
+            'admin_id' => isset($_GET['admin_id']) ? (int)$_GET['admin_id'] : 0,
+            'target_type' => trim((string)($_GET['target_type'] ?? '')),
+            'date_from' => trim((string)($_GET['date_from'] ?? '')),
+            'date_to' => trim((string)($_GET['date_to'] ?? '')),
+            'search' => trim((string)($_GET['search'] ?? '')),
+        ];
+        $rows = (new AdminAuditLogModel())->getLogs($filters, 1, 5000);
+        $this->streamCsv('audit-logs-' . date('Y-m-d') . '.csv', [
+            'ID', 'Created At', 'Admin ID', 'Admin Username', 'Admin Role', 'Action', 'Target Type', 'Target ID', 'Details JSON', 'IP Address', 'User Agent'
+        ], array_map(static function ($row) {
+            return [
+                $row['id'] ?? '',
+                $row['created_at'] ?? '',
+                $row['admin_id'] ?? '',
+                $row['admin_username'] ?? '',
+                $row['admin_role'] ?? '',
+                $row['action'] ?? '',
+                $row['target_type'] ?? '',
+                $row['target_id'] ?? '',
+                $row['details_json'] ?? '',
+                $row['ip_address'] ?? '',
+                $row['user_agent'] ?? '',
+            ];
+        }, $rows));
+    }
+
+    public function exportOrdersCsv() {
+        $this->requireAdmin(['admin', 'superadmin']);
+
+        $filters = $this->buildOrdersFilterFromRequest();
+        $rows = (new OrderModel())->getOrdersExportRows($filters, 50000);
+
+        $this->streamCsv('orders-export-' . date('Y-m-d') . '.csv', [
+            'Order ID',
+            'Order Date',
+            'Status',
+            'Customer Type',
+            'Sale Type',
+            'Booking Source',
+            'Customer Name',
+            'Customer Email',
+            'Customer Phone',
+            'Pickup Datetime',
+            'Return Datetime',
+            'Delivery Type',
+            'Delivery Hotel',
+            'Delivery Hotel Address',
+            'Pickup Hotel',
+            'Pickup Hotel Address',
+            'Pickup / Return Location',
+            'Pickup Location',
+            'Pickup Location Address',
+            'Total Amount',
+            'Security Deposit',
+            'Delivery Fee',
+            'Promo Code',
+            'Promo Discount',
+            'Heard About',
+            'Booked By',
+            'Booked By Role',
+            'Order Item ID',
+            'Product ID',
+            'Product Name',
+            'Variation',
+            'Quantity',
+            'Item Price',
+            'Scooter ID',
+        ], array_map(static function ($row) {
+            $pickupLocation = $row['pickup_location_name'] ?? '';
+            if ($pickupLocation === '') {
+                $pickupLocation = $row['pickup_location'] ?? '';
+            }
+            $pickupReturnLocation = $row['pickup_hotel_name'] ?? '';
+            if ($pickupReturnLocation === '') {
+                $pickupReturnLocation = $pickupLocation;
+            }
+
+            return [
+                $row['order_id'] ?? '',
+                $row['order_date'] ?? '',
+                $row['status'] ?? '',
+                $row['customer_type'] ?? '',
+                $row['sale_type'] ?? '',
+                $row['booking_source_display'] ?? $row['booking_source'] ?? '',
+                $row['customer_name'] ?? '',
+                $row['guest_email'] ?? '',
+                $row['guest_phone'] ?? '',
+                $row['pickup_datetime'] ?? '',
+                $row['return_datetime'] ?? '',
+                $row['delivery_type'] ?? '',
+                $row['delivery_hotel_name'] ?? '',
+                $row['delivery_hotel_address'] ?? '',
+                $row['pickup_hotel_name'] ?? '',
+                $row['pickup_hotel_address'] ?? '',
+                $pickupReturnLocation,
+                $pickupLocation,
+                $row['pickup_location_address'] ?? '',
+                $row['total_amount'] ?? '',
+                $row['security_deposit'] ?? '',
+                $row['delivery_fee'] ?? '',
+                $row['promo_code'] ?? '',
+                $row['promo_discount'] ?? '',
+                $row['heard_about_display'] ?? '',
+                $row['created_by_admin_name'] ?? '',
+                $row['created_by_admin_role'] ?? '',
+                $row['order_item_id'] ?? '',
+                $row['product_id'] ?? '',
+                $row['product_name'] ?? '',
+                $row['variation_name'] ?? '',
+                $row['quantity'] ?? '',
+                $row['item_price'] ?? '',
+                $row['scooter_id'] ?? '',
+            ];
+        }, $rows));
+    }
+
     public function savePromoCode() {
         $this->requireAdmin(['admin', 'superadmin']);
         if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
@@ -1186,10 +1559,16 @@ class AdminController extends Controller
         }
         $promoModel = new PromoCodeModel();
         $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
+        $existingPromo = $id ? $promoModel->getById($id) : null;
         $ok = $promoModel->save($_POST, $id);
         if (!$ok) {
             $_SESSION['promo_error'] = 'Failed to save promo code. The code may already exist.';
         } else {
+            $savedPromo = $id ? $promoModel->getById($id) : $promoModel->getByCode((string)($_POST['code'] ?? ''));
+            $this->logAdminAction($id ? 'promo_code_updated' : 'promo_code_created', 'promo_code', $savedPromo['id'] ?? $id, [
+                'before' => $existingPromo,
+                'after' => $savedPromo,
+            ]);
             $_SESSION['promo_success'] = $id ? 'Promo code updated.' : 'Promo code created.';
         }
         header('Location: /admin/promo-codes');
@@ -1204,7 +1583,12 @@ class AdminController extends Controller
         }
         $id = (int)($_POST['id'] ?? 0);
         if ($id > 0) {
-            (new PromoCodeModel())->delete($id);
+            $promoModel = new PromoCodeModel();
+            $existingPromo = $promoModel->getById($id);
+            $promoModel->delete($id);
+            $this->logAdminAction('promo_code_deleted', 'promo_code', $id, [
+                'deleted' => $existingPromo,
+            ]);
             $_SESSION['promo_success'] = 'Promo code deleted.';
         }
         header('Location: /admin/promo-codes');
@@ -1696,38 +2080,7 @@ class AdminController extends Controller
     }
 
     private function storeTipsTroubleshootingArticleImage(array $imageFile) {
-        $errorCode = (int) ($imageFile['error'] ?? UPLOAD_ERR_NO_FILE);
-        if ($errorCode === UPLOAD_ERR_NO_FILE) {
-            return null;
-        }
-        if ($errorCode !== UPLOAD_ERR_OK) {
-            throw new \RuntimeException('Article image upload failed.');
-        }
-
-        $uploadDir = dirname(__DIR__, 2) . '/public/img/uploads';
-        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
-            throw new \RuntimeException('Unable to create the image upload folder.');
-        }
-
-        $originalName = (string) ($imageFile['name'] ?? '');
-        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-        $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'svg'];
-        if (!in_array($extension, $allowedExtensions, true)) {
-            throw new \RuntimeException('Please upload JPG, PNG, WEBP, or SVG images only.');
-        }
-
-        $tmpFile = (string) ($imageFile['tmp_name'] ?? '');
-        if ($tmpFile === '') {
-            throw new \RuntimeException('Invalid uploaded article image.');
-        }
-
-        $fileName = 'tips-article-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
-        $destination = $uploadDir . '/' . $fileName;
-        if (!move_uploaded_file($tmpFile, $destination)) {
-            throw new \RuntimeException('Unable to save the article image.');
-        }
-
-        return '/img/uploads/' . $fileName;
+        return (new AdminImageUploadService())->store($imageFile, 'tips-article', 'Article image upload failed.');
     }
 
     private function isPostBodyTooLarge() {

@@ -107,6 +107,9 @@ class OrderController extends Controller
 
     private function getStripeFallbackPayloadFromPost(array $post): array
     {
+        $bookingSource = strtolower(trim((string)($post['booking_source'] ?? 'online')));
+        $isAdminOrigin = in_array($bookingSource, ['walk-in', 'walkin', 'admin', 'kiosk'], true);
+
         return [
             'checkout_ref' => trim((string)($post['checkout_ref'] ?? '')),
             'first_name' => trim((string)($post['first_name'] ?? '')),
@@ -134,9 +137,9 @@ class OrderController extends Controller
             'acknowledge_id_presence' => trim((string)($post['acknowledge_id_presence'] ?? '')),
             'sale_type' => trim((string)($post['sale_type'] ?? 'rental')),
             'cart_json' => (string)($post['cart'] ?? '[]'),
-            'created_by_admin_id' => trim((string)($_SESSION['admin_id'] ?? '')),
-            'created_by_admin_role' => trim((string)($_SESSION['admin_role'] ?? '')),
-            'created_by_admin_name' => trim((string)($_SESSION['admin_username'] ?? '')),
+            'created_by_admin_id' => $isAdminOrigin ? trim((string)($_SESSION['admin_id'] ?? '')) : '',
+            'created_by_admin_role' => $isAdminOrigin ? trim((string)($_SESSION['admin_role'] ?? '')) : '',
+            'created_by_admin_name' => $isAdminOrigin ? trim((string)($_SESSION['admin_username'] ?? '')) : '',
         ];
     }
 
@@ -144,7 +147,7 @@ class OrderController extends Controller
     {
         $ack = strtolower(trim((string)($source['acknowledge_id_presence'] ?? '')));
         if (!in_array($ack, ['1', 'true', 'on', 'yes'], true)) {
-            return 'Please confirm the customer must be present with a valid ID to receive the scooter.';
+            return 'Please complete the required acknowledgements before proceeding.';
         }
         return null;
     }
@@ -299,7 +302,7 @@ class OrderController extends Controller
             $metaTotal = (float)($meta['total_amount'] ?? 0);
             $totalAmount = $metaTotal > 0
                 ? round($metaTotal, 2)
-                : round($productAmount + self::SECURITY_DEPOSIT + $deliveryFee, 2);
+                : (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee)['total_amount_with_tax'];
 
             $pickup = trim((string)($meta['pickup_datetime'] ?? ''));
             $return = trim((string)($meta['return_datetime'] ?? ''));
@@ -470,6 +473,7 @@ class OrderController extends Controller
     public function completeOrder() {
         $this->ensureAdminAuthenticatedRedirect('/admin/login');
         if (session_status() === PHP_SESSION_NONE) session_start();
+        $this->requireAdminRoleRedirect(['superadmin', 'admin', 'staff'], '/admin/orders');
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 http_response_code(403);
@@ -486,6 +490,11 @@ class OrderController extends Controller
 
         $orderModel = new OrderModel();
         $messages = $orderModel->completeOrderProcess($orderId);
+        $this->logAdminAction('order_completed', 'order', $orderId, [
+            'new_status' => 'completed',
+            'messages' => $messages,
+            'handler' => 'order_controller',
+        ]);
         $_SESSION['order_complete_message'] = implode("<br>", $messages);
         header("Location: /admin/orders");
         exit;
@@ -494,6 +503,7 @@ class OrderController extends Controller
     public function cancelOrder() {
         $this->ensureAdminAuthenticatedRedirect('/admin/login');
         if (session_status() === PHP_SESSION_NONE) session_start();
+        $this->requireAdminRoleRedirect(['superadmin', 'admin'], '/admin/orders');
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 http_response_code(403);
@@ -510,6 +520,10 @@ class OrderController extends Controller
 
         $orderModel = new OrderModel();
         $message = $orderModel->cancelOrderProcess($orderId);
+        $this->logAdminAction('order_cancelled', 'order', $orderId, [
+            'new_status' => 'cancelled',
+            'message' => $message,
+        ]);
         $_SESSION['order_cancel_message'] = $message;
         header("Location: /admin/orders");
         exit;
@@ -544,6 +558,35 @@ class OrderController extends Controller
         }
 
         echo json_encode($details);
+        exit;
+    }
+
+    public function downloadOrderDocument() {
+        $this->ensureAdminAuthenticatedRedirect('/admin/login');
+
+        $orderId = isset($_GET['order_id']) ? (int)$_GET['order_id'] : 0;
+        $type = strtolower(trim((string)($_GET['type'] ?? '')));
+        $allowedTypes = ['contract', 'invoice', 'proforma'];
+        if ($orderId <= 0 || !in_array($type, $allowedTypes, true)) {
+            http_response_code(400);
+            echo 'Invalid document request.';
+            exit;
+        }
+
+        $orderModel = new OrderModel();
+        $path = $orderModel->resolveOrderDocumentPath($orderId, $type);
+        if (!$path || !is_file($path) || !is_readable($path)) {
+            http_response_code(404);
+            echo 'Document not found.';
+            exit;
+        }
+
+        $fileName = $type . '-' . $orderId . '.pdf';
+        header('Content-Type: application/pdf');
+        header('Content-Length: ' . (string)filesize($path));
+        header('Content-Disposition: inline; filename="' . $fileName . '"');
+        header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
+        readfile($path);
         exit;
     }
 
@@ -607,15 +650,8 @@ class OrderController extends Controller
                 exit;
             }
 
-            $idPresenceError = $this->validateIdPresenceAcknowledgement($_POST);
-            if ($idPresenceError !== null) {
-                ob_end_clean();
-                ob_start();
-                http_response_code(422);
-                echo json_encode(['error' => $idPresenceError]);
-                ob_end_flush();
-                exit;
-            }
+            // Do not block Stripe Payment Element initialization based on acknowledgement checkboxes.
+            // Acknowledgements are enforced before final order creation in finalize and checkout flows.
 
             $handednessError = $this->validatePowerChairHandednessRequirement($_POST, is_array($cart) ? $cart : []);
             if ($handednessError !== null) {
@@ -691,7 +727,7 @@ class OrderController extends Controller
             }
             
             // Call the finalization logic
-            $result = $this->finalizeStripePaymentIntentById($paymentIntentId);
+            $result = $this->finalizeStripePaymentIntentById($paymentIntentId, is_array($input) ? $input : []);
             
             // Clear any stray output and return JSON
             ob_end_clean();
@@ -712,7 +748,7 @@ class OrderController extends Controller
         exit;
     }
 
-    private function finalizeStripePaymentIntentById($paymentIntentId)
+    private function finalizeStripePaymentIntentById($paymentIntentId, array $requestInput = [])
     {
         if (!$paymentIntentId) {
             return ['error' => 'Payment intent ID missing'];
@@ -767,6 +803,36 @@ class OrderController extends Controller
             }
         }
 
+        $snapshot = $requestInput['checkout_snapshot'] ?? null;
+        if (is_array($snapshot)) {
+            $allowedSnapshotKeys = [
+                'first_name', 'last_name', 'email', 'phone',
+                'client_weight_option', 'client_height',
+                'address1', 'address2', 'state', 'zip',
+                'delivery_type', 'hotel_id', 'return_hotel_id',
+                'pickup_datetime', 'return_datetime', 'pickup_location',
+                'notes', 'heard_about_option_id', 'heard_about_other_text',
+                'sale_type'
+            ];
+
+            foreach ($allowedSnapshotKeys as $key) {
+                if (array_key_exists($key, $snapshot)) {
+                    $meta[$key] = trim((string)$snapshot[$key]);
+                }
+            }
+        }
+
+        // Prefer the most recent acknowledgement values from finalize request.
+        if (array_key_exists('acknowledge_id_presence', $requestInput)) {
+            $meta['acknowledge_id_presence'] = (string)$requestInput['acknowledge_id_presence'];
+        }
+        if (array_key_exists('agree_policy', $requestInput)) {
+            $meta['agree_policy'] = (string)$requestInput['agree_policy'];
+        }
+        if (array_key_exists('cart_json', $requestInput)) {
+            $meta['cart_json'] = (string)$requestInput['cart_json'];
+        }
+
         $cart = json_decode($meta['cart_json'] ?? '[]', true);
         $guestEmail = filter_var(trim($meta['guest_email'] ?? ''), FILTER_VALIDATE_EMAIL);
         if (!is_array($cart) || empty($cart)) {
@@ -796,6 +862,26 @@ class OrderController extends Controller
         } catch (\Throwable $e) {
             error_log('Finalize payment model init error: ' . $e->getMessage());
             return ['error' => 'Order initialization failed after payment.', 'http_status' => 500];
+        }
+
+        $chargeId = null;
+        if (isset($intent->latest_charge)) {
+            if (is_string($intent->latest_charge)) {
+                $chargeId = $intent->latest_charge;
+            } elseif (is_object($intent->latest_charge) && isset($intent->latest_charge->id)) {
+                $chargeId = (string)$intent->latest_charge->id;
+            }
+        }
+
+        if (!$orderId) {
+            $orderId = $orderModel->findOrderIdByProviderReference([
+                'payment_provider' => 'stripe',
+                'provider_payment_intent_id' => (string)$paymentIntentId,
+                'provider_charge_id' => $chargeId,
+            ]);
+            if ($orderId) {
+                $_SESSION[$intentOrderSessionKey] = $orderId;
+            }
         }
 
         if (!$orderId) {
@@ -831,6 +917,8 @@ class OrderController extends Controller
                 'created_by_admin_role' => $meta['created_by_admin_role'] ?? '',
                 'created_by_admin_name' => $meta['created_by_admin_name'] ?? '',
                 'payment' => 'card',
+                'provider_payment_intent_id' => (string)$paymentIntentId,
+                'provider_charge_id' => $chargeId,
             ];
 
             $bookingWindowError = $this->validateBookingWindowConstraints($postData);
@@ -856,14 +944,28 @@ class OrderController extends Controller
                 $orderId = $orderModel->fullOrderProcess($postData, $cart, $_SESSION);
             } catch (\Throwable $e) {
                 error_log('Finalize payment fullOrderProcess error: ' . $e->getMessage());
-                $orderId = $this->findRecentlyCreatedStripeOrderId($guestEmail, $cart, $meta);
+                $orderId = $orderModel->findOrderIdByProviderReference([
+                    'payment_provider' => 'stripe',
+                    'provider_payment_intent_id' => (string)$paymentIntentId,
+                    'provider_charge_id' => $chargeId,
+                ]);
+                if (!$orderId) {
+                    $orderId = $this->findRecentlyCreatedStripeOrderId($guestEmail, $cart, $meta);
+                }
                 if (!$orderId) {
                     return ['error' => 'Could not store the Stripe order after payment.', 'http_status' => 500];
                 }
             }
 
             if (!$orderId) {
-                $orderId = $this->findRecentlyCreatedStripeOrderId($guestEmail, $cart, $meta);
+                $orderId = $orderModel->findOrderIdByProviderReference([
+                    'payment_provider' => 'stripe',
+                    'provider_payment_intent_id' => (string)$paymentIntentId,
+                    'provider_charge_id' => $chargeId,
+                ]);
+                if (!$orderId) {
+                    $orderId = $this->findRecentlyCreatedStripeOrderId($guestEmail, $cart, $meta);
+                }
                 if (!$orderId) {
                     return ['error' => 'Could not store the Stripe order after payment.', 'http_status' => 500];
                 }
@@ -881,14 +983,6 @@ class OrderController extends Controller
         }
 
         try {
-            $chargeId = null;
-            if (isset($intent->latest_charge)) {
-                if (is_string($intent->latest_charge)) {
-                    $chargeId = $intent->latest_charge;
-                } elseif (is_object($intent->latest_charge) && isset($intent->latest_charge->id)) {
-                    $chargeId = (string)$intent->latest_charge->id;
-                }
-            }
             $orderModel->saveOrderPaymentProviderReferences((int)$orderId, [
                 'payment_provider' => 'stripe',
                 'provider_payment_intent_id' => (string)$paymentIntentId,
@@ -896,6 +990,15 @@ class OrderController extends Controller
             ]);
         } catch (\Throwable $e) {
             error_log('Finalize payment provider reference update warning: ' . $e->getMessage());
+            $existingOrderId = $orderModel->findOrderIdByProviderReference([
+                'payment_provider' => 'stripe',
+                'provider_payment_intent_id' => (string)$paymentIntentId,
+                'provider_charge_id' => $chargeId,
+            ]);
+            if ($existingOrderId) {
+                $orderId = $existingOrderId;
+                $_SESSION[$intentOrderSessionKey] = $orderId;
+            }
         }
 
         // Always ensure docs/email after finalize (safe to re-run).
@@ -938,24 +1041,7 @@ class OrderController extends Controller
             }
         }
 
-        // Fallback to latest paid Stripe order if payment intent query params are missing.
-        $pdo = \App\Utils\Database::getInstance();
-        $stmt = $pdo->prepare("SELECT order_id FROM orders WHERE payment_method = 'card' ORDER BY order_id DESC LIMIT 1");
-        $stmt->execute();
-        $orderId = $stmt->fetchColumn();
-
-        if (!$orderId) {
-            header('Location: /checkout');
-            exit;
-        }
-
-        $token = $_SESSION["order_token_$orderId"] ?? null;
-        if (!$token) {
-            $token = bin2hex(random_bytes(16));
-            $_SESSION["order_token_$orderId"] = $token;
-        }
-
-        header("Location: /checkout?order=$orderId&token=$token");
+        header('Location: /checkout');
         exit;
     }
 
@@ -1139,8 +1225,9 @@ class OrderController extends Controller
                 'delivery_type' => $delivery_type,
                 'hotel_id' => $hotel_id,
             ]);
-            $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
-            $totalAmount = $totalAmountWithTax;
+            $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, $deliveryFee);
+            $totalAmountWithTax = $totals['total_amount_with_tax'];
+            $totalAmount = $totals['total_amount'];
 
             
             if (isset($myfile) && is_resource($myfile)) {
@@ -1183,9 +1270,9 @@ class OrderController extends Controller
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, address1, address2, state, zip, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, delivery_fee, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, address1, address2, state, zip, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, delivery_fee, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :delivery_type, :hotel_id, :return_hotel_id, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, :delivery_fee, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :client_height, :power_chair_handedness, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :delivery_type, :hotel_id, :return_hotel_id, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, :delivery_fee, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
                     )"
                 );
                 $params = [
@@ -1196,6 +1283,8 @@ class OrderController extends Controller
                     ':guest_phone' => $guestPhone,
                     ':client_weight_option' => $clientWeightOption !== '' ? $clientWeightOption : null,
                     ':client_weight_lbs' => $clientWeightLbs,
+                    ':client_height' => trim((string)($postData['client_height'] ?? '')) !== '' ? trim((string)($postData['client_height'] ?? '')) : null,
+                    ':power_chair_handedness' => $powerChairHandedness !== '' ? $powerChairHandedness : null,
                     ':address1' => $address1,
                     ':address2' => $address2,
                     ':state' => $state,
@@ -1262,7 +1351,7 @@ class OrderController extends Controller
                                 $params = array_merge($params, $reservedScootersGlobal);
                             }
                             // Exclude scooters with any overlapping reservations (pending, confirmed, paid)
-                            $sql = "SELECT s.scooter_id FROM scooters s WHERE s.product_id = ?{$variationClause} AND s.status = 'available' AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.scooter_id = s.scooter_id AND r.status IN ('pending','confirmed','paid') AND NOT (r.return_datetime <= ? OR r.pickup_datetime >= ?)) $excludeClause ORDER BY s.scooter_id ASC LIMIT 1";
+                            $sql = "SELECT s.scooter_id FROM scooters s WHERE s.product_id = ?{$variationClause} AND s.status = 'available' AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.scooter_id = s.scooter_id AND r.status IN ('pending','confirmed','paid') AND NOT (r.return_datetime <= ? OR r.pickup_datetime >= ?)) $excludeClause ORDER BY s.scooter_id ASC LIMIT 1 FOR UPDATE";
                             fwrite($myfile, "[DEBUG] Scooter assignment attempt $i/$qty for product_id=$pid, variation_id=$variation_id, order_id=$orderId\n");
                             fwrite($myfile, "[DEBUG] SQL: $sql\n");
                             fwrite($myfile, "[DEBUG] Params: " . json_encode($params) . "\n");
@@ -1384,7 +1473,7 @@ class OrderController extends Controller
                 $dompdf->loadHtml($html);
                 $dompdf->setPaper('A4', 'portrait');
                 $dompdf->render();
-                $pdfDir = __DIR__ . '/../../Contracts/';
+                $pdfDir = dirname(__DIR__, 2) . '/storage/documents/contracts/';
                 if (!is_dir($pdfDir)) mkdir($pdfDir, 0777, true);
                 file_put_contents($pdfDir . "contract-{$orderId}.pdf", $dompdf->output());
                 $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
@@ -1414,10 +1503,11 @@ class OrderController extends Controller
                 $orderDate = date('Y-m-d H:i:s');
                 $productTotalWithTax = round((float)$subtotal, 2);
                 $securityDeposit = self::SECURITY_DEPOSIT;
-                $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
-                $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
-                $totalAmount = round($productPreTax + $securityDeposit, 2);
-                $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
+                $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, 0.0);
+                $totalAmountWithTax = $totals['total_amount_with_tax'];
+                $productPreTax = $totals['product_pre_tax'];
+                $totalAmount = $totals['total_amount'];
+                $tax = $totals['tax'];
                 $discountAmount = 0.0;
                 $promoCode = (isset($meta) && is_object($meta)) ? (string)($meta->promo_code ?? '') : '';
                 $paymentMethod = 'card';
@@ -1433,7 +1523,7 @@ class OrderController extends Controller
                 $invoiceDompdf->loadHtml($invoiceHtml);
                 $invoiceDompdf->setPaper('A4', 'portrait');
                 $invoiceDompdf->render();
-                $invoiceDir = __DIR__ . '/../../Proformas/';
+                $invoiceDir = dirname(__DIR__, 2) . '/storage/documents/proformas/';
                 if (!is_dir($invoiceDir)) mkdir($invoiceDir, 0777, true);
                 file_put_contents($invoiceDir . "proforma-{$orderId}.pdf", $invoiceDompdf->output());
                 $invoicePath = $invoiceDir . "proforma-{$orderId}.pdf";
@@ -1594,8 +1684,19 @@ class OrderController extends Controller
             exit;
         }
 
+        $cart = $orderModel->normalizeCartForTrustedPricing(
+            is_array($cart) ? $cart : [],
+            $pickup_datetime,
+            $return_datetime,
+            $formData['sale_type'] ?? 'rental'
+        );
+        if (empty($cart)) {
+            echo json_encode(['error' => 'No valid cart items were found. Please update your cart.']);
+            exit;
+        }
+
         if (is_resource($myfile)) {
-            fwrite($myfile, "DEBUG CART: " . print_r($cart, true) . "\n");
+            fwrite($myfile, "DEBUG TRUSTED CART: " . print_r($cart, true) . "\n");
             fwrite($myfile, "DEBUG FORM DATA: " . print_r($formData, true) . "\n");
         }
         // --- END DEBUGGING ---
@@ -1606,7 +1707,7 @@ class OrderController extends Controller
         $totalAmount = 0;
         $items = [];
         foreach ($cart as $item) {
-            $qty = max(1, intval($item['quantity'] ?? 1));
+            $qty = max(1, intval($item['qty'] ?? $item['quantity'] ?? 1));
             $price = (float)($item['price'] ?? 0);
             $lineTotal = $qty * $price;
             $totalAmount += $lineTotal;
@@ -1631,7 +1732,21 @@ class OrderController extends Controller
             'quantity' => '1',
             'category' => 'PHYSICAL_GOODS'
         ];
-        $totalAmount = round($totalAmount + self::SECURITY_DEPOSIT, 2);
+
+        $deliveryFee = $this->resolveDeliveryFeeForInput($formData);
+        if ($deliveryFee > 0) {
+            $items[] = [
+                'name' => 'Hotel Delivery Fee',
+                'unit_amount' => [
+                    'currency_code' => 'USD',
+                    'value' => number_format($deliveryFee, 2, '.', '')
+                ],
+                'quantity' => '1',
+                'category' => 'PHYSICAL_GOODS'
+            ];
+        }
+
+        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee)['total_amount_with_tax'];
 
         if (is_resource($myfile)) {
             fwrite($myfile,"Items array: \n" . print_r($items, true) . "\n");
@@ -1881,14 +1996,29 @@ class OrderController extends Controller
 
             if (!empty($cart)) {
                 $log("CART IS NOT EMPTY. Proceeding to create DB order.\n");
-                $this->createDbOrderFromPaypal($userId, $formData, $cart, (string)$orderId, $paypalCaptureId);
+                $localOrderId = $this->createDbOrderFromPaypal($userId, $formData, $cart, (string)$orderId, $paypalCaptureId);
             } else {
+                $localOrderId = null;
                 $log("CART IS EMPTY. No DB order will be created.\n");
             }
 
             $log("CAPTURE SUCCESSFUL\n");
 
-            echo json_encode(method_exists($order, 'jsonSerialize') ? $order->jsonSerialize() : $order);
+            $responsePayload = method_exists($order, 'jsonSerialize') ? $order->jsonSerialize() : $order;
+            if (!is_array($responsePayload)) {
+                $responsePayload = json_decode(json_encode($responsePayload), true) ?: [];
+            }
+
+            if ($localOrderId) {
+                $token = $_SESSION["order_token_$localOrderId"] ?? '';
+                if ($token) {
+                    $responsePayload['local_order_id'] = (int)$localOrderId;
+                    $responsePayload['local_order_token'] = $token;
+                    $responsePayload['redirect_url'] = '/checkout?order=' . urlencode((string)$localOrderId) . '&token=' . urlencode($token);
+                }
+            }
+
+            echo json_encode($responsePayload);
         } catch (\Exception $e) {
             http_response_code(500);
             $log("EXCEPTION: " . $e->getMessage() . "\n");
@@ -1913,6 +2043,22 @@ class OrderController extends Controller
             return;
         }
         $pdo = \App\Utils\Database::getInstance();
+        $orderModel = new \App\Models\OrderModel();
+
+        $existingOrderId = $orderModel->findOrderIdByProviderReference([
+            'payment_provider' => 'paypal',
+            'provider_paypal_order_id' => $paypalOrderId,
+            'provider_paypal_capture_id' => $paypalCaptureId,
+        ]);
+        if ($existingOrderId) {
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            if (empty($_SESSION["order_token_$existingOrderId"])) {
+                $_SESSION["order_token_$existingOrderId"] = bin2hex(random_bytes(16));
+            }
+            return (int)$existingOrderId;
+        }
 
         $guestName = htmlspecialchars(trim($formData['name'] ?? ''));
         $guestEmail = filter_var(trim($formData['email'] ?? ''), FILTER_VALIDATE_EMAIL);
@@ -2002,21 +2148,30 @@ class OrderController extends Controller
             }
         }
 
+        $cart = $orderModel->normalizeCartForTrustedPricing(
+            is_array($cart) ? $cart : [],
+            $pickup_datetime,
+            $return_datetime,
+            $formData['sale_type'] ?? 'rental'
+        );
+        if (empty($cart)) {
+            throw new \Exception('No valid cart items were found for PayPal order creation.');
+        }
+
         // Calculate total
         $totalAmount = 0;
         foreach ($cart as $item) {
-            $totalAmount += ($item['quantity'] ?? 1) * ($item['price'] ?? 0);
+            $totalAmount += ($item['qty'] ?? $item['quantity'] ?? 1) * ($item['price'] ?? 0);
         }
         $productTotalWithTax = round($totalAmount, 2);
         $securityDeposit = self::SECURITY_DEPOSIT;
         $deliveryFee = $this->resolveDeliveryFeeForInput($formData);
-        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
+        $totalAmountWithTax = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, $deliveryFee)['total_amount_with_tax'];
 
         // Insert order
         // Extract first and last name from formData (PayPal checkout)
         $first_name = $formData['first_name'] ?? '';
         $last_name = $formData['last_name'] ?? '';
-        new \App\Models\OrderModel();
         $heardAboutResolved = $this->resolveHeardAboutSelection($formData);
         $heardAboutOptionId = $heardAboutResolved['option_id'];
         $heardAboutLabel = $heardAboutResolved['label'];
@@ -2025,15 +2180,38 @@ class OrderController extends Controller
                 user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, total_amount, security_deposit, delivery_fee, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
-        $stmt->execute([
-            $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs, $clientHeight !== '' ? $clientHeight : null, $powerChairHandedness !== '' ? $powerChairHandedness : null,
-            $totalAmountWithTax, $securityDeposit, $deliveryFee, date('Y-m-d H:i:s'), 'paid',
-            $address1, $address2, $state, $zip, $pickupLocation, $notes,
-            $heardAboutOptionId,
-            $heardAboutLabel,
-            'paypal', 'paypal', $paypalOrderId, $paypalCaptureId, $customerType, $formData['sale_type'] ?? 'rental',
-            $pickup_datetime, $return_datetime, $formData['delivery_type'] ?? 'preferred', $formData['hotel_id'] ?? null, $formData['return_hotel_id'] ?? null
-        ]);
+        try {
+            $stmt->execute([
+                $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs, $clientHeight !== '' ? $clientHeight : null, $powerChairHandedness !== '' ? $powerChairHandedness : null,
+                $totalAmountWithTax, $securityDeposit, $deliveryFee, date('Y-m-d H:i:s'), 'paid',
+                $address1, $address2, $state, $zip, $pickupLocation, $notes,
+                $heardAboutOptionId,
+                $heardAboutLabel,
+                'paypal', 'paypal', $paypalOrderId, $paypalCaptureId, $customerType, $formData['sale_type'] ?? 'rental',
+                $pickup_datetime, $return_datetime, $formData['delivery_type'] ?? 'preferred', $formData['hotel_id'] ?? null, $formData['return_hotel_id'] ?? null
+            ]);
+        } catch (\PDOException $e) {
+            if (($e->errorInfo[0] ?? '') !== '23000') {
+                throw $e;
+            }
+
+            $existingOrderId = $orderModel->findOrderIdByProviderReference([
+                'payment_provider' => 'paypal',
+                'provider_paypal_order_id' => $paypalOrderId,
+                'provider_paypal_capture_id' => $paypalCaptureId,
+            ]);
+            if (!$existingOrderId) {
+                throw $e;
+            }
+
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            if (empty($_SESSION["order_token_$existingOrderId"])) {
+                $_SESSION["order_token_$existingOrderId"] = bin2hex(random_bytes(16));
+            }
+            return (int)$existingOrderId;
+        }
         $orderId = $pdo->lastInsertId();
 
         // Generate token for PayPal success ===
@@ -2076,7 +2254,7 @@ class OrderController extends Controller
                     $scooterQuery .= " AND s.scooter_id NOT IN ($placeholders)";
                     $params = array_merge($params, $reservedScooterIds);
                 }
-                $scooterQuery .= " ORDER BY s.scooter_id ASC LIMIT 1";
+                $scooterQuery .= " ORDER BY s.scooter_id ASC LIMIT 1 FOR UPDATE";
                 $stmtScooter = $pdo->prepare($scooterQuery);
                 $stmtScooter->execute($params);
                 $scooterId = $stmtScooter->fetchColumn();
@@ -2125,7 +2303,6 @@ class OrderController extends Controller
             ];
         }
         // Mark scooters as sold if for-sale (for-sale flow)
-        $orderModel = new \App\Models\OrderModel();
         $orderModel->markScootersSoldIfForSale($cart, $assignedScooters);
 
         // --- CONTRACT PDF GENERATION ---
@@ -2176,7 +2353,7 @@ class OrderController extends Controller
         $dompdf->setPaper('A4', 'portrait');
         $dompdf->render();
 
-        $pdfDir = __DIR__ . '/../../Contracts/';
+        $pdfDir = dirname(__DIR__, 2) . '/storage/documents/contracts/';
         if (!is_dir($pdfDir)) mkdir($pdfDir, 0777, true);
         file_put_contents($pdfDir . "contract-{$orderId}.pdf", $dompdf->output());
         $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
@@ -2213,10 +2390,11 @@ class OrderController extends Controller
         $orderDate = date('Y-m-d H:i:s');
         $productTotalWithTax = round((float)$subtotal, 2);
         $securityDeposit = self::SECURITY_DEPOSIT;
-        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
-        $productPreTax = round($productTotalWithTax / self::NV_TAX_INCLUSIVE_FACTOR, 2);
-        $totalAmount = round($productPreTax + $securityDeposit, 2);
-        $tax = round(max(0, $productTotalWithTax - $productPreTax), 2);
+        $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, 0.0);
+        $totalAmountWithTax = $totals['total_amount_with_tax'];
+        $productPreTax = $totals['product_pre_tax'];
+        $totalAmount = $totals['total_amount'];
+        $tax = $totals['tax'];
         $discountAmount = 0.0;
         $promoCode = '';
         $paymentMethod = 'paypal';
@@ -2236,7 +2414,7 @@ class OrderController extends Controller
         $invoiceDompdf->setPaper('A4', 'portrait');
         $invoiceDompdf->render();
 
-        $invoiceDir = __DIR__ . '/../../Proformas/';
+        $invoiceDir = dirname(__DIR__, 2) . '/storage/documents/proformas/';
         if (!is_dir($invoiceDir)) mkdir($invoiceDir, 0777, true);
         file_put_contents($invoiceDir . "proforma-{$orderId}.pdf", $invoiceDompdf->output());
         $invoicePath = $invoiceDir . "proforma-{$orderId}.pdf";
@@ -2305,25 +2483,22 @@ class OrderController extends Controller
 
     public function paypalReturn(){
         if (session_status() === PHP_SESSION_NONE) session_start();
-        
-        // Find the last PayPal order (you can improve this later with token from description)
-        $pdo = \App\Utils\Database::getInstance();
-        $stmt = $pdo->prepare("SELECT order_id FROM orders WHERE payment_method = 'paypal' ORDER BY order_id DESC LIMIT 1");
-        $stmt->execute();
-        $orderId = $stmt->fetchColumn();
 
-        if (!$orderId) {
+        $orderId = (int)($_GET['order'] ?? 0);
+        $token = (string)($_GET['token'] ?? '');
+
+        if (!$orderId || $token === '') {
             header('Location: /checkout');
             exit;
         }
 
-        $token = $_SESSION["order_token_$orderId"] ?? null;
-        if (!$token) {
-            $token = bin2hex(random_bytes(16));
-            $_SESSION["order_token_$orderId"] = $token;
+        $sessionToken = $_SESSION["order_token_$orderId"] ?? '';
+        if ($sessionToken === '' || !hash_equals($sessionToken, $token)) {
+            header('Location: /checkout');
+            exit;
         }
 
-        header("Location: /checkout?order=$orderId&token=$token");
+        header('Location: /checkout?order=' . urlencode((string)$orderId) . '&token=' . urlencode($token));
         exit;
     }
             

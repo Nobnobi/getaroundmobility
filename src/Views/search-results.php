@@ -719,8 +719,6 @@ function paginationUrl($page) {
                 mobileFilterPanel.classList.remove('-translate-x-full');
                 mobileFilterPanel.classList.add('translate-x-0');
                 mobileFilterOverlay.classList.remove('hidden');
-                // Initialize mobile date pickers and logic on open
-                setTimeout(initMobileDateForm, 100);
             });
         }
         // Close filter
@@ -732,309 +730,49 @@ function paginationUrl($page) {
         if (closeMobileFilter) closeMobileFilter.addEventListener('click', closeFilterPanel);
         if (mobileFilterOverlay) mobileFilterOverlay.addEventListener('click', closeFilterPanel);
 
-        // --- Mobile date-form logic (same as desktop) ---
-        function initMobileDateForm() {
-            const pickupInput = document.querySelector('#mobileFilterPanel #pickupDatetime');
-            const returnInput = document.querySelector('#mobileFilterPanel #returnDatetime');
-            if (!pickupInput || !returnInput) return;
+        function bridgeMobileDatesToSharedModal() {
+            const desktopPickup = document.getElementById('pickupDatetime');
+            const desktopReturn = document.getElementById('returnDatetime');
+            const mobilePickup = document.querySelector('#mobileFilterPanel #pickupDatetime');
+            const mobileReturn = document.querySelector('#mobileFilterPanel #returnDatetime');
 
-            // Prevent double-init
-            if (pickupInput._flatpickr && returnInput._flatpickr) return;
+            if (!desktopPickup || !desktopReturn || !mobilePickup || !mobileReturn) {
+                return;
+            }
 
-            function getNearest15Min() {
-                const now = new Date();
-                now.setSeconds(0, 0);
-                const minutes = now.getMinutes();
-                const remainder = minutes % 15;
-                if (remainder !== 0) {
-                    now.setMinutes(minutes + (15 - remainder));
+            if (mobilePickup !== desktopPickup) {
+                mobilePickup.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    desktopPickup.click();
+                });
+            }
+
+            if (mobileReturn !== desktopReturn) {
+                mobileReturn.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    desktopReturn.click();
+                });
+            }
+
+            const syncFromDesktop = function() {
+                if (mobilePickup.value !== desktopPickup.value) {
+                    mobilePickup.value = desktopPickup.value;
                 }
-                return now;
-            }
-
-            function formatTime24(date) {
-                const h = String(date.getHours()).padStart(2, '0');
-                const m = String(date.getMinutes()).padStart(2, '0');
-                return h + ':' + m;
-            }
-
-            function isSameCalendarDay(a, b) {
-                return a && b
-                    && a.getFullYear() === b.getFullYear()
-                    && a.getMonth() === b.getMonth()
-                    && a.getDate() === b.getDate();
-            }
-
-            function syncMobileReturnTimeBounds() {
-                const pickupDate = parseDateValue(pickupInput.value);
-                const returnDate = parseDateValue(returnInput.value);
-
-                if (!pickupDate || !returnPicker) return;
-
-                const minReturnDate = new Date(pickupDate.getTime() + (30 * 60 * 1000));
-
-                if (returnDate && isSameCalendarDay(pickupDate, returnDate)) {
-                    returnPicker.set('minTime', formatTime24(minReturnDate));
-                } else {
-                    returnPicker.set('minTime', '00:00');
+                if (mobileReturn.value !== desktopReturn.value) {
+                    mobileReturn.value = desktopReturn.value;
                 }
-                returnPicker.set('maxTime', '23:59');
-            }
+            };
 
-            function normalizeClassicMeridiem(instance) {
-                if (!instance || !instance.altInput) return;
-                instance.altInput.value = instance.altInput.value.replace(/\bAM\b/g, 'am').replace(/\bPM\b/g, 'pm');
-            }
-
-            // Remove defaultDate — we control it manually
-            const pickupPicker = flatpickr(pickupInput, {
-                enableTime: true,
-                dateFormat: "Y-m-d H:i",
-                altInput: true,
-                altFormat: "F j, Y h:i K",
-                minDate: getNearest15Min(),
-                time_24hr: false,
-                minuteIncrement: 15,
-                disableMobile: true,
-                onReady: function(selectedDates, dateStr, instance) {
-                    normalizeClassicMeridiem(instance);
-                },
-                onValueUpdate: function(selectedDates, dateStr, instance) {
-                    normalizeClassicMeridiem(instance);
-                },
-                onChange: function(selectedDates) {
-                    if (selectedDates[0]) {
-                        const minReturnDate = new Date(selectedDates[0].getTime() + (30 * 60 * 1000));
-                        const maxReturnDate = new Date(selectedDates[0]);
-                        maxReturnDate.setDate(maxReturnDate.getDate() + 31);
-                        returnPicker.set('minDate', minReturnDate);
-                        returnPicker.set('maxDate', maxReturnDate);
-                        syncMobileReturnTimeBounds();
-                        const currentReturn = parseDateValue(returnInput.value);
-                        if (currentReturn && currentReturn < minReturnDate) {
-                            const adjustedReturn = flatpickr.formatDate(minReturnDate, 'Y-m-d H:i');
-                            returnInput.value = adjustedReturn;
-                            returnPicker.setDate(adjustedReturn, false);
-                            localStorage.setItem('returnDatetime', adjustedReturn);
-                            if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
-                            if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
-                            window.dispatchEvent(new CustomEvent('rental-dates-updated', {
-                                detail: { pickup: pickupInput.value || '', return: adjustedReturn }
-                            }));
-                        } else if (currentReturn && currentReturn > maxReturnDate) {
-                            returnInput.value = '';
-                            returnPicker.clear();
-                            localStorage.removeItem('returnDatetime');
-                            if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
-                            if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
-                            window.dispatchEvent(new CustomEvent('rental-dates-updated', {
-                                detail: { pickup: pickupInput.value || '', return: '' }
-                            }));
-                        }
-                    }
-                }
-            });
-
-            const returnPicker = flatpickr(returnInput, {
-                enableTime: true,
-                dateFormat: "Y-m-d H:i",
-                altInput: true,
-                altFormat: "F j, Y h:i K",
-                minDate: getNearest15Min(),
-                time_24hr: false,
-                minuteIncrement: 15,
-                disableMobile: true,
-                onReady: function(selectedDates, dateStr, instance) {
-                    normalizeClassicMeridiem(instance);
-                },
-                onValueUpdate: function(selectedDates, dateStr, instance) {
-                    normalizeClassicMeridiem(instance);
-                },
-                onOpen: function() {
-                    syncMobileReturnTimeBounds();
-                },
-                onChange: function(selectedDates) {
-                    if (selectedDates[0]) {
-                        syncMobileReturnTimeBounds();
-                        const pickupDate = parseDateValue(pickupInput.value);
-                        if (pickupDate && pickupDate >= selectedDates[0]) {
-                            const minReturnDate = new Date(pickupDate.getTime() + (30 * 60 * 1000));
-                            const adjustedReturn = flatpickr.formatDate(minReturnDate, 'Y-m-d H:i');
-                            returnInput.value = adjustedReturn;
-                            returnPicker.setDate(adjustedReturn, false);
-                            localStorage.setItem('returnDatetime', adjustedReturn);
-                            if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
-                            if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
-                            window.dispatchEvent(new CustomEvent('rental-dates-updated', {
-                                detail: { pickup: pickupInput.value || '', return: adjustedReturn }
-                            }));
-                            return;
-                        }
-
-                        if (pickupDate) {
-                            const days = Math.ceil((selectedDates[0] - pickupDate) / (1000 * 60 * 60 * 24));
-                            if (days > 31) {
-                                returnInput.value = '';
-                                returnPicker.clear();
-                                localStorage.removeItem('returnDatetime');
-                                if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
-                                if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
-                                window.dispatchEvent(new CustomEvent('rental-dates-updated', {
-                                    detail: { pickup: pickupInput.value || '', return: '' }
-                                }));
-                                return;
-                            }
-                        }
-                    }
-                }
-            });
-
-            // Load from localStorage or set defaults
-            const savedPickup = localStorage.getItem('pickupDatetime');
-            const savedReturn = localStorage.getItem('returnDatetime');
-            if (!savedPickup || savedPickup === 'null' || savedPickup === '') {
-                const nearest = getNearest15Min();
-                const formatted = flatpickr.formatDate(nearest, "Y-m-d H:i");
-                pickupInput.value = formatted;
-                pickupPicker.setDate(nearest, false);
-                localStorage.setItem('pickupDatetime', formatted);
-            } else {
-                pickupInput.value = savedPickup;
-                pickupPicker.setDate(savedPickup, false);
-            }
-            if (!savedReturn || savedReturn === 'null' || savedReturn === '') {
-                const baseDate = new Date(savedPickup || pickupInput.value);
-                const defaultReturn = new Date(baseDate);
-                defaultReturn.setMinutes(defaultReturn.getMinutes() + 30);
-                const formatted = flatpickr.formatDate(defaultReturn, "Y-m-d H:i");
-                returnInput.value = formatted;
-                returnPicker.setDate(defaultReturn, false);
-                localStorage.setItem('returnDatetime', formatted);
-            } else {
-                returnInput.value = savedReturn;
-                returnPicker.setDate(savedReturn, false);
-            }
-
-            syncMobileReturnTimeBounds();
-
-            // Validation on load
-            const pickupVal = pickupInput.value;
-            const returnVal = returnInput.value;
-            if (pickupVal && returnVal) {
-                const pickupDate = parseDateValue(pickupVal);
-                const returnDate = parseDateValue(returnVal);
-                if (pickupDate > returnDate) {
-                    returnInput.value = '';
-                    returnPicker.clear();
-                    localStorage.removeItem('returnDatetime');
-                } else if (returnDate < pickupDate) {
-                    returnInput.value = '';
-                    returnPicker.clear();
-                    localStorage.removeItem('returnDatetime');
-                } else {
-                    const diffDays = Math.ceil((returnDate - pickupDate) / (1000 * 60 * 60 * 24));
-                    if (diffDays > 31) {
-                        returnInput.value = '';
-                        returnPicker.clear();
-                        localStorage.removeItem('returnDatetime');
-                    }
-                }
-            }
-
-            function syncMobileDateInputsFromStorage() {
-                const pickupStored = localStorage.getItem('pickupDatetime') || '';
-                const returnStored = localStorage.getItem('returnDatetime') || '';
-
-                pickupInput.value = pickupStored;
-                returnInput.value = returnStored;
-                if (pickupInput._flatpickr) pickupInput._flatpickr.setDate(pickupStored, false);
-                if (returnInput._flatpickr) returnInput._flatpickr.setDate(returnStored, false);
-            }
-
-            function notifyRentalDatesChanged() {
-                if (typeof window.updateDaysAndPrices === 'function') window.updateDaysAndPrices();
-                if (typeof window.updateDateSummary === 'function') window.updateDateSummary();
-                window.dispatchEvent(new CustomEvent('rental-dates-updated', {
-                    detail: {
-                        pickup: pickupInput.value || '',
-                        return: returnInput.value || ''
-                    }
-                }));
-            }
-
-            function submitMobileDateFormIfReady(form) {
-                if (!form) return;
-                const rentalCheck = validateRentalWindow(pickupInput.value, returnInput.value);
-                if (!rentalCheck.valid) return;
-                form.submit();
-            }
-
-            syncMobileDateInputsFromStorage();
-            window.addEventListener('rental-dates-updated', syncMobileDateInputsFromStorage);
+            syncFromDesktop();
+            window.addEventListener('rental-dates-updated', syncFromDesktop);
             window.addEventListener('storage', function(event) {
                 if (event.key === 'pickupDatetime' || event.key === 'returnDatetime') {
-                    syncMobileDateInputsFromStorage();
+                    syncFromDesktop();
                 }
             });
-
-            const mobileFilterForm = pickupInput.form;
-            if (mobileFilterForm && !mobileFilterForm.dataset.dateValidationBound) {
-                mobileFilterForm.dataset.dateValidationBound = '1';
-                mobileFilterForm.addEventListener('submit', function(e) {
-                    localStorage.setItem('pickupDatetime', pickupInput.value || '');
-                    localStorage.setItem('returnDatetime', returnInput.value || '');
-
-                    const rentalCheck = validateRentalWindow(pickupInput.value, returnInput.value);
-                    if (!rentalCheck.valid) {
-                        e.preventDefault();
-                        showDateValidationAlertOnce(rentalCheck.message);
-                        return;
-                    }
-
-                    notifyRentalDatesChanged();
-                });
-            }
-
-            // Attach cart date change modal logic to mobile date inputs
-            function saveCart(cart) {
-                localStorage.setItem('cart', JSON.stringify(cart));
-            }
-            function handleDateInputChangeWithCartCheck(input, key, picker) {
-                let lastValue = input.value;
-                input.addEventListener('focus', function() {
-                    lastValue = input.value;
-                });
-                input.addEventListener('change', function() {
-                    const cart = JSON.parse(localStorage.getItem('cart') || '[]');
-                    const newValue = input.value || '';
-                    if (cart.length > 0 && newValue !== lastValue) {
-                        if (typeof window.showCartDateChangeModal === 'function') {
-                            window.showCartDateChangeModal(
-                                function onConfirm() {
-                                    saveCart([]);
-                                    localStorage.setItem(key, newValue);
-                                    if (picker) picker.setDate(newValue, false);
-                                    notifyRentalDatesChanged();
-                                },
-                                function onCancel() {
-                                    input.value = lastValue;
-                                    if (picker) picker.setDate(lastValue, false);
-                                    notifyRentalDatesChanged();
-                                }
-                            );
-                        }
-                    } else {
-                        localStorage.setItem(key, newValue);
-                        if (picker) picker.setDate(newValue, false);
-                        notifyRentalDatesChanged();
-                    }
-
-                    lastValue = newValue;
-                });
-            }
-            handleDateInputChangeWithCartCheck(pickupInput, 'pickupDatetime', pickupPicker);
-            handleDateInputChangeWithCartCheck(returnInput, 'returnDatetime', returnPicker);
         }
+
+        bridgeMobileDatesToSharedModal();
     });
     </script>
 

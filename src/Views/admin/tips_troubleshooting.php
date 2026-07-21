@@ -71,7 +71,7 @@ $isStaff = ($role === 'staff');
                 <div>
                     <label class="block text-sm font-semibold text-[#062B41] mb-2">Article Image (Optional)</label>
                     <div class="bg-gray-50 rounded-lg p-5 border border-gray-200">
-                        <input type="file" id="articleImageInputNew" name="article_image" accept=".jpg,.jpeg,.png,.webp,.svg" class="sr-only js-article-image-input" data-file-name-target="articleImageFileNameNew">
+                        <input type="file" id="articleImageInputNew" name="article_image" accept=".jpg,.jpeg,.png,.webp" class="sr-only js-article-image-input" data-file-name-target="articleImageFileNameNew">
                         <div class="flex items-center gap-3">
                             <button type="button" id="articleImageBrowseNew" class="px-6 py-2 rounded-lg bg-[#0086C9] text-white font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md js-article-image-browse" data-target-input="articleImageInputNew">
                                 Choose Image
@@ -147,7 +147,7 @@ $isStaff = ($role === 'staff');
                                     <div>
                                         <label class="block text-sm font-semibold text-[#062B41] mb-2">Replace Article Image (Optional)</label>
                                         <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                                            <input type="file" id="articleImageInput-<?= (int) $article['id'] ?>" name="article_image" accept=".jpg,.jpeg,.png,.webp,.svg" class="sr-only js-article-image-input" data-file-name-target="articleImageFileName-<?= (int) $article['id'] ?>">
+                                            <input type="file" id="articleImageInput-<?= (int) $article['id'] ?>" name="article_image" accept=".jpg,.jpeg,.png,.webp" class="sr-only js-article-image-input" data-file-name-target="articleImageFileName-<?= (int) $article['id'] ?>">
                                             <div class="flex items-center gap-3">
                                                 <button type="button" class="px-5 py-2 rounded-lg bg-[#0086C9] text-white font-semibold hover:bg-[#0073a8] hover:cursor-pointer transition shadow-md js-article-image-browse" data-target-input="articleImageInput-<?= (int) $article['id'] ?>">
                                                     Choose Image

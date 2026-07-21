@@ -285,6 +285,48 @@ $panelClass = $kioskMode
         </div>
     </div>
 
+    <div id="walkinDateTimeModal" class="fixed inset-0 z-[70] hidden items-center justify-center bg-black/55 px-3 py-4 sm:px-4">
+        <div class="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-[28px] bg-white p-5 shadow-2xl sm:p-6">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#0086C9]">Schedule Rental</p>
+                    <h2 id="walkinDateTimeModalTitle" class="mt-1 text-3xl font-bold text-[#062B41]">Select pickup date &amp; time</h2>
+                    <p class="mt-2 text-sm text-gray-500">Available hours are 8:30am to 5:30pm only.</p>
+                </div>
+                <button type="button" id="walkinDateTimeModalClose" class="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700" aria-label="Close date picker modal">
+                    <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="mt-6 space-y-4">
+                <div>
+                    <label class="mb-2 block text-sm font-medium text-[#062B41]">Date</label>
+                    <input type="text" id="walkinDateTimeModalDate" class="hidden" readonly>
+                    <div id="walkinDateTimeModalCalendar" class="rounded-2xl border border-[#c8d9e6] bg-[#f9fcff] p-2 shadow-sm"></div>
+                </div>
+                <div>
+                    <label for="walkinDateTimeModalTime" class="mb-2 block text-sm font-medium text-[#062B41]">Time slot</label>
+                    <div class="relative">
+                        <select id="walkinDateTimeModalTime" class="w-full appearance-none rounded-2xl border border-[#c8d9e6] bg-[linear-gradient(180deg,#ffffff_0%,#f3f9fe_100%)] px-4 py-3 pr-11 text-base font-semibold text-[#062B41] shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0086C9]"></select>
+                        <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[#0b5f8a]">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </span>
+                    </div>
+                </div>
+                <div id="walkinDateTimeModalInfo" class="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"></div>
+            </div>
+
+            <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button type="button" id="walkinDateTimeModalCancel" class="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-100">Cancel</button>
+                <button type="button" id="walkinDateTimeModalSave" class="rounded-xl bg-[#0086C9] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#066fa6]">Set date &amp; time</button>
+            </div>
+        </div>
+    </div>
+
     <div id="policyModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
         <div class="w-full max-w-3xl rounded-md border border-gray-400 bg-[#fefbea] shadow-2xl">
             <div class="relative border-b border-gray-400 px-6 py-4 text-center">
@@ -419,6 +461,12 @@ function getNearest15Min() {
         now.setMinutes(now.getMinutes() + (15 - remainder));
     }
     return now;
+}
+
+function toStartOfDay(date) {
+    const normalized = new Date(date);
+    normalized.setHours(0, 0, 0, 0);
+    return normalized;
 }
 
 function getMaxReturnDate(pickupDate) {
@@ -980,62 +1028,324 @@ if (promoCodeInput) {
     });
 }
 
-let returnPicker;
+const BUSINESS_OPEN_MINUTES = (8 * 60) + 30;
+const BUSINESS_CLOSE_MINUTES = (17 * 60) + 30;
+const MIN_RETURN_GAP_MINUTES = 30;
+const MAX_RENTAL_DAYS = 31;
 
-const pickupPicker = flatpickr(pickupInput, {
-    enableTime: true,
-    dateFormat: 'Y-m-d H:i',
-    altInput: true,
-    altFormat: 'F j, Y h:i K',
-    minDate: getNearest15Min(),
-    time_24hr: true,
-    minuteIncrement: 15,
-    disableMobile: true,
-    defaultDate: getNearest15Min(),
-    onChange: function(selectedDates) {
-        if (selectedDates[0]) {
-            const minReturn = new Date(selectedDates[0]);
-            const maxReturn = getMaxReturnDate(minReturn);
-            returnPicker.set('minDate', minReturn);
-            returnPicker.set('maxDate', maxReturn);
+const walkinDateTimeModal = document.getElementById('walkinDateTimeModal');
+const walkinDateTimeModalTitle = document.getElementById('walkinDateTimeModalTitle');
+const walkinDateTimeModalDateInput = document.getElementById('walkinDateTimeModalDate');
+const walkinDateTimeModalCalendar = document.getElementById('walkinDateTimeModalCalendar');
+const walkinDateTimeModalTime = document.getElementById('walkinDateTimeModalTime');
+const walkinDateTimeModalInfo = document.getElementById('walkinDateTimeModalInfo');
+const walkinDateTimeModalClose = document.getElementById('walkinDateTimeModalClose');
+const walkinDateTimeModalCancel = document.getElementById('walkinDateTimeModalCancel');
+const walkinDateTimeModalSave = document.getElementById('walkinDateTimeModalSave');
 
-            const currentReturn = parseAdminDate(returnInput.value);
-            if (!currentReturn || currentReturn <= minReturn || currentReturn > maxReturn) {
-                const defaultReturn = new Date(minReturn);
-                defaultReturn.setDate(defaultReturn.getDate() + 1);
-                returnPicker.setDate(defaultReturn, true);
-            }
-        }
-        updateRentalWindowSummary();
-        refreshAllRowPrices();
-        refreshAvailabilityForWindow();
+let walkinModalCalendarPicker = null;
+let walkinActiveField = 'pickup';
+let walkinPreviousSelection = { pickup: '', ret: '' };
+
+function padDatePart(value) {
+    return String(value).padStart(2, '0');
+}
+
+function formatStorageDateTime(date) {
+    return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())} ${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
+}
+
+function formatDisplayDateTime(date) {
+    const month = date.toLocaleString(undefined, { month: 'long' });
+    const day = date.getDate();
+    const year = date.getFullYear();
+    let hours = date.getHours();
+    const minutes = padDatePart(date.getMinutes());
+    const meridiem = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12;
+    if (hours === 0) hours = 12;
+    return `${month} ${day}, ${year} ${hours}:${minutes}${meridiem}`;
+}
+
+function formatDisplayTimeOnly(date) {
+    let hours = date.getHours();
+    const minutes = padDatePart(date.getMinutes());
+    const meridiem = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12;
+    if (hours === 0) hours = 12;
+    return `${hours}:${minutes}${meridiem}`;
+}
+
+function normalizeToBusinessHours(date) {
+    const normalized = new Date(date);
+    normalized.setSeconds(0, 0);
+
+    const remainder = normalized.getMinutes() % 15;
+    if (remainder !== 0) {
+        normalized.setMinutes(normalized.getMinutes() + (15 - remainder));
     }
+
+    while (true) {
+        const minutes = (normalized.getHours() * 60) + normalized.getMinutes();
+        if (minutes < BUSINESS_OPEN_MINUTES) {
+            normalized.setHours(8, 30, 0, 0);
+            break;
+        }
+        if (minutes > BUSINESS_CLOSE_MINUTES) {
+            normalized.setDate(normalized.getDate() + 1);
+            normalized.setHours(8, 30, 0, 0);
+            continue;
+        }
+        break;
+    }
+
+    return normalized;
+}
+
+function getMinimumPickupDateTime() {
+    return normalizeToBusinessHours(getNearest15Min());
+}
+
+function getMinimumReturnDateTime(pickupDate) {
+    return normalizeToBusinessHours(new Date(pickupDate.getTime() + (MIN_RETURN_GAP_MINUTES * 60000)));
+}
+
+function getMaximumReturnDateTime(pickupDate) {
+    const max = new Date(pickupDate);
+    max.setDate(max.getDate() + MAX_RENTAL_DAYS);
+    max.setHours(17, 30, 0, 0);
+    return max;
+}
+
+function setDateInputValue(input, date) {
+    input.value = date ? formatStorageDateTime(date) : '';
+}
+
+function syncRentalUiAfterDateChange() {
+    updateRentalWindowSummary();
+    refreshAllRowPrices();
+    refreshAvailabilityForWindow();
+}
+
+function getFieldDate(fieldName) {
+    return parseAdminDate(fieldName === 'pickup' ? pickupInput.value : returnInput.value);
+}
+
+function getModalMinimumDateTime() {
+    if (walkinActiveField === 'pickup') {
+        return getMinimumPickupDateTime();
+    }
+    const pickupDate = getFieldDate('pickup') || getMinimumPickupDateTime();
+    return getMinimumReturnDateTime(pickupDate);
+}
+
+function getModalMaximumDateTime() {
+    if (walkinActiveField !== 'return') return null;
+    const pickupDate = getFieldDate('pickup') || getMinimumPickupDateTime();
+    return getMaximumReturnDateTime(pickupDate);
+}
+
+function ensureModalCalendarPicker() {
+    if (walkinModalCalendarPicker || !walkinDateTimeModalCalendar) return;
+
+    walkinModalCalendarPicker = flatpickr(walkinDateTimeModalDateInput, {
+        inline: true,
+        dateFormat: 'Y-m-d',
+        clickOpens: false,
+        disableMobile: true,
+        appendTo: walkinDateTimeModalCalendar,
+        onChange: function() {
+            populateWalkinTimeSlots();
+        }
+    });
+}
+
+function refreshWalkinCalendar(referenceDate) {
+    ensureModalCalendarPicker();
+    if (!walkinModalCalendarPicker) return;
+
+    const minDateTime = getModalMinimumDateTime();
+    const maxDateTime = getModalMaximumDateTime();
+
+    walkinModalCalendarPicker.set('minDate', minDateTime);
+    walkinModalCalendarPicker.set('maxDate', maxDateTime || null);
+
+    const selected = referenceDate instanceof Date ? referenceDate : minDateTime;
+    walkinModalCalendarPicker.setDate(selected, false);
+}
+
+function populateWalkinTimeSlots(preferredValue) {
+    if (!walkinModalCalendarPicker || !walkinDateTimeModalTime) return;
+
+    const selectedDate = walkinModalCalendarPicker.selectedDates[0] || getModalMinimumDateTime();
+    const minDateTime = getModalMinimumDateTime();
+    const maxDateTime = getModalMaximumDateTime();
+
+    walkinDateTimeModalTime.innerHTML = '';
+    let firstValue = '';
+
+    for (let mins = BUSINESS_OPEN_MINUTES; mins <= BUSINESS_CLOSE_MINUTES; mins += 15) {
+        const hour = Math.floor(mins / 60);
+        const minute = mins % 60;
+        const candidate = new Date(selectedDate);
+        candidate.setHours(hour, minute, 0, 0);
+
+        if (candidate < minDateTime) continue;
+        if (maxDateTime && candidate > maxDateTime) continue;
+
+        const value = `${padDatePart(hour)}:${padDatePart(minute)}`;
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = formatDisplayTimeOnly(candidate);
+        walkinDateTimeModalTime.appendChild(option);
+        if (!firstValue) firstValue = value;
+    }
+
+    if (preferredValue && walkinDateTimeModalTime.querySelector(`option[value="${preferredValue}"]`)) {
+        walkinDateTimeModalTime.value = preferredValue;
+    } else {
+        walkinDateTimeModalTime.value = firstValue;
+    }
+
+    const infoDate = minDateTime;
+    walkinDateTimeModalInfo.textContent = walkinActiveField === 'pickup'
+        ? `Earliest pickup is ${formatDisplayDateTime(infoDate)}.`
+        : `Return must be after ${formatDisplayDateTime(infoDate)}.`;
+}
+
+function openWalkinDateTimeModal(fieldName) {
+    if (!walkinDateTimeModal) return;
+
+    walkinActiveField = fieldName;
+    walkinPreviousSelection = {
+        pickup: pickupInput.value || '',
+        ret: returnInput.value || ''
+    };
+
+    walkinDateTimeModalTitle.textContent = fieldName === 'pickup'
+        ? 'Select pickup date & time'
+        : 'Select return date & time';
+
+    const currentDate = getFieldDate(fieldName) || getModalMinimumDateTime();
+    refreshWalkinCalendar(currentDate);
+    populateWalkinTimeSlots(currentDate ? `${padDatePart(currentDate.getHours())}:${padDatePart(currentDate.getMinutes())}` : '');
+
+    walkinDateTimeModal.classList.remove('hidden');
+    walkinDateTimeModal.classList.add('flex');
+}
+
+function closeWalkinDateTimeModal() {
+    if (!walkinDateTimeModal) return;
+    walkinDateTimeModal.classList.add('hidden');
+    walkinDateTimeModal.classList.remove('flex');
+}
+
+function buildWalkinModalSelection() {
+    if (!walkinModalCalendarPicker || !walkinDateTimeModalTime || !walkinDateTimeModalTime.value) {
+        return null;
+    }
+
+    const selectedDate = walkinModalCalendarPicker.selectedDates[0];
+    if (!selectedDate) return null;
+
+    const [hours, minutes] = walkinDateTimeModalTime.value.split(':').map(Number);
+    const date = new Date(selectedDate);
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+}
+
+function applyWalkinModalSelection(selectedDate) {
+    if (!selectedDate) return;
+
+    if (walkinActiveField === 'pickup') {
+        const pickupDate = normalizeToBusinessHours(selectedDate);
+        setDateInputValue(pickupInput, pickupDate);
+
+        const currentReturn = parseAdminDate(returnInput.value);
+        const minReturn = getMinimumReturnDateTime(pickupDate);
+        const maxReturn = getMaximumReturnDateTime(pickupDate);
+
+        if (!currentReturn || currentReturn < minReturn || currentReturn > maxReturn) {
+            setDateInputValue(returnInput, minReturn);
+        }
+    } else {
+        const pickupDate = parseAdminDate(pickupInput.value) || getMinimumPickupDateTime();
+        const minReturn = getMinimumReturnDateTime(pickupDate);
+        const maxReturn = getMaximumReturnDateTime(pickupDate);
+        const returnDate = selectedDate < minReturn ? minReturn : (selectedDate > maxReturn ? maxReturn : selectedDate);
+        setDateInputValue(returnInput, returnDate);
+    }
+
+    syncRentalUiAfterDateChange();
+}
+
+function restoreWalkinDateSelection() {
+    pickupInput.value = walkinPreviousSelection.pickup || '';
+    returnInput.value = walkinPreviousSelection.ret || '';
+    syncRentalUiAfterDateChange();
+}
+
+function initializeWalkinDates() {
+    const existingPickup = parseAdminDate(pickupInput.value);
+    const minimumPickup = getMinimumPickupDateTime();
+    const pickupDate = existingPickup && existingPickup >= minimumPickup
+        ? normalizeToBusinessHours(existingPickup)
+        : minimumPickup;
+    setDateInputValue(pickupInput, pickupDate);
+
+    const existingReturn = parseAdminDate(returnInput.value);
+    const minReturn = getMinimumReturnDateTime(pickupDate);
+    const maxReturn = getMaximumReturnDateTime(pickupDate);
+
+    if (!existingReturn || existingReturn < minReturn || existingReturn > maxReturn) {
+        setDateInputValue(returnInput, minReturn);
+    } else {
+        setDateInputValue(returnInput, normalizeToBusinessHours(existingReturn));
+    }
+
+    syncRentalUiAfterDateChange();
+}
+
+if (walkinDateTimeModalClose) {
+    walkinDateTimeModalClose.addEventListener('click', function() {
+        restoreWalkinDateSelection();
+        closeWalkinDateTimeModal();
+    });
+}
+if (walkinDateTimeModalCancel) {
+    walkinDateTimeModalCancel.addEventListener('click', function() {
+        restoreWalkinDateSelection();
+        closeWalkinDateTimeModal();
+    });
+}
+if (walkinDateTimeModal) {
+    walkinDateTimeModal.addEventListener('click', function(event) {
+        if (event.target === walkinDateTimeModal) {
+            restoreWalkinDateSelection();
+            closeWalkinDateTimeModal();
+        }
+    });
+}
+if (walkinDateTimeModalSave) {
+    walkinDateTimeModalSave.addEventListener('click', function() {
+        const selectedDate = buildWalkinModalSelection();
+        if (!selectedDate) {
+            alert('Please select a valid date and time.');
+            return;
+        }
+        applyWalkinModalSelection(selectedDate);
+        closeWalkinDateTimeModal();
+    });
+}
+
+pickupInput.addEventListener('click', function() {
+    openWalkinDateTimeModal('pickup');
+});
+returnInput.addEventListener('click', function() {
+    openWalkinDateTimeModal('return');
 });
 
-const defaultReturnDate = new Date(getNearest15Min());
-defaultReturnDate.setDate(defaultReturnDate.getDate() + 1);
-
-returnPicker = flatpickr(returnInput, {
-    enableTime: true,
-    dateFormat: 'Y-m-d H:i',
-    altInput: true,
-    altFormat: 'F j, Y h:i K',
-    minDate: new Date(getNearest15Min().getTime() + (60 * 60 * 1000)),
-    maxDate: getMaxReturnDate(getNearest15Min()),
-    time_24hr: true,
-    minuteIncrement: 15,
-    disableMobile: true,
-    defaultDate: defaultReturnDate,
-    onChange: function() {
-        const rentalCheck = validateRentalWindow();
-        if (!rentalCheck.valid) {
-            alert(rentalCheck.message);
-        }
-        updateRentalWindowSummary();
-        refreshAllRowPrices();
-        refreshAvailabilityForWindow();
-    }
-});
+initializeWalkinDates();
 
 saleTypeSelect.addEventListener('change', function() {
     updateSaleTypeUI();
