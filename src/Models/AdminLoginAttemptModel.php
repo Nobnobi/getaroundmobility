@@ -145,6 +145,17 @@ class AdminLoginAttemptModel
         return $stmt->fetchAll(\PDO::FETCH_COLUMN);
     }
 
+    public function pruneOlderThanDays(int $days): int
+    {
+        $days = max(1, min(3650, $days));
+        $stmt = $this->db->prepare(
+            "DELETE FROM admin_login_attempts
+             WHERE attempted_at < (NOW() - INTERVAL ? DAY)"
+        );
+        $stmt->execute([$days]);
+        return (int)$stmt->rowCount();
+    }
+
     private function recordAttempt(string $loginArea, string $username, string $ipAddress, bool $successful): void
     {
         $stmt = $this->db->prepare("

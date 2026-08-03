@@ -31,6 +31,7 @@ public/*-logs.txt
 
 # Temporary tooling artifacts
 .tmp-sri/
+scripts/tmp_*.php
 
 # OS files
 .DS_Store
@@ -44,7 +45,5 @@ Thumbs.db
 public/css/output.css
 
 
-#docs
-admin-endpoint-security-checklist.md
-get-around-mobility-technical-audit.md
-get-around-mobility-technical-audit.pdf
+# Docs
+docs/

@@ -54,6 +54,28 @@ class RentalPriceController extends Controller {
             $days = $_POST['days'] ?? [];
             $prices = $_POST['price'] ?? [];
             $rentalPriceModel->saveRentalPrices($days, $prices);
+            $groupCount = 0;
+            $tierCount = 0;
+            foreach ($days as $variationRows) {
+                if (!is_array($variationRows)) {
+                    continue;
+                }
+                foreach ($variationRows as $dayArr) {
+                    if (!is_array($dayArr)) {
+                        continue;
+                    }
+                    $groupCount++;
+                    foreach ($dayArr as $day) {
+                        if ($day !== null && trim((string)$day) !== '') {
+                            $tierCount++;
+                        }
+                    }
+                }
+            }
+            $this->logAdminAction('rental_prices_saved', 'rental_price', null, [
+                'product_variation_groups' => $groupCount,
+                'tier_count' => $tierCount,
+            ]);
             header('Location: /admin/rental-prices');
             exit;
         }

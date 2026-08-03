@@ -1,11 +1,56 @@
 <?php
 namespace App\Controllers;
-date_default_timezone_set('Asia/Manila'); // DELETE THIS LINE AFTER AFTER DEPLOYING SINCE THIS IS MANILA TIMEZONE.
 use App\Controller;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
 class UserController extends Controller{
+    private const PASSWORD_POLICY_PATTERN = '/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};\':"\\\\|,.<>\/?]).{8,}$/';
+
+    private function appBaseUrl(): string
+    {
+        $envUrl = getenv('APP_URL');
+        if ($envUrl === false || trim((string)$envUrl) === '') {
+            $envUrl = $_ENV['APP_URL'] ?? '';
+        }
+
+        $base = trim((string)$envUrl);
+        if ($base === '') {
+            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $host = trim((string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
+            $base = $scheme . '://' . $host;
+        }
+
+        return rtrim($base, '/');
+    }
+
+    private function isStrongPassword(string $password): bool
+    {
+        return (bool)preg_match(self::PASSWORD_POLICY_PATTERN, $password);
+    }
+
+    private function sanitizeReturnUrl($returnUrl): string
+    {
+        $value = trim((string)$returnUrl);
+        if ($value === '') {
+            return '/profile';
+        }
+
+        if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://') || str_starts_with($value, '//')) {
+            return '/profile';
+        }
+
+        if (!str_starts_with($value, '/')) {
+            return '/profile';
+        }
+
+        if (str_contains($value, "\r") || str_contains($value, "\n")) {
+            return '/profile';
+        }
+
+        return $value;
+    }
+
     public function login() {
         if (session_status() === PHP_SESSION_NONE) session_start();
 
@@ -13,7 +58,7 @@ class UserController extends Controller{
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
         }
 
-        $returnUrl = $_GET['return'] ?? '/';
+        $returnUrl = $this->sanitizeReturnUrl($_GET['return'] ?? '/profile');
         $error = $_SESSION['login_error'] ?? '';
         unset($_SESSION['login_error']);
         $success = $_SESSION['logout_success'] ?? '';
@@ -41,7 +86,7 @@ class UserController extends Controller{
 
         $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
         $password = $_POST['password'] ?? '';
-        $returnUrl = $_POST['return'] ?? '/profile';
+        $returnUrl = $this->sanitizeReturnUrl($_POST['return'] ?? '/profile');
 
         if (!$email) {
             $_SESSION['login_error'] = "Invalid email address.";
@@ -108,6 +153,20 @@ class UserController extends Controller{
 
     public function logout() {
         if (session_status() === PHP_SESSION_NONE) session_start();
+
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+            http_response_code(405);
+            header('Allow: POST');
+            exit('Method Not Allowed');
+        }
+
+        if (!hash_equals((string)($_SESSION['csrf_token'] ?? ''), (string)($_POST['csrf_token'] ?? ''))) {
+            http_response_code(403);
+            $_SESSION['login_error'] = 'Invalid request.';
+            header('Location: /login');
+            exit;
+        }
+
         session_unset();
         session_destroy();
         // Optionally set a success message
@@ -157,9 +216,7 @@ class UserController extends Controller{
         }
 
         // 4. PASSWORD REQUIREMENTS (BACKEND SECURITY)
-        $pattern = '/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};\':"\\\\|,.<>\/?]).{8,}$/';
-
-        if (!preg_match($pattern, $password)) {
+        if (!$this->isStrongPassword($password)) {
             $_SESSION['register_error'] = "Password must be at least 8 characters, include an uppercase letter, a number, and a special character.";
             header("Location: /register");
             exit;
@@ -208,11 +265,12 @@ class UserController extends Controller{
             $mail->Subject = "Welcome to Get Around Mobility! You're Ready to Roll!";
             $templatePath = __DIR__ . '/../Views/emails/welcome_email.html';
             $template = file_get_contents($templatePath);
-            $dashboardUrl = "http://localhost:9999/profile";
-            $verificationUrl = "http://localhost:9999/verify-email?email=" . urlencode($email);
-            $howItWorksUrl = "http://localhost:9999/how-it-works";
-            $helpUrl = "http://localhost:9999/help";
-            $unsubscribeUrl = "http://localhost:9999/unsubscribe?email=" . urlencode($email);
+            $baseUrl = $this->appBaseUrl();
+            $dashboardUrl = $baseUrl . "/profile";
+            $verificationUrl = $baseUrl . "/verify-email?email=" . urlencode($email);
+            $howItWorksUrl = $baseUrl . "/how-it-works";
+            $helpUrl = $baseUrl . "/help";
+            $unsubscribeUrl = $baseUrl . "/unsubscribe?email=" . urlencode($email);
             $userName = htmlspecialchars($first_name . ' ' . $last_name);
 
             $search = ['{{name}}','{{verification_link}}','{{promo_code}}','{{logo_url}}','{{dashboard_link}}','{{how_it_works_link}}','{{help_link}}','{{unsubscribe_link}}','{{year}}'];
@@ -266,46 +324,53 @@ class UserController extends Controller{
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 $error = 'Invalid CSRF token';
             } else {
-                $email = filter_var(trim($_POST['email']), FILTER_VALIDATE_EMAIL);
-                if (!$email) {
-                    $error = 'Please enter a valid email address.';
+                $limitStatus = $this->checkPublicRateLimit('forgot_password', 5, 30);
+                if (!($limitStatus['allowed'] ?? true)) {
+                    $error = $limitStatus['message'] ?? 'Too many password reset requests. Please try again later.';
                 } else {
-                    // Generate a token
-                    $token = bin2hex(random_bytes(32));
-                    $expiry = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                    $email = filter_var(trim($_POST['email']), FILTER_VALIDATE_EMAIL);
+                    if (!$email) {
+                        $error = 'Please enter a valid email address.';
+                    } else {
+                        $userModel = new \App\Models\UserModel();
+                        $userExists = $userModel->emailExists($email);
 
-                    // Save token and email to password_resets table
-                    $userModel = new \App\Models\UserModel();
-                    $userModel->createPasswordReset($email, $token, $expiry);
+                        if ($userExists) {
+                            $token = bin2hex(random_bytes(32));
+                            $expiry = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                            $userModel->createPasswordReset($email, $token, $expiry);
 
-                    // After saving the token to the database
-                    $resetLink = "http://localhost:9999/reset-password?token=$token";
+                            $resetLink = $this->appBaseUrl() . "/reset-password?token=" . urlencode($token);
 
-                    require_once __DIR__ . '/../../vendor/autoload.php';
-                    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
-                    try {
-                        $mail->isSMTP();
-                        $mail->Host = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
-                        $mail->SMTPAuth = true;
-                        $mail->Username = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
-                        $mail->Password = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
-                        $mail->SMTPSecure = 'tls';
-                        $mail->Port = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
+                            require_once __DIR__ . '/../../vendor/autoload.php';
+                            $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+                            try {
+                                $mail->isSMTP();
+                                $mail->Host = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
+                                $mail->SMTPAuth = true;
+                                $mail->Username = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
+                                $mail->Password = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
+                                $mail->SMTPSecure = 'tls';
+                                $mail->Port = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
 
-                        $fromEmail = getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? ($mail->Username));
-                        $fromName = getenv('SMTP_FROM_NAME') ?: ($_ENV['SMTP_FROM_NAME'] ?? 'Get Around Mobility');
-                        $mail->setFrom($fromEmail, $fromName);
-                        $mail->addAddress($email);
+                                $fromEmail = getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? ($mail->Username));
+                                $fromName = getenv('SMTP_FROM_NAME') ?: ($_ENV['SMTP_FROM_NAME'] ?? 'Get Around Mobility');
+                                $mail->setFrom($fromEmail, $fromName);
+                                $mail->addAddress($email);
 
-                        $mail->Subject = 'Password Reset Request';
-                        $mail->Body = "Hello,\n\nTo reset your password, click the link below:\n$resetLink\n\nThis link will expire in 1 hour.\n\nIf you did not request a password reset, kindly contact our support team.";
+                                $mail->Subject = 'Password Reset Request';
+                                $mail->Body = "Hello,\n\nTo reset your password, click the link below:\n$resetLink\n\nThis link will expire in 1 hour.\n\nIf you did not request a password reset, kindly contact our support team.";
 
-                        $mail->send();
-                    } catch (\Exception $e) {
-                        error_log("Password Reset Mailer Error: {$mail->ErrorInfo}");
+                                $mail->send();
+                            } catch (\Exception $e) {
+                                error_log("Password Reset Mailer Error: {$mail->ErrorInfo}");
+                            }
+
+                            $success = 'If the email is registered, a password reset link has been sent.';
+                        } else {
+                            $success = 'If the email is registered, a password reset link has been sent.';
+                        }
                     }
-
-                    $success = 'A password reset link has been sent to your email! Please check the email address that you have provided.';
                 }
             }
         }
@@ -347,6 +412,16 @@ class UserController extends Controller{
                 $token = $_POST['token'] ?? '';
                 $password = $_POST['password'] ?? '';
                 $userModel = new \App\Models\UserModel();
+
+                if (!$this->isStrongPassword($password)) {
+                    $error = 'Password must be at least 8 characters, include an uppercase letter, a number, and a special character.';
+                    $this->render('reset-password', [
+                        'csrf_token' => $_SESSION['csrf_token'],
+                        'error' => $error,
+                        'success' => $success
+                    ]);
+                    return;
+                }
 
                 // Clean up expired tokens
                 $userModel->cleanExpiredPasswordResets();
@@ -394,47 +469,52 @@ class UserController extends Controller{
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 $error = 'Invalid CSRF token.';
             } else {
-                $name = htmlspecialchars(trim($_POST['name'] ?? ''));
-                $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
-                $contact_number = htmlspecialchars(trim($_POST['contact_number'] ?? ''));
-                $subject = htmlspecialchars(trim($_POST['subject'] ?? ''));
-                $message = htmlspecialchars(trim($_POST['message'] ?? ''));
-
-                if (!$name || !$email || !$subject || !$message) {
-                    $error = 'Please fill in all fields.';
+                $limitStatus = $this->checkPublicRateLimit('contact_submit', 5, 30);
+                if (!($limitStatus['allowed'] ?? true)) {
+                    $error = $limitStatus['message'] ?? 'Too many contact form submissions. Please try again later.';
                 } else {
-                    require_once __DIR__ . '/../../vendor/autoload.php';
-                    $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
-                    try {
-                        $mail->isSMTP();
-                        $mail->Host = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
-                        $mail->SMTPAuth = true;
-                        $mail->Username = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
-                        $mail->Password = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
-                        $mail->SMTPSecure = 'tls';
-                        $mail->Port = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
+                    $name = htmlspecialchars(trim($_POST['name'] ?? ''));
+                    $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
+                    $contact_number = htmlspecialchars(trim($_POST['contact_number'] ?? ''));
+                    $subject = htmlspecialchars(trim($_POST['subject'] ?? ''));
+                    $message = htmlspecialchars(trim($_POST['message'] ?? ''));
 
-                        // Correct contact form behavior
-                        $mail->setFrom($email, 'Get Around Mobility Contact Form');
-                        $mail->addAddress(getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? null), 'Site Admin');
-                        $mail->addReplyTo($email, $name);
+                    if (!$name || !$email || !$subject || !$message) {
+                        $error = 'Please fill in all fields.';
+                    } else {
+                        require_once __DIR__ . '/../../vendor/autoload.php';
+                        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+                        try {
+                            $mail->isSMTP();
+                            $mail->Host = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
+                            $mail->SMTPAuth = true;
+                            $mail->Username = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
+                            $mail->Password = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
+                            $mail->SMTPSecure = 'tls';
+                            $mail->Port = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
 
-                        $mail->Subject = $subject;
-                        $body = '';
-                        $body .= '<strong>Name:</strong> ' . htmlspecialchars($name) . '<br>';
-                        if ($contact_number) {
-                            $body .= '<strong>Contact Number:</strong> ' . htmlspecialchars($contact_number) . '<br>';
+                            // Correct contact form behavior
+                            $mail->setFrom($email, 'Get Around Mobility Contact Form');
+                            $mail->addAddress(getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? null), 'Site Admin');
+                            $mail->addReplyTo($email, $name);
+
+                            $mail->Subject = $subject;
+                            $body = '';
+                            $body .= '<strong>Name:</strong> ' . htmlspecialchars($name) . '<br>';
+                            if ($contact_number) {
+                                $body .= '<strong>Contact Number:</strong> ' . htmlspecialchars($contact_number) . '<br>';
+                            }
+                            $body .= '<strong>Email:</strong> ' . htmlspecialchars($email) . '<br>';
+                            $body .= '<strong>Message:</strong><br>' . nl2br($message);
+                            $mail->Body = $body;
+                            $mail->isHTML(true);
+
+                            $mail->send();
+                            $success = 'Thank you for contacting us! We will get back to you soon.';
+                        } catch (\Exception $e) {
+                            $error = 'Failed to send message. Please try again later.';
+                            error_log("Contact Mailer Error: {$mail->ErrorInfo}");
                         }
-                        $body .= '<strong>Email:</strong> ' . htmlspecialchars($email) . '<br>';
-                        $body .= '<strong>Message:</strong><br>' . nl2br($message);
-                        $mail->Body = $body;
-                        $mail->isHTML(true);
-
-                        $mail->send();
-                        $success = 'Thank you for contacting us! We will get back to you soon.';
-                    } catch (\Exception $e) {
-                        $error = 'Failed to send message. Please try again later.';
-                        error_log("Contact Mailer Error: {$mail->ErrorInfo}");
                     }
                 }
             }

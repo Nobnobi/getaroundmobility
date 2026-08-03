@@ -302,10 +302,30 @@ $formatDateTime = function ($value) {
                                     $refundAmount = isset($order['refund_amount'])
                                         ? (float)$order['refund_amount']
                                         : (float)($order['security_deposit_refunded_amount'] ?? 0);
+                                    $isFinalPriceEdited = (int)($order['final_price_edited'] ?? 0) === 1;
+                                    $computedTotalAmount = isset($order['computed_total_amount']) && $order['computed_total_amount'] !== null
+                                        ? (float)$order['computed_total_amount']
+                                        : null;
+                                    $finalPriceEditorName = trim((string)($order['final_price_edited_by_admin_name'] ?? ''));
+                                    $finalPriceEditorRoleKey = strtolower(str_replace(['_', '-', ' '], '', (string)($order['final_price_edited_by_admin_role'] ?? '')));
+                                    $finalPriceEditorRoleLabel = $roleLabels[$finalPriceEditorRoleKey] ?? ucfirst($finalPriceEditorRoleKey);
                                 ?>
                                 <td class="px-4 py-2 align-top">
                                     <div class="leading-5">
                                         <div class="text-base font-semibold text-[#062B41]" data-order-total>Total: $<?= number_format($totalAmount, 2) ?></div>
+                                        <?php if ($isFinalPriceEdited): ?>
+                                            <div class="mt-1 inline-flex rounded bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800">Final price edited</div>
+                                            <?php if ($computedTotalAmount !== null): ?>
+                                                <div class="text-xs text-amber-700">Original: $<?= number_format($computedTotalAmount, 2) ?></div>
+                                            <?php endif; ?>
+                                            <div class="text-xs text-amber-700">
+                                                Edited by:
+                                                <?= htmlspecialchars($finalPriceEditorName !== '' ? $finalPriceEditorName : 'Super Admin') ?>
+                                                <?php if ($finalPriceEditorRoleLabel !== ''): ?>
+                                                    (<?= htmlspecialchars($finalPriceEditorRoleLabel) ?>)
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endif; ?>
                                         <div class="text-sm text-gray-700">Sales: $<?= number_format($salesAmount, 2) ?></div>
                                         <div class="text-sm text-gray-700">Refund: $<?= number_format($refundAmount, 2) ?></div>
                                     </div>

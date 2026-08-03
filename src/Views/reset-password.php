@@ -1,5 +1,4 @@
 <?php
-date_default_timezone_set('Asia/Manila'); // DELETE THIS LINE AFTER AFTER DEPLOYING SINCE THIS IS MANILA TIMEZONE.
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -17,11 +16,10 @@ date_default_timezone_set('Asia/Manila'); // DELETE THIS LINE AFTER AFTER DEPLOY
             <?php if (!empty($error)): ?>
                 <div class="bg-red-100 text-red-700 p-2 rounded mb-4 text-center"><?= htmlspecialchars($error) ?></div>
             <?php endif; ?>
-            <?= date('Y-m-d H:i:s', strtotime('+1 hour')) ?>
             <?php if (!empty($success)): ?>
                 <div class="bg-green-100 text-green-700 p-2 rounded mb-4 text-center"><?= htmlspecialchars($success) ?></div>
             <?php endif; ?>
-
+            
             <?php if (empty($success)): ?>
                 <form method="post" action="/reset-password" class="space-y-6">
                     <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">

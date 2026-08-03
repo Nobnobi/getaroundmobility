@@ -176,6 +176,16 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                             ><?= htmlspecialchars($hotel['name']) ?></option>
                                         <?php endforeach; ?>
                                     </select>
+
+                                    <div id="deliveryAddressFields" class="mb-4">
+                                        <label class="block text-sm font-semibold mb-2 text-gray-800 mt-2">Delivery Address</label>
+                                        <input type="text" name="address1" class="w-full border rounded p-2 mb-2" required placeholder="Delivery Address Line 1">
+                                        <input type="text" name="address2" class="w-full border rounded p-2 mb-2" placeholder="Delivery Address Line 2">
+                                        <div class="flex flex-col md:flex-row gap-2">
+                                            <input type="text" name="state" class="border rounded p-2 mb-2 md:mb-0 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] w-full md:w-32" required placeholder="e.g. NV">
+                                            <input type="text" name="zip" class="border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] w-full md:w-32" required placeholder="e.g. 89109">
+                                        </div>
+                                    </div>
                                 </div>
                                 <div id="returnHotelSection" class="flex flex-col mb-4 w-90">
                                     <div class="mb-1">
@@ -188,19 +198,22 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     <select name="return_hotel_id" id="returnHotelSelect" class="w-full border rounded p-2 border-[#535862]">
                                         <option value="">Select return hotel</option>
                                         <?php foreach ($partnerHotels as $hotel): ?>
-                                            <option value="<?= $hotel['id'] ?>"><?= htmlspecialchars($hotel['name']) ?></option>
+                                            <option value="<?= $hotel['id'] ?>"
+                                                data-address1="<?= htmlspecialchars($hotel['address1']) ?>"
+                                                data-address2="<?= htmlspecialchars($hotel['address2']) ?>"
+                                            ><?= htmlspecialchars($hotel['name']) ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                     <input type="hidden" id="returnHotelMirror" value="">
-                                </div>
-                                <div id="addressFields">
-                                    <input type="text" name="address1" class="w-full border rounded p-2 mb-2" required placeholder="Address Line 1">
-                                    <input type="text" name="address2" class="w-full border rounded p-2 mb-2" placeholder="Address Line 2">
-                                    <div class="flex flex-col md:flex-row gap-2">
-                                        <input type="text" name="state" class="border rounded p-2 mb-2 md:mb-0 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] w-full md:w-32" required placeholder="e.g. NV">
-                                        <input type="text" name="zip" class="border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] w-full md:w-32" required placeholder="e.g. 89109">
+
+                                    <div id="returnAddressFields" class="mb-4">
+                                        <label class="block text-sm font-semibold mb-2 text-gray-800 mt-2">Return Address</label>
+                                        <input type="text" name="return_address1" id="returnAddress1" class="w-full border rounded p-2 mb-2 bg-gray-50" readonly placeholder="Return Address Line 1">
+                                        <input type="text" name="return_address2" id="returnAddress2" class="w-full border rounded p-2 bg-gray-50" readonly placeholder="Return Address Line 2">
                                     </div>
                                 </div>
+                                
+                                
                                 <div class="mb-4" id="pickupLocationSection" style="display:none;">
                                     <label class="block text-sm font-medium mb-1">Pickup Location</label>
                                     <select name="pickup_location" class="w-full border rounded p-2 border-[#535862]">
@@ -598,6 +611,8 @@ if (file_exists(__DIR__ . '/../../.env')) {
         const deliverySelect = document.querySelector('select[name="hotel_id"]');
         const returnSelect = document.getElementById('returnHotelSelect');
         const returnMirror = document.getElementById('returnHotelMirror');
+        const returnAddress1 = document.getElementById('returnAddress1');
+        const returnAddress2 = document.getElementById('returnAddress2');
         const sameCheckbox = document.getElementById('sameAsDeliveryAddress');
         const deliveryType = document.querySelector('input[name="delivery_type"]:checked')?.value;
         if (!deliverySelect || !returnSelect || !returnMirror || !sameCheckbox) return;
@@ -607,6 +622,8 @@ if (file_exists(__DIR__ . '/../../.env')) {
             returnSelect.classList.remove('bg-gray-100', 'cursor-not-allowed');
             returnMirror.value = '';
             returnMirror.removeAttribute('name');
+            if (returnAddress1) returnAddress1.value = '';
+            if (returnAddress2) returnAddress2.value = '';
             return;
         }
 
@@ -621,6 +638,14 @@ if (file_exists(__DIR__ . '/../../.env')) {
             returnSelect.classList.remove('bg-gray-100', 'cursor-not-allowed');
             returnMirror.value = '';
             returnMirror.removeAttribute('name');
+        }
+
+        const selected = returnSelect.options[returnSelect.selectedIndex];
+        if (returnAddress1) {
+            returnAddress1.value = selected ? (selected.getAttribute('data-address1') || '') : '';
+        }
+        if (returnAddress2) {
+            returnAddress2.value = selected ? (selected.getAttribute('data-address2') || '') : '';
         }
     }
 
@@ -797,14 +822,26 @@ if (file_exists(__DIR__ . '/../../.env')) {
             const lineTotal = price * qty;
             subtotal += lineTotal;
             const image = sanitizeImageUrl(item.image_url);
-            const name = escapeHtml(item.name || '');
+            let rawName = String(item.name || '');
+            let baseName = rawName;
+            let variationSuffix = '';
+            if (rawName.includes(' - ')) {
+                const nameParts = rawName.split(' - ');
+                baseName = nameParts[0];
+                variationSuffix = nameParts.slice(1).join(' - ');
+            }
+            const name = escapeHtml(baseName);
+            const variationLabel = escapeHtml(variationSuffix);
             itemsHtml += `
             <li class="flex items-center py-4 gap-4">
                 <img src="${escapeHtml(image)}"
                     alt="${name}"
                     class="w-16 h-16 object-cover rounded border border-gray-200 bg-gray-100 flex-shrink-0">
                 <div class="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
-                    <div class="font-semibold text-base">${name}</div>
+                    <div class="flex flex-col">
+                        <div class="font-semibold text-base">${name}</div>
+                        ${variationSuffix ? `<span class='mt-1 w-fit rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-600'>${variationLabel}</span>` : ''}
+                    </div>
                     <div class="sm:ml-auto flex flex-col items-end">
                         <span class="text-[#0086C9] font-bold text-base">$${price.toFixed(2)}</span>
                         <span class="text-xs text-gray-500">Qty: ${qty}</span>
@@ -1387,33 +1424,6 @@ function resultMessage(message) {
 }
 
 
-// DETECT IF PAYPAL IS SELECTED
-document.querySelectorAll('input[name="payment"]').forEach(radio => {
-    radio.addEventListener('change', function() {
-        const paypalContainer = document.getElementById('paypal-button-container');
-        const stripeWrapper = document.getElementById('stripe-payment-wrapper');
-        const submitBtn = document.getElementById('checkoutForm').querySelector('button[type="submit"]');
-        
-        if (this.value === 'paypal') {
-            if (stripeWrapper) stripeWrapper.classList.add('hidden');
-            paypalContainer.style.display = 'block';
-            submitBtn.style.display = 'none';
-            if (!paypalContainer.dataset.rendered) {
-                renderPayPalButton();
-                paypalContainer.dataset.rendered = 'true';
-            }
-        } else if (this.value === 'card') {
-            paypalContainer.style.display = 'none';
-            submitBtn.style.display = 'block';
-            if (stripeWrapper) stripeWrapper.classList.remove('hidden');
-        } else {
-            paypalContainer.style.display = 'none';
-            submitBtn.style.display = 'block';
-            if (stripeWrapper) stripeWrapper.classList.add('hidden');
-        }
-    });
-});
-
 function renderPayPalButton() {
     window.paypal.Buttons({
         style: {
@@ -1538,35 +1548,59 @@ document.addEventListener('DOMContentLoaded', function() {
     const pickupRadio = document.getElementById('deliveryPickup');
     const hotelDropdown = document.getElementById('hotelDropdown');
     const hotelSelect = hotelDropdown.querySelector('select[name="hotel_id"]');
-    const addressFields = document.getElementById('addressFields');
-    const address1 = addressFields.querySelector('input[name="address1"]');
-    const address2 = addressFields.querySelector('input[name="address2"]');
-    const state = addressFields.querySelector('input[name="state"]');
-    const zip = addressFields.querySelector('input[name="zip"]');
+    const returnHotelSection = document.getElementById('returnHotelSection');
+    const deliveryAddressFields = document.getElementById('deliveryAddressFields');
+    const deliveryAddress1 = deliveryAddressFields.querySelector('input[name="address1"]');
+    const deliveryAddress2 = deliveryAddressFields.querySelector('input[name="address2"]');
+    const state = deliveryAddressFields.querySelector('input[name="state"]');
+    const zip = deliveryAddressFields.querySelector('input[name="zip"]');
+    const returnAddressFields = document.getElementById('returnAddressFields');
+    const returnAddress1 = document.getElementById('returnAddress1');
+    const returnAddress2 = document.getElementById('returnAddress2');
     const pickupSection = document.getElementById('pickupLocationSection');
     const pickupSelect = pickupSection.querySelector('select[name="pickup_location"]');
     const returnHotelSelect = document.getElementById('returnHotelSelect');
     const sameAsDeliveryAddress = document.getElementById('sameAsDeliveryAddress');
 
     function clearAddressFields() {
-        address1.value = '';
-        address2.value = '';
+        deliveryAddress1.value = '';
+        deliveryAddress2.value = '';
         state.value = '';
         zip.value = '';
+        if (returnAddress1) returnAddress1.value = '';
+        if (returnAddress2) returnAddress2.value = '';
     }
 
-    function setAddressFieldsReadonly(isReadonly) {
-        address1.readOnly = isReadonly;
-        address2.readOnly = isReadonly;
+    function setDeliveryAddressReadonly(isReadonly) {
+        deliveryAddress1.readOnly = isReadonly;
+        deliveryAddress2.readOnly = isReadonly;
         state.readOnly = isReadonly;
         zip.readOnly = isReadonly;
+    }
+
+    function setReturnAddressReadonly(isReadonly) {
+        if (!returnAddress1 || !returnAddress2) return;
+        returnAddress1.readOnly = isReadonly;
+        returnAddress2.readOnly = isReadonly;
+        returnAddress1.classList.toggle('bg-gray-50', isReadonly);
+        returnAddress2.classList.toggle('bg-gray-50', isReadonly);
+    }
+
+    function populateReturnAddressFields() {
+        if (!returnAddress1 || !returnAddress2 || !returnHotelSelect) return;
+        const selected = returnHotelSelect.options[returnHotelSelect.selectedIndex];
+        returnAddress1.value = selected ? (selected.getAttribute('data-address1') || '') : '';
+        returnAddress2.value = selected ? (selected.getAttribute('data-address2') || '') : '';
     }
 
     function toggleDeliveryOptions() {
         if (hotelRadio.checked) {
             hotelDropdown.classList.remove('hidden');
-            addressFields.classList.remove('hidden');
-            setAddressFieldsReadonly(true);
+            if (returnHotelSection) returnHotelSection.classList.remove('hidden');
+            deliveryAddressFields.classList.remove('hidden');
+            returnAddressFields.classList.remove('hidden');
+            setDeliveryAddressReadonly(true);
+            setReturnAddressReadonly(true);
             pickupSection.style.display = 'none';
             if (hotelSelect) hotelSelect.required = true;
             if (pickupSelect) {
@@ -1575,7 +1609,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } else if (pickupRadio.checked) {
             hotelDropdown.classList.add('hidden');
-            addressFields.classList.add('hidden');
+            if (returnHotelSection) returnHotelSection.classList.add('hidden');
+            deliveryAddressFields.classList.add('hidden');
+            returnAddressFields.classList.add('hidden');
             pickupSection.style.display = 'block';
             clearAddressFields();
             if (hotelSelect) {
@@ -1594,8 +1630,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Populate address fields when hotel is selected
     hotelSelect.addEventListener('change', function() {
         const selected = hotelSelect.options[hotelSelect.selectedIndex];
-        address1.value = selected.getAttribute('data-address1') || '';
-        address2.value = selected.getAttribute('data-address2') || '';
+        deliveryAddress1.value = selected.getAttribute('data-address1') || '';
+        deliveryAddress2.value = selected.getAttribute('data-address2') || '';
         zip.value = selected.getAttribute('data-zip') || '';
         state.value = selected.getAttribute('data-state') || '';
         syncReturnHotelSelection();
@@ -1608,6 +1644,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (returnHotelSelect) {
         returnHotelSelect.addEventListener('change', function() {
+            populateReturnAddressFields();
             if (sameAsDeliveryAddress && sameAsDeliveryAddress.checked) {
                 syncReturnHotelSelection();
             }
@@ -1643,6 +1680,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Run on page load
     updateAddressRequired();
+    populateReturnAddressFields();
 
     // Run whenever delivery type changes
     document.querySelectorAll('input[name="delivery_type"]').forEach(function(radio) {

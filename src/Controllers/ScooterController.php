@@ -5,16 +5,38 @@ use App\Controller;
 class ScooterController extends Controller {
     private $allowedStatuses = ['available', 'maintenance', 'Sold', 'archived'];
 
-    public function index() {
-
+    private function requireAdminSession(): void {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
-        
-        if (!isset($_SESSION['admin_id'])) {
+
+        if (empty($_SESSION['admin_id'])) {
             header('Location: /admin/login');
             exit;
         }
+    }
+
+    private function requireInventoryManager(): void {
+        $this->requireAdminSession();
+        $this->requireAdminRoleRedirect(['admin', 'superadmin'], '/admin/orders');
+    }
+
+    private function requireAdminSessionJson(): void {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        header('Content-Type: application/json; charset=utf-8');
+        if (empty($_SESSION['admin_id'])) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Unauthorized']);
+            exit;
+        }
+    }
+
+    public function index() {
+        $this->requireAdminSession();
+
         // Get all products and their scooter counts
             $scooterModel = new \App\Models\ScooterModel();
             $products = $scooterModel->getProductScooterCounts();
@@ -24,6 +46,8 @@ class ScooterController extends Controller {
     }
 
     public function create() {
+        $this->requireInventoryManager();
+
         $scooterModel = new \App\Models\ScooterModel();
         $products = $scooterModel->getAllProductsBasic();
         $scooters = $scooterModel->getAllScootersBasic();
@@ -38,6 +62,8 @@ class ScooterController extends Controller {
     }
 
     public function store() {
+        $this->requireInventoryManager();
+
         // VALIDATE CSRF TOKEN
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
@@ -48,9 +74,8 @@ class ScooterController extends Controller {
         $scooterModel = new \App\Models\ScooterModel();
         $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : null;
         $status = in_array($_POST['status'] ?? 'available', $this->allowedStatuses) ? $_POST['status'] : 'available';
-        $available = isset($_POST['available']) ? 1 : 0;
         $barcode = htmlspecialchars(trim($_POST['barcode'] ?? ''));
-        $scooterModel->addScooterWithStock($product_id, $status, $available, $barcode);
+        $scooterModel->addScooterWithStock($product_id, $status, $barcode);
 
         $success = 'added';
         $successType = 'add';
@@ -65,9 +90,8 @@ class ScooterController extends Controller {
     }
 
     public function delete() {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        $this->requireInventoryManager();
+
         // VALIDATE CSRF TOKEN
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
@@ -94,6 +118,8 @@ class ScooterController extends Controller {
     }
 
     public function edit() {
+        $this->requireInventoryManager();
+
         $scooterModel = new \App\Models\ScooterModel();
         $scooterId = isset($_GET['scooter_id']) ? intval($_GET['scooter_id']) : null;
         $scooter = $scooterModel->getScooterById($scooterId);
@@ -105,6 +131,8 @@ class ScooterController extends Controller {
     }
 
     public function update() {
+        $this->requireInventoryManager();
+
         // VALIDATE CSRF TOKEN
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
@@ -116,9 +144,7 @@ class ScooterController extends Controller {
         $scooterId = isset($_POST['scooter_id']) ? intval($_POST['scooter_id']) : null;
         $data = [
             'product_id' => isset($_POST['product_id']) ? intval($_POST['product_id']) : null,
-            'model' => htmlspecialchars(trim($_POST['model'] ?? '')),
             'status' => in_array($_POST['status'] ?? 'available', $this->allowedStatuses) ? $_POST['status'] : 'available',
-            'available' => isset($_POST['available']) ? 1 : 0,
             'barcode' => htmlspecialchars(trim($_POST['barcode'] ?? '')),
         ];
         $scooterModel->updateScooterById($scooterId, $data);
@@ -127,7 +153,8 @@ class ScooterController extends Controller {
     }
 
     public function save() {
-        session_start();
+        $this->requireInventoryManager();
+
         // VALIDATE CSRF TOKEN
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
@@ -196,6 +223,19 @@ class ScooterController extends Controller {
                 $deleteResult['errors'] ?? []
             );
 
+            $this->logAdminAction('scooter_inventory_saved', 'scooter', null, [
+                'updated_count' => count($updateResult['statusChanges'] ?? []),
+                'added_count' => count($addResult['addChanges'] ?? []),
+                'deleted_count' => count($deleteResult['deleted'] ?? []),
+                'archived_count' => count($deleteResult['archived'] ?? []),
+                'error_count' => count(array_merge(
+                    $updateResult['errors'] ?? [],
+                    $addResult['errors'] ?? [],
+                    $deleteResult['errors'] ?? []
+                )),
+                'messages' => $_SESSION['status_changes'],
+            ]);
+
             // 5. Redirect back to scooters page
             header('Location: /admin/scooters');
             exit;
@@ -204,16 +244,7 @@ class ScooterController extends Controller {
 
 
     public function listByProduct() {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        header('Content-Type: application/json; charset=utf-8');
-        if (empty($_SESSION['admin_id'])) {
-            http_response_code(401);
-            echo json_encode(['error' => 'Unauthorized']);
-            exit;
-        }
+        $this->requireAdminSessionJson();
 
         $scooterModel = new \App\Models\ScooterModel();
         $product_id = $_GET['product_id'] ?? null;

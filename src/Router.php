@@ -89,10 +89,8 @@ class Router
         echo "404 Not Found";
     } catch (\Throwable $e) {
         http_response_code(500);
-        echo "<pre>";
-        echo $e->getMessage() . "\n";
-        echo $e->getFile() . ":" . $e->getLine();
-        echo "</pre>";
+        error_log('Router dispatch error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        echo 'Application error';
         exit;
     }
 }

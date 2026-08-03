@@ -7,6 +7,48 @@ class RentalPriceModel {
     private $db;
     public function __construct() {
         $this->db = Database::getInstance();
+        $this->ensureRentalPriceUniqueness();
+    }
+
+    private function ensureRentalPriceUniqueness(): void
+    {
+        try {
+            $indexStmt = $this->db->query("SHOW INDEX FROM rental_prices WHERE Key_name = 'uq_rental_price_tier'");
+            if (!$indexStmt || !$indexStmt->fetch(PDO::FETCH_ASSOC)) {
+                $this->db->exec("ALTER TABLE rental_prices ADD UNIQUE KEY uq_rental_price_tier (product_id, variation_id, days)");
+            }
+        } catch (\Throwable $e) {
+            error_log('Rental price unique-index warning: ' . $e->getMessage());
+        }
+    }
+
+    private function normalizeDayTokens($rawDay): array
+    {
+        $value = trim((string)$rawDay);
+        if ($value === '') {
+            return [];
+        }
+
+        if (preg_match('/^(\d{1,2})\s*-\s*(\d{1,2})$/', $value, $m)) {
+            $start = (int)$m[1];
+            $end = (int)$m[2];
+            if ($start <= 0 || $end <= 0) {
+                return [];
+            }
+            if ($start > $end) {
+                [$start, $end] = [$end, $start];
+            }
+            $start = max(1, min(31, $start));
+            $end = max(1, min(31, $end));
+            return array_map('strval', range($start, $end));
+        }
+
+        if (!preg_match('/^\d{1,2}$/', $value)) {
+            return [];
+        }
+
+        $day = max(1, min(31, (int)$value));
+        return [(string)$day];
     }
 
     // Get all rental prices grouped by product_id, variation_id, days
@@ -42,13 +84,21 @@ class RentalPriceModel {
                     $delStmt->execute([$pid, $variationId]);
                 }
                 // Insert new price tiers
+                $insertedDays = [];
                 foreach ($dayArr as $i => $day) {
                     $price = $prices[$pid][$vid][$i] ?? null;
-                    // Accept day ranges as string (e.g. '8-14'), not just int
-                    if ($day !== null && $day !== '' && $price !== null && $price !== '') {
-                        $dayStr = (string)$day;
+                    if ($price === null || $price === '' || !is_numeric($price)) {
+                        continue;
+                    }
+
+                    $normalizedDays = $this->normalizeDayTokens($day);
+                    foreach ($normalizedDays as $dayStr) {
+                        if (isset($insertedDays[$dayStr])) {
+                            continue;
+                        }
                         $stmt = $this->db->prepare('INSERT INTO rental_prices (product_id, variation_id, days, price) VALUES (?, ?, ?, ?)');
-                        $stmt->execute([$pid, $variationId, $dayStr, $price]);
+                        $stmt->execute([$pid, $variationId, $dayStr, round((float)$price, 2)]);
+                        $insertedDays[$dayStr] = true;
                     }
                 }
             }

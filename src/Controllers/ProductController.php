@@ -136,6 +136,14 @@ class ProductController extends Controller {
         }
 
         $productModel = new ProductModel();
+        $auditDetails = [
+            'deleted_ids' => [],
+            'delete_failed' => [],
+            'updated_ids' => [],
+            'created_names' => [],
+            'visibility_changes' => [],
+            'sale_type' => 'rental',
+        ];
 
         // Handle deletions
         if (!empty($_POST['deleted_ids'])) {
@@ -147,6 +155,12 @@ class ProductController extends Controller {
                     $deleteResult = $productModel->deleteProduct($id);
                     if (!($deleteResult['success'] ?? false)) {
                         $deleteWarnings[] = "Product ID {$id}: " . ($deleteResult['message'] ?? 'Delete failed.');
+                        $auditDetails['delete_failed'][] = [
+                            'product_id' => $id,
+                            'message' => $deleteResult['message'] ?? 'Delete failed.',
+                        ];
+                    } else {
+                        $auditDetails['deleted_ids'][] = $id;
                     }
                 }
             }
@@ -199,8 +213,14 @@ class ProductController extends Controller {
                     } else {
                         $productModel->updateProduct($id, $data);
                     }
+                    $auditDetails['updated_ids'][] = (int)$id;
 
                     if ((int)$currentHidden !== (int)$newHidden) {
+                        $auditDetails['visibility_changes'][] = [
+                            'product_id' => (int)$id,
+                            'from' => $currentHidden ? 'hidden' : 'visible',
+                            'to' => $newHidden ? 'hidden' : 'visible',
+                        ];
                         $this->appendAdminAuditLog(sprintf(
                             'Product ID %d visibility changed from %s to %s.',
                             (int)$id,
@@ -242,11 +262,65 @@ class ProductController extends Controller {
                         'is_hidden' => !empty($_POST['is_hidden']['new'][$i]) ? 1 : 0,
                     ];
                     $productModel->addProduct($data);
+                    $auditDetails['created_names'][] = $newName;
                     if (!empty($data['is_hidden'])) {
                         $this->appendAdminAuditLog(sprintf('New product "%s" was created hidden.', $newName));
                     }
                 }
             }
+        }
+
+        if (
+            !empty($auditDetails['deleted_ids']) ||
+            !empty($auditDetails['delete_failed']) ||
+            !empty($auditDetails['updated_ids']) ||
+            !empty($auditDetails['created_names'])
+        ) {
+            $this->logAdminAction('products_saved', 'product', null, $auditDetails + [
+                'counts' => [
+                    'deleted' => count($auditDetails['deleted_ids']),
+                    'delete_failed' => count($auditDetails['delete_failed']),
+                    'updated' => count(array_unique($auditDetails['updated_ids'])),
+                    'created' => count($auditDetails['created_names']),
+                    'visibility_changed' => count($auditDetails['visibility_changes']),
+                ],
+            ]);
+        }
+
+        header('Location: /admin/products');
+        exit;
+    }
+
+    public function create() {
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/products');
+
+        header('Location: /admin/products');
+        exit;
+    }
+
+    public function store() {
+        $this->save();
+    }
+
+    public function delete() {
+        $this->ensureAdminSession();
+        $this->ensureManagePermission('/admin/products');
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            header('Location: /admin/products');
+            exit;
+        }
+
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $id = (int)($_POST['product_id'] ?? $_POST['id'] ?? 0);
+        if ($id > 0) {
+            $_POST['deleted_ids'] = (string)$id;
+            $this->save();
         }
 
         header('Location: /admin/products');
@@ -352,6 +426,13 @@ class ProductController extends Controller {
         }
 
         $productModel = new ProductModel();
+        $auditDetails = [
+            'deleted_ids' => [],
+            'delete_failed' => [],
+            'updated_ids' => [],
+            'created_names' => [],
+            'sale_type' => 'sale',
+        ];
 
         // Handle deleted IDs
         if (!empty($_POST['deleted_ids'])) {
@@ -365,6 +446,12 @@ class ProductController extends Controller {
                 $deleteResult = $productModel->deleteProduct($id);
                 if (!($deleteResult['success'] ?? false)) {
                     $deleteWarnings[] = "Product ID {$id}: " . ($deleteResult['message'] ?? 'Delete failed.');
+                    $auditDetails['delete_failed'][] = [
+                        'product_id' => $id,
+                        'message' => $deleteResult['message'] ?? 'Delete failed.',
+                    ];
+                } else {
+                    $auditDetails['deleted_ids'][] = $id;
                 }
             }
             if (!empty($deleteWarnings)) {
@@ -402,6 +489,7 @@ class ProductController extends Controller {
                     'is_available' => isset($_POST['is_available'][$id]) ? 1 : 0
                 ];
                 $productModel->updateProductForSale($id, $data);
+                $auditDetails['updated_ids'][] = (int)$id;
             }
         }
 
@@ -436,8 +524,25 @@ class ProductController extends Controller {
                         'is_available' => isset($_POST['is_available']['new'][$i]) ? 1 : 0
                     ];
                     $productModel->addProductForSale($data);
+                    $auditDetails['created_names'][] = $newName;
                 }
             }
+        }
+
+        if (
+            !empty($auditDetails['deleted_ids']) ||
+            !empty($auditDetails['delete_failed']) ||
+            !empty($auditDetails['updated_ids']) ||
+            !empty($auditDetails['created_names'])
+        ) {
+            $this->logAdminAction('sale_products_saved', 'product', null, $auditDetails + [
+                'counts' => [
+                    'deleted' => count($auditDetails['deleted_ids']),
+                    'delete_failed' => count($auditDetails['delete_failed']),
+                    'updated' => count(array_unique($auditDetails['updated_ids'])),
+                    'created' => count($auditDetails['created_names']),
+                ],
+            ]);
         }
 
         header('Location: /admin/scooters-for-sale');
@@ -534,6 +639,12 @@ class ProductController extends Controller {
             } else {
                 $stmt = $pdo->prepare("INSERT INTO product_variations (product_id, variation_name, price, stock) VALUES (?, ?, ?, ?)");
                 if ($stmt->execute([$product_id, $variation_name, $price, $stock])) {
+                    $this->logAdminAction('product_variation_created', 'product_variation', (int)$pdo->lastInsertId(), [
+                        'product_id' => $product_id,
+                        'variation_name' => $variation_name,
+                        'price' => $price,
+                        'stock' => $stock,
+                    ]);
                     $success = 'Product variation added successfully!';
                 } else {
                     $error = 'Failed to add product variation.';
@@ -593,6 +704,12 @@ class ProductController extends Controller {
         }
         $pdo = \App\Utils\Database::getInstance();
         $deleteWarnings = [];
+        $auditDetails = [
+            'deleted_ids' => [],
+            'delete_failed' => [],
+            'updated_ids' => [],
+            'created_names' => [],
+        ];
 
         // Handle deletions (hard delete in batch save)
         if (!empty($_POST['deleted_ids'])) {
@@ -620,11 +737,13 @@ class ProductController extends Controller {
                         $stmt->execute([$id]);
 
                         $pdo->commit();
+                        $auditDetails['deleted_ids'][] = $id;
                     } catch (\PDOException $e) {
                         if ($pdo->inTransaction()) {
                             $pdo->rollBack();
                         }
                         $deleteWarnings[] = "Variation ID {$id}: cannot be archived due to required linked records.";
+                        $auditDetails['delete_failed'][] = $id;
                     }
                 }
             }
@@ -640,6 +759,7 @@ class ProductController extends Controller {
                     if ($product_id && $name !== '') {
                         $stmt = $pdo->prepare("UPDATE product_variations SET product_id=?, variation_name=?, price=? WHERE variation_id=?");
                         $stmt->execute([$product_id, $name, $price, $id]);
+                        $auditDetails['updated_ids'][] = (int)$id;
                     }
                 }
             }
@@ -657,8 +777,25 @@ class ProductController extends Controller {
                 if ($name !== '' && $product_id) {
                     $stmt = $pdo->prepare("INSERT INTO product_variations (product_id, variation_name, price, is_active) VALUES (?, ?, ?, 1)");
                     $stmt->execute([$product_id, $name, $price]);
+                    $auditDetails['created_names'][] = $name;
                 }
             }
+        }
+
+        if (
+            !empty($auditDetails['deleted_ids']) ||
+            !empty($auditDetails['delete_failed']) ||
+            !empty($auditDetails['updated_ids']) ||
+            !empty($auditDetails['created_names'])
+        ) {
+            $this->logAdminAction('product_variations_saved', 'product_variation', null, $auditDetails + [
+                'counts' => [
+                    'deleted' => count($auditDetails['deleted_ids']),
+                    'delete_failed' => count($auditDetails['delete_failed']),
+                    'updated' => count(array_unique($auditDetails['updated_ids'])),
+                    'created' => count($auditDetails['created_names']),
+                ],
+            ]);
         }
 
         if (!empty($deleteWarnings)) {

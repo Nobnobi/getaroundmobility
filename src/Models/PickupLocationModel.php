@@ -14,6 +14,15 @@ class PickupLocationModel {
         $stmt->execute();
         return $stmt->fetchAll();
     }
+    public function getById($id): ?array {
+        $stmt = $this->db->prepare('SELECT * FROM pickup_locations WHERE id = ? LIMIT 1');
+        $stmt->execute([(int)$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+    public function lastInsertId(): int {
+        return (int)$this->db->lastInsertId();
+    }
     public function add($data) {
         $stmt = $this->db->prepare('INSERT INTO pickup_locations (name, address) VALUES (?, ?)');
         return $stmt->execute([

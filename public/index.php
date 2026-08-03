@@ -20,7 +20,7 @@ if ($isAdminSurface) {
         "img-src 'self' data: blob:",
         "connect-src 'self'",
     ];
-    header('Content-Security-Policy-Report-Only: ' . implode('; ', $cspReportOnly));
+    header('Content-Security-Policy: ' . implode('; ', $cspReportOnly));
 } else {
     $publicCspReportOnly = [
         "default-src 'self'",
@@ -35,7 +35,7 @@ if ($isAdminSurface) {
         "connect-src 'self' https://api.stripe.com https://www.paypal.com https://*.paypal.com https://connect.facebook.net",
         "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://www.paypal.com https://www.sandbox.paypal.com https://www.facebook.com",
     ];
-    header('Content-Security-Policy-Report-Only: ' . implode('; ', $publicCspReportOnly));
+    header('Content-Security-Policy: ' . implode('; ', $publicCspReportOnly));
 }
 
 // =============================

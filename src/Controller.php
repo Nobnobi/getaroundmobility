@@ -3,6 +3,7 @@
 namespace App;
 
 use App\Models\AdminAuditLogModel;
+use App\Models\PublicRateLimitModel;
 
 class Controller
 {
@@ -62,7 +63,62 @@ class Controller
         }
     }
 
-    private function getClientIpAddress(): ?string
+    protected function checkPublicRateLimit(string $action, int $maxAttempts, int $windowMinutes): array
+    {
+        try {
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+
+            $ipAddress = $this->getClientIpAddress() ?? '0.0.0.0';
+            $sessionId = session_id() ?: null;
+            $limiter = new PublicRateLimitModel();
+            $status = $limiter->getLimitStatus($action, $ipAddress, $sessionId, $maxAttempts, $windowMinutes);
+            if (!empty($status['limited'])) {
+                $limiter->recordAttempt($action, $ipAddress, $sessionId, false);
+                return $status + [
+                    'allowed' => false,
+                    'message' => $this->formatPublicRateLimitMessage((int)($status['remaining_seconds'] ?? 60)),
+                ];
+            }
+
+            $limiter->recordAttempt($action, $ipAddress, $sessionId, true);
+            return $status + [
+                'allowed' => true,
+                'message' => '',
+            ];
+        } catch (\Throwable $e) {
+            error_log('Public rate limit failed open: ' . $e->getMessage());
+            return [
+                'allowed' => true,
+                'limited' => false,
+                'message' => '',
+            ];
+        }
+    }
+
+    protected function enforcePublicJsonRateLimit(string $action, int $maxAttempts, int $windowMinutes): void
+    {
+        $status = $this->checkPublicRateLimit($action, $maxAttempts, $windowMinutes);
+        if (!($status['allowed'] ?? true)) {
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(429);
+            echo json_encode([
+                'error' => $status['message'] ?? 'Too many attempts. Please try again later.',
+                'rate_limited' => true,
+                'remaining_seconds' => (int)($status['remaining_seconds'] ?? 0),
+            ]);
+            exit;
+        }
+    }
+
+    private function formatPublicRateLimitMessage(int $remainingSeconds): string
+    {
+        $minutes = max(1, (int)ceil($remainingSeconds / 60));
+        return 'Too many attempts. Please wait about ' . $minutes . ' minute' . ($minutes === 1 ? '' : 's') . ' and try again.';
+    }
+
+    protected function getClientIpAddress(): ?string
     {
         $candidates = [
             $_SERVER['HTTP_CF_CONNECTING_IP'] ?? null,

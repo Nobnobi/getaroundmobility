@@ -33,6 +33,27 @@ class LocationsController extends Controller {
         $this->partnerHotelModel = new PartnerHotelModel();
         $this->pickupLocationModel = new PickupLocationModel();
     }
+
+    private function normalizeHotelAuditPayload(array $fields): array {
+        return [
+            'name' => trim((string)($fields['name'] ?? '')),
+            'address1' => trim((string)($fields['address1'] ?? '')),
+            'address2' => trim((string)($fields['address2'] ?? '')),
+            'state' => trim((string)($fields['state'] ?? '')),
+            'zip' => trim((string)($fields['zip'] ?? '')),
+            'delivery_fee' => is_numeric($fields['delivery_fee'] ?? null)
+                ? round(max(0, (float)$fields['delivery_fee']), 2)
+                : 0.0,
+        ];
+    }
+
+    private function normalizePickupAuditPayload(array $fields): array {
+        return [
+            'name' => trim((string)($fields['name'] ?? '')),
+            'address' => trim((string)($fields['address'] ?? '')),
+        ];
+    }
+
     public function index() {
         $this->ensureAdminSession();
 
@@ -74,7 +95,19 @@ class LocationsController extends Controller {
             if (!empty($_POST['hotels']) && is_array($_POST['hotels'])) {
                 foreach ($_POST['hotels'] as $id => $fields) {
                     if ($id === 'new') continue;
-                    $this->partnerHotelModel->update($id, $fields);
+                    $hotelId = (int)$id;
+                    $before = $this->partnerHotelModel->getById($hotelId);
+                    if ($this->partnerHotelModel->update($hotelId, $fields)) {
+                        $after = $this->partnerHotelModel->getById($hotelId);
+                        $beforeAudit = $before ? $this->normalizeHotelAuditPayload($before) : null;
+                        $afterAudit = $after ? $this->normalizeHotelAuditPayload($after) : $this->normalizeHotelAuditPayload((array)$fields);
+                        if ($beforeAudit !== $afterAudit) {
+                            $this->logAdminAction('partner_hotel_updated', 'partner_hotel', $hotelId, [
+                                'before' => $beforeAudit,
+                                'after' => $afterAudit,
+                            ]);
+                        }
+                    }
                 }
             }
             // Add new hotels
@@ -87,14 +120,20 @@ class LocationsController extends Controller {
                 $deliveryFees = $_POST['hotels']['new']['delivery_fee'] ?? [];
                 for ($i = 0; $i < count($names); $i++) {
                     if (trim($names[$i]) !== '') {
-                        $this->partnerHotelModel->add([
+                        $payload = [
                             'name' => $names[$i],
                             'address1' => $address1s[$i] ?? '',
                             'address2' => $address2s[$i] ?? '',
                             'state' => $states[$i] ?? '',
                             'zip' => $zips[$i] ?? '',
                             'delivery_fee' => $deliveryFees[$i] ?? 0
-                        ]);
+                        ];
+                        if ($this->partnerHotelModel->add($payload)) {
+                            $hotelId = $this->partnerHotelModel->lastInsertId();
+                            $this->logAdminAction('partner_hotel_added', 'partner_hotel', $hotelId, [
+                                'hotel' => $this->normalizeHotelAuditPayload($payload),
+                            ]);
+                        }
                     }
                 }
             }
@@ -104,7 +143,13 @@ class LocationsController extends Controller {
                 foreach ($ids as $id) {
                     $id = trim($id);
                     if ($id !== '') {
-                        $this->partnerHotelModel->delete($id);
+                        $hotelId = (int)$id;
+                        $before = $this->partnerHotelModel->getById($hotelId);
+                        if ($this->partnerHotelModel->delete($hotelId)) {
+                            $this->logAdminAction('partner_hotel_deleted', 'partner_hotel', $hotelId, [
+                                'hotel' => $before ? $this->normalizeHotelAuditPayload($before) : null,
+                            ]);
+                        }
                     }
                 }
             }
@@ -113,7 +158,19 @@ class LocationsController extends Controller {
             if (!empty($_POST['pickups']) && is_array($_POST['pickups'])) {
                 foreach ($_POST['pickups'] as $id => $fields) {
                     if ($id === 'new') continue;
-                    $this->pickupLocationModel->update($id, $fields);
+                    $pickupId = (int)$id;
+                    $before = $this->pickupLocationModel->getById($pickupId);
+                    if ($this->pickupLocationModel->update($pickupId, $fields)) {
+                        $after = $this->pickupLocationModel->getById($pickupId);
+                        $beforeAudit = $before ? $this->normalizePickupAuditPayload($before) : null;
+                        $afterAudit = $after ? $this->normalizePickupAuditPayload($after) : $this->normalizePickupAuditPayload((array)$fields);
+                        if ($beforeAudit !== $afterAudit) {
+                            $this->logAdminAction('pickup_location_updated', 'pickup_location', $pickupId, [
+                                'before' => $beforeAudit,
+                                'after' => $afterAudit,
+                            ]);
+                        }
+                    }
                 }
             }
             // Add new pickups
@@ -122,10 +179,16 @@ class LocationsController extends Controller {
                 $addresses = $_POST['pickups']['new']['address'] ?? [];
                 for ($i = 0; $i < count($names); $i++) {
                     if (trim($names[$i]) !== '') {
-                        $this->pickupLocationModel->add([
+                        $payload = [
                             'name' => $names[$i],
                             'address' => $addresses[$i] ?? ''
-                        ]);
+                        ];
+                        if ($this->pickupLocationModel->add($payload)) {
+                            $pickupId = $this->pickupLocationModel->lastInsertId();
+                            $this->logAdminAction('pickup_location_added', 'pickup_location', $pickupId, [
+                                'pickup_location' => $this->normalizePickupAuditPayload($payload),
+                            ]);
+                        }
                     }
                 }
             }
@@ -135,7 +198,13 @@ class LocationsController extends Controller {
                 foreach ($ids as $id) {
                     $id = trim($id);
                     if ($id !== '') {
-                        $this->pickupLocationModel->delete($id);
+                        $pickupId = (int)$id;
+                        $before = $this->pickupLocationModel->getById($pickupId);
+                        if ($this->pickupLocationModel->delete($pickupId)) {
+                            $this->logAdminAction('pickup_location_deleted', 'pickup_location', $pickupId, [
+                                'pickup_location' => $before ? $this->normalizePickupAuditPayload($before) : null,
+                            ]);
+                        }
                     }
                 }
             }

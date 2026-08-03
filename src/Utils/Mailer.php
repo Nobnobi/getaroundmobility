@@ -4,6 +4,16 @@ use PHPMailer\PHPMailer\Exception;
 
 require_once __DIR__ . '/../../vendor/autoload.php'; // Adjust path if needed
 
+function isMailerDebugEnabled(): bool {
+    $value = getenv('APP_DEBUG');
+    if ($value === false) {
+        $value = $_ENV['APP_DEBUG'] ?? '';
+    }
+
+    $value = strtolower(trim((string)$value));
+    return in_array($value, ['1', 'true', 'yes', 'on'], true);
+}
+
 function buildBookingEmailTemplate(array $data = []): string {
         $esc = static function ($value): string {
                 return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -124,20 +134,28 @@ function buildBookingEmailTemplate(array $data = []): string {
 
 function sendBookingConfirmation($toEmail, $toName, $subject, $bodyHtml, $attachments = []) {
     $mail = new PHPMailer(true);
-    $debugMailFile = fopen("mail-debug-log.txt", 'a');
-    // Log recipient and SMTP config (mask password)
-    fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] sendBookingConfirmation called. To: $toEmail, Name: $toName\n");
+    $debugMailFile = null;
+    if (isMailerDebugEnabled()) {
+        $debugMailFile = fopen("mail-debug-log.txt", 'a');
+    }
+
+    // Only log minimal operational diagnostics in debug mode.
+    if (is_resource($debugMailFile)) {
+        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] sendBookingConfirmation called\n");
+    }
     $smtpHost = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
     $smtpUsername = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
     $smtpPassword = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
     $smtpPort = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
     $fromEmail = getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? ($smtpUsername));
     $fromName = getenv('SMTP_FROM_NAME') ?: ($_ENV['SMTP_FROM_NAME'] ?? 'Get Around Mobility');
-    fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] SMTP config: host=$smtpHost, username=$smtpUsername, port=$smtpPort, fromEmail=$fromEmail, fromName=$fromName\n");
-    if ($smtpPassword) {
-        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] SMTP password is set (masked)\n");
-    } else {
-        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [ERROR] SMTP password is NOT set!\n");
+    if (is_resource($debugMailFile)) {
+        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] SMTP host/port loaded. host=$smtpHost, port=$smtpPort\n");
+        if ($smtpPassword) {
+            fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] SMTP password is set\n");
+        } else {
+            fwrite($debugMailFile, date('Y-m-d H:i:s') . " [ERROR] SMTP password is not set\n");
+        }
     }
     try {
         // SMTP config from environment variables (getenv or $_ENV fallback)
@@ -166,9 +184,13 @@ function sendBookingConfirmation($toEmail, $toName, $subject, $bodyHtml, $attach
                 if (isset($att['path'])) {
                     if (file_exists($att['path'])) {
                         $mail->addAttachment($att['path'], $att['name'] ?? '');
-                        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] Attachment added: " . $att['path'] . "\n");
+                        if (is_resource($debugMailFile)) {
+                            fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] Attachment added: " . $att['path'] . "\n");
+                        }
                     } else {
-                        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [ERROR] Attachment missing: " . $att['path'] . "\n");
+                        if (is_resource($debugMailFile)) {
+                            fwrite($debugMailFile, date('Y-m-d H:i:s') . " [ERROR] Attachment missing: " . $att['path'] . "\n");
+                        }
                     }
                 }
             }
@@ -182,12 +204,16 @@ function sendBookingConfirmation($toEmail, $toName, $subject, $bodyHtml, $attach
         $mail->AltBody = trim(preg_replace('/\s+/', ' ', strip_tags((string)$bodyHtml)));
 
         $mail->send();
-        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] Email sent successfully to $toEmail\n");
-        fclose($debugMailFile);
+        if (is_resource($debugMailFile)) {
+            fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] Email sent successfully\n");
+            fclose($debugMailFile);
+        }
         return true;
     } catch (Exception $e) {
-        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [ERROR] PHPMailer Exception: " . $e->getMessage() . "\nErrorInfo: " . ($mail->ErrorInfo ?? 'N/A') . "\n");
-        fclose($debugMailFile);
+        if (is_resource($debugMailFile)) {
+            fwrite($debugMailFile, date('Y-m-d H:i:s') . " [ERROR] PHPMailer Exception: " . $e->getMessage() . "\nErrorInfo: " . ($mail->ErrorInfo ?? 'N/A') . "\n");
+            fclose($debugMailFile);
+        }
         error_log('Mailer Error: ' . $mail->ErrorInfo . ' | Exception: ' . $e->getMessage());
         return false;
     }

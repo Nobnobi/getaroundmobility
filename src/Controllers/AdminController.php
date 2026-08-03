@@ -308,12 +308,7 @@ class AdminController extends Controller
     }
 
     public function addBlockedDate() {
-        $this->requireAdmin();
-        $role = strtolower((string)($_SESSION['admin_role'] ?? ''));
-        if (!in_array($role, ['superadmin', 'admin'], true)) {
-            http_response_code(403);
-            die('Forbidden');
-        }
+        $this->requireAdmin(['admin', 'superadmin']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             header('Location: /admin/blocked-dates');
             exit;
@@ -348,12 +343,7 @@ class AdminController extends Controller
     }
 
     public function removeBlockedDate() {
-        $this->requireAdmin();
-        $role = strtolower((string)($_SESSION['admin_role'] ?? ''));
-        if (!in_array($role, ['superadmin', 'admin'], true)) {
-            http_response_code(403);
-            die('Forbidden');
-        }
+        $this->requireAdmin(['admin', 'superadmin']);
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             header('Location: /admin/blocked-dates');
             exit;
@@ -439,10 +429,16 @@ class AdminController extends Controller
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
-            $orderModel->approveOrder($orderId);
-            $this->logAdminAction('order_approved', 'order', $orderId, [
-                'new_status' => 'approved',
-            ]);
+            $transition = $orderModel->transitionOrderStatus($orderId, 'approved');
+            if (!($transition['success'] ?? false)) {
+                $_SESSION['order_cancel_message'] = (string)($transition['error'] ?? 'Order could not be approved.');
+            } else {
+                $this->logAdminAction('order_approved', 'order', $orderId, [
+                    'previous_status' => $transition['current_status'] ?? null,
+                    'new_status' => 'approved',
+                ]);
+                $_SESSION['order_complete_message'] = "Order {$orderId} approved.";
+            }
         }
         header('Location: /admin/orders');
         exit;
@@ -456,11 +452,17 @@ class AdminController extends Controller
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
-            $orderModel->completeOrder($orderId);
-            $this->logAdminAction('order_completed', 'order', $orderId, [
-                'new_status' => 'completed',
-                'handler' => 'admin_controller',
-            ]);
+            $transition = $orderModel->transitionOrderStatus($orderId, 'completed');
+            if (!($transition['success'] ?? false)) {
+                $_SESSION['order_cancel_message'] = (string)($transition['error'] ?? 'Order could not be completed.');
+            } else {
+                $this->logAdminAction('order_completed', 'order', $orderId, [
+                    'previous_status' => $transition['current_status'] ?? null,
+                    'new_status' => 'completed',
+                    'handler' => 'admin_controller',
+                ]);
+                $_SESSION['order_complete_message'] = "Order {$orderId} completed.";
+            }
         }
         header('Location: /admin/orders');
         exit;
@@ -515,6 +517,7 @@ class AdminController extends Controller
             'products' => $products,
             'rentalPrices' => $rentalPrices,
             'activePromos' => array_values($activePromos),
+            'canEditFinalPrice' => $this->isCurrentAdminSuperadmin(),
             'formAction' => '/admin/orders/new',
             'availabilityEndpoint' => '/admin/orders/availability',
             'cancelUrl' => '/admin/orders',
@@ -590,6 +593,13 @@ class AdminController extends Controller
             'promo_applied_by_admin_id' => null,
             'promo_applied_by_admin_role' => null,
             'promo_applied_by_admin_name' => null,
+            'computed_total_amount' => null,
+            'final_price_edited' => 0,
+            'final_price_override_amount' => null,
+            'final_price_edited_by_admin_id' => null,
+            'final_price_edited_by_admin_role' => null,
+            'final_price_edited_by_admin_name' => null,
+            'final_price_edited_at' => null,
             'created_by_admin_id' => (int)($_SESSION['admin_id'] ?? 0) ?: null,
             'created_by_admin_role' => strtolower(trim((string)($_SESSION['admin_role'] ?? ''))),
             'created_by_admin_name' => trim((string)($_SESSION['admin_username'] ?? '')),
@@ -613,6 +623,36 @@ class AdminController extends Controller
         }
 
         $promoCodeInput = strtoupper(trim($_POST['promo_code'] ?? ''));
+        $finalPriceOverrideInput = trim((string)($_POST['final_price_override'] ?? ''));
+        $finalPriceOverrideAmount = null;
+        $finalPriceEditedBySuperadmin = false;
+
+        if ($finalPriceOverrideInput !== '') {
+            if (!$this->isCurrentAdminSuperadmin()) {
+                $_SESSION['form_errors'] = ['Only a Super Admin can edit the final walk-in price.'];
+                header('Location: ' . $newOrderRoute);
+                exit;
+            }
+
+            $normalizedOverrideInput = str_replace([',', '$', ' '], '', $finalPriceOverrideInput);
+            if (!is_numeric($normalizedOverrideInput)) {
+                $_SESSION['form_errors'] = ['Final price override must be a valid number.'];
+                header('Location: ' . $newOrderRoute);
+                exit;
+            }
+
+            $candidateOverride = round((float)$normalizedOverrideInput, 2);
+            if ($candidateOverride <= 0) {
+                $_SESSION['form_errors'] = ['Final price override must be greater than $0.00.'];
+                header('Location: ' . $newOrderRoute);
+                exit;
+            }
+
+            $finalPriceOverrideAmount = $candidateOverride;
+            $finalPriceEditedBySuperadmin = true;
+            // Manual final price editing acts as an explicit override and bypasses promo rules.
+            $promoCodeInput = '';
+        }
 
         if (!is_array($cart) || empty($cart)) {
             $_SESSION['form_errors'] = ['Please add at least one product to the booking.'];
@@ -659,9 +699,30 @@ class AdminController extends Controller
 
         $securityDeposit = 100.00;
         $productTotalWithTax = round(max(0, $cartSubtotal - $discountAmount), 2);
-        $finalTotalAmount = round($productTotalWithTax + $securityDeposit, 2);
+        $calculatedFinalTotalAmount = round($productTotalWithTax + $securityDeposit, 2);
+        $finalTotalAmount = $calculatedFinalTotalAmount;
+        if ($finalPriceEditedBySuperadmin && $finalPriceOverrideAmount !== null && $finalPriceOverrideAmount > $calculatedFinalTotalAmount) {
+            $_SESSION['form_errors'] = [
+                sprintf(
+                    'Final price override cannot exceed the computed total amount of $%0.2f.',
+                    $calculatedFinalTotalAmount
+                ),
+            ];
+            header('Location: ' . $newOrderRoute);
+            exit;
+        }
         $pretaxSubtotal = round($productTotalWithTax / 1.08375, 2);
         $includedTaxAmount = round($productTotalWithTax - $pretaxSubtotal, 2);
+        $orderData['computed_total_amount'] = $calculatedFinalTotalAmount;
+        if ($finalPriceEditedBySuperadmin && $finalPriceOverrideAmount !== null) {
+            $finalTotalAmount = $finalPriceOverrideAmount;
+            $orderData['final_price_edited'] = 1;
+            $orderData['final_price_override_amount'] = $finalPriceOverrideAmount;
+            $orderData['final_price_edited_by_admin_id'] = (int)($_SESSION['admin_id'] ?? 0) ?: null;
+            $orderData['final_price_edited_by_admin_role'] = $this->normalizeAdminRoleKey((string)($_SESSION['admin_role'] ?? ''));
+            $orderData['final_price_edited_by_admin_name'] = trim((string)($_SESSION['admin_username'] ?? ''));
+            $orderData['final_price_edited_at'] = date('Y-m-d H:i:s');
+        }
         $orderData['total_amount'] = $finalTotalAmount;
         if ($appliedPromoCode !== null) {
             $promoNote = sprintf('Promo applied: %s (-$%0.2f)', $appliedPromoCode, $discountAmount);
@@ -671,6 +732,15 @@ class AdminController extends Controller
             $orderData['promo_applied_by_admin_id'] = (int)($_SESSION['admin_id'] ?? 0) ?: null;
             $orderData['promo_applied_by_admin_role'] = strtolower(trim((string)($_SESSION['admin_role'] ?? '')));
             $orderData['promo_applied_by_admin_name'] = trim((string)($_SESSION['admin_username'] ?? ''));
+        }
+        if ($finalPriceEditedBySuperadmin && $finalPriceOverrideAmount !== null) {
+            $overrideNote = sprintf(
+                'Final price manually edited by %s (Super Admin): from $%0.2f to $%0.2f',
+                trim((string)($_SESSION['admin_username'] ?? 'Super Admin')),
+                $calculatedFinalTotalAmount,
+                $finalPriceOverrideAmount
+            );
+            $orderData['notes'] = trim(($orderData['notes'] !== '' ? ($orderData['notes'] . "\n") : '') . $overrideNote);
         }
 
         // Validate stock availability before placing order
@@ -702,6 +772,19 @@ class AdminController extends Controller
 
         if ($appliedPromoId !== null && $order_id) {
             $promoCodeModel->incrementUse($appliedPromoId);
+        }
+
+        if ($finalPriceEditedBySuperadmin && $finalPriceOverrideAmount !== null && $order_id) {
+            $this->logAdminAction('walkin_final_price_edited', 'order', $order_id, [
+                'booking_source' => 'walk-in',
+                'computed_total_amount' => round((float)$calculatedFinalTotalAmount, 2),
+                'final_total_amount' => round((float)$finalPriceOverrideAmount, 2),
+                'difference_amount' => round((float)$finalPriceOverrideAmount - (float)$calculatedFinalTotalAmount, 2),
+                'payment_method' => (string)($orderData['payment_method'] ?? ''),
+                'editor_admin_id' => isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null,
+                'editor_admin_username' => (string)($_SESSION['admin_username'] ?? ''),
+                'editor_admin_role' => $this->normalizeAdminRoleKey((string)($_SESSION['admin_role'] ?? '')),
+            ]);
         }
 
         $name = trim(($orderData['guest_first_name'] ?? '') . ' ' . ($orderData['guest_last_name'] ?? ''));
@@ -895,10 +978,16 @@ class AdminController extends Controller
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
-            $orderModel->rejectOrder($orderId);
-            $this->logAdminAction('order_rejected', 'order', $orderId, [
-                'new_status' => 'cancelled',
-            ]);
+            $transition = $orderModel->transitionOrderStatus($orderId, 'cancelled');
+            if (!($transition['success'] ?? false)) {
+                $_SESSION['order_cancel_message'] = (string)($transition['error'] ?? 'Order could not be rejected.');
+            } else {
+                $this->logAdminAction('order_rejected', 'order', $orderId, [
+                    'previous_status' => $transition['current_status'] ?? null,
+                    'new_status' => 'cancelled',
+                ]);
+                $_SESSION['order_complete_message'] = "Order {$orderId} rejected/cancelled.";
+            }
         }
         header('Location: /admin/orders');
         exit;
@@ -912,10 +1001,24 @@ class AdminController extends Controller
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
-            $orderModel->markAsPaid($orderId);
-            $this->logAdminAction('order_marked_paid', 'order', $orderId, [
-                'new_status' => 'paid',
-            ]);
+            $transitionCheck = $orderModel->getOrderStatusTransitionCheck($orderId, 'paid');
+            if (($transitionCheck['current_status'] ?? null) !== 'approved') {
+                $transition = [
+                    'success' => false,
+                    'error' => 'Only approved orders can be manually marked as paid.',
+                ];
+            } else {
+                $transition = $orderModel->transitionOrderStatus($orderId, 'paid');
+            }
+            if (!($transition['success'] ?? false)) {
+                $_SESSION['order_cancel_message'] = (string)($transition['error'] ?? 'Order could not be marked as paid.');
+            } else {
+                $this->logAdminAction('order_marked_paid', 'order', $orderId, [
+                    'previous_status' => $transition['current_status'] ?? null,
+                    'new_status' => 'paid',
+                ]);
+                $_SESSION['order_complete_message'] = "Order {$orderId} marked as paid.";
+            }
         }
         header('Location: /admin/orders');
         exit;
@@ -1153,6 +1256,17 @@ class AdminController extends Controller
         }
     }
 
+    private function normalizeAdminRoleKey(string $role): string
+    {
+        $role = strtolower(trim($role));
+        return str_replace(['_', '-', ' '], '', $role);
+    }
+
+    private function isCurrentAdminSuperadmin(): bool
+    {
+        return $this->normalizeAdminRoleKey((string)($_SESSION['admin_role'] ?? '')) === 'superadmin';
+    }
+
     private function getLoginIpAddress(): string
     {
         $candidates = [
@@ -1284,7 +1398,7 @@ class AdminController extends Controller
     }
 
     public function featuredProducts() {
-        $this->requireAdmin();
+        $this->requireAdmin(['admin', 'superadmin']);
 
         require_once __DIR__ . '/../Models/ProductModel.php';
         $productModel = new \App\Models\ProductModel();
@@ -1304,6 +1418,7 @@ class AdminController extends Controller
             $this->requirePostWithCsrf('/admin/featured-products');
             $productIds = $_POST['product_id'] ?? [];
             $variationIds = $_POST['variation_id'] ?? [];
+            $selectedSlots = [];
             // Clear all featured slots and featured_variation_id
             $db = $productModel->getDb();
             $db->query("UPDATE products SET featured_slot = NULL, featured_variation_id = NULL");
@@ -1315,8 +1430,16 @@ class AdminController extends Controller
                     $slot = $i + 1;
                     $stmt = $db->prepare("UPDATE products SET featured_slot = ?, featured_variation_id = ? WHERE product_id = ?");
                     $stmt->execute([$slot, $variationId, $productId]);
+                    $selectedSlots[] = [
+                        'slot' => $slot,
+                        'product_id' => $productId,
+                        'variation_id' => $variationId,
+                    ];
                 }
             }
+            $this->logAdminAction('featured_products_updated', 'featured_product', null, [
+                'slots' => $selectedSlots,
+            ]);
             $success = true;
         }
 
@@ -1419,6 +1542,11 @@ class AdminController extends Controller
                 'search' => trim((string)($_GET['login_search'] ?? '')),
             ];
             $rows = (new AdminLoginAttemptModel())->getAttempts($filters, 1, 5000);
+            $this->logAdminAction('security_logs_exported', 'admin_login_attempt', null, [
+                'tab' => 'login-attempts',
+                'filters' => $filters,
+                'row_count' => count($rows),
+            ]);
             $this->streamCsv('login-attempts-' . date('Y-m-d') . '.csv', [
                 'ID', 'Attempted At', 'Login Area', 'Username', 'IP Address', 'Result'
             ], array_map(static function ($row) {
@@ -1442,6 +1570,11 @@ class AdminController extends Controller
             'search' => trim((string)($_GET['search'] ?? '')),
         ];
         $rows = (new AdminAuditLogModel())->getLogs($filters, 1, 5000);
+        $this->logAdminAction('security_logs_exported', 'admin_audit_log', null, [
+            'tab' => 'audit',
+            'filters' => $filters,
+            'row_count' => count($rows),
+        ]);
         $this->streamCsv('audit-logs-' . date('Y-m-d') . '.csv', [
             'ID', 'Created At', 'Admin ID', 'Admin Username', 'Admin Role', 'Action', 'Target Type', 'Target ID', 'Details JSON', 'IP Address', 'User Agent'
         ], array_map(static function ($row) {
@@ -1466,6 +1599,10 @@ class AdminController extends Controller
 
         $filters = $this->buildOrdersFilterFromRequest();
         $rows = (new OrderModel())->getOrdersExportRows($filters, 50000);
+        $this->logAdminAction('orders_exported', 'order', null, [
+            'filters' => $filters,
+            'row_count' => count($rows),
+        ]);
 
         $this->streamCsv('orders-export-' . date('Y-m-d') . '.csv', [
             'Order ID',
@@ -1488,6 +1625,11 @@ class AdminController extends Controller
             'Pickup Location',
             'Pickup Location Address',
             'Total Amount',
+            'Computed Total Amount',
+            'Final Price Edited',
+            'Final Price Edited By',
+            'Final Price Edited By Role',
+            'Final Price Edited At',
             'Security Deposit',
             'Delivery Fee',
             'Promo Code',
@@ -1512,6 +1654,21 @@ class AdminController extends Controller
                 $pickupReturnLocation = $pickupLocation;
             }
 
+            $roleLabels = [
+                'superadmin' => 'Super Admin',
+                'admin' => 'Admin',
+                'staff' => 'Staff',
+                'partner' => 'Partner',
+            ];
+            $bookedByRoleKey = strtolower(str_replace(['_', '-', ' '], '', (string)($row['created_by_admin_role'] ?? '')));
+            $bookedByRoleLabel = $bookedByRoleKey !== ''
+                ? ($roleLabels[$bookedByRoleKey] ?? ucfirst($bookedByRoleKey))
+                : '';
+            $finalPriceEditedRoleKey = strtolower(str_replace(['_', '-', ' '], '', (string)($row['final_price_edited_by_admin_role'] ?? '')));
+            $finalPriceEditedRoleLabel = $finalPriceEditedRoleKey !== ''
+                ? ($roleLabels[$finalPriceEditedRoleKey] ?? ucfirst($finalPriceEditedRoleKey))
+                : '';
+
             return [
                 $row['order_id'] ?? '',
                 $row['order_date'] ?? '',
@@ -1533,13 +1690,18 @@ class AdminController extends Controller
                 $pickupLocation,
                 $row['pickup_location_address'] ?? '',
                 $row['total_amount'] ?? '',
+                $row['computed_total_amount'] ?? '',
+                ((int)($row['final_price_edited'] ?? 0) === 1) ? 'Yes' : 'No',
+                $row['final_price_edited_by_admin_name'] ?? '',
+                $finalPriceEditedRoleLabel,
+                $row['final_price_edited_at'] ?? '',
                 $row['security_deposit'] ?? '',
                 $row['delivery_fee'] ?? '',
                 $row['promo_code'] ?? '',
                 $row['promo_discount'] ?? '',
                 $row['heard_about_display'] ?? '',
                 $row['created_by_admin_name'] ?? '',
-                $row['created_by_admin_role'] ?? '',
+                $bookedByRoleLabel,
                 $row['order_item_id'] ?? '',
                 $row['product_id'] ?? '',
                 $row['product_name'] ?? '',
@@ -1640,7 +1802,7 @@ class AdminController extends Controller
     // ─────────────────────────────────────────────────────────────────────────
 
     public function admins() {
-        $this->requireAdmin();
+        $this->requireAdmin('superadmin');
 
         require_once __DIR__ . '/../Models/AdminModel.php';
         $pdo = \App\Utils\Database::getInstance();
@@ -1676,6 +1838,11 @@ class AdminController extends Controller
             }
             $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
             $adminModel->addAdmin($username, $password, $role);
+            $newAdminId = (int)$pdo->lastInsertId();
+            $this->logAdminAction('admin_user_created', 'admin_user', $newAdminId ?: null, [
+                'username' => $username,
+                'role' => $role,
+            ]);
             header('Location: /admin/admins');
             exit;
         }
@@ -1709,7 +1876,13 @@ class AdminController extends Controller
                 header('Location: /admin/admins/edit?id=' . urlencode((string)$id));
                 exit;
             }
+            $existingAdmin = $adminModel->getAdminById($id);
             $adminModel->updateAdmin($id, $username, $role);
+            $updatedAdmin = $adminModel->getAdminById($id);
+            $this->logAdminAction('admin_user_updated', 'admin_user', $id, [
+                'before' => $existingAdmin,
+                'after' => $updatedAdmin,
+            ]);
             header('Location: /admin/admins');
             exit;
         }
@@ -1736,7 +1909,11 @@ class AdminController extends Controller
 
         $id = isset($_POST['id']) ? intval($_POST['id']) : null;
         if ($id) {
+            $existingAdmin = $adminModel->getAdminById($id);
             $adminModel->deleteAdmin($id);
+            $this->logAdminAction('admin_user_deleted', 'admin_user', $id, [
+                'deleted' => $existingAdmin,
+            ]);
         }
         header('Location: /admin/admins');
         exit;

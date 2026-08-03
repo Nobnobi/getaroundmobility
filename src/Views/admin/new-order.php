@@ -11,6 +11,11 @@ $availabilityEndpoint = $availabilityEndpoint ?? '/admin/orders/availability';
 $cancelUrl = $cancelUrl ?? '/admin/orders';
 $cancelLabel = $cancelLabel ?? 'Cancel';
 $kioskMode = !empty($kioskMode);
+$adminRoleRaw = $_SESSION['admin_role'] ?? '';
+$adminRoleKey = strtolower(str_replace(['_', '-', ' '], '', (string)$adminRoleRaw));
+$canEditFinalPrice = isset($canEditFinalPrice)
+    ? (bool)$canEditFinalPrice
+    : ($adminRoleKey === 'superadmin');
 
 $outerWrapClass = $kioskMode
     ? 'flex flex-1 items-start justify-center w-full px-4 py-6 md:px-8 md:py-10'
@@ -234,6 +239,13 @@ $panelClass = $kioskMode
                             <p id="promo-feedback" class="mt-2 text-xs text-slate-500" aria-live="polite"></p>
                             
                         </div>
+                        <?php if ($canEditFinalPrice): ?>
+                            <div class="w-full md:max-w-xs">
+                                <label for="final-price-override" class="mb-1 block text-sm font-medium text-slate-700">Final Price Override (Super Admin)</label>
+                                <input type="number" id="final-price-override" name="final_price_override" min="0.01" step="0.01" inputmode="decimal" placeholder="Leave blank to use computed total" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <p id="final-price-override-feedback" class="mt-2 text-xs text-slate-500">If set, this overrides the computed total and is tracked with your superadmin account.</p>
+                            </div>
+                        <?php endif; ?>
                     </div>
                     <div class="space-y-2">
                         <div class="flex items-center justify-between text-sm text-slate-600">
@@ -384,6 +396,8 @@ const pretaxAmountEl = document.getElementById('pretax-amount');
 const taxAmountEl = document.getElementById('tax-amount');
 const orderItemsTierText = document.getElementById('order-items-tier-text');
 const walkinPolicyCheckbox = document.getElementById('walkinPolicyCheckbox');
+const finalPriceOverrideInput = document.getElementById('final-price-override');
+const finalPriceOverrideFeedback = document.getElementById('final-price-override-feedback');
 
 const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
 const SECURITY_DEPOSIT = 100;
@@ -432,6 +446,43 @@ function agreeAndClosePolicyModal() {
 
 function formatMoney(value) {
     return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function getManualOverrideAmount() {
+    if (!finalPriceOverrideInput) {
+        return null;
+    }
+
+    const raw = String(finalPriceOverrideInput.value || '').trim();
+    if (raw === '') {
+        return null;
+    }
+
+    const normalized = raw.replace(/[$,\s]/g, '');
+    const numericValue = Number(normalized);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+        return null;
+    }
+
+    return Number(numericValue.toFixed(2));
+}
+
+function getComputedWalkinTotal() {
+    let subtotal = 0;
+    document.querySelectorAll('.product-row').forEach(row => {
+        const select = row.querySelector('.product-select');
+        const qtyInput = row.querySelector('.quantity-input');
+        const selectedOption = select.options[select.selectedIndex];
+        if (!selectedOption.value) return;
+
+        const quantity = parseInt(qtyInput.value) || 0;
+        const price = Number(row.dataset.effectivePrice || getEffectiveRowPrice(row));
+        subtotal += price * quantity;
+    });
+
+    const discount = calculatePromoDiscount(subtotal);
+    const productTotalWithTax = Math.max(0, subtotal - discount);
+    return Number((productTotalWithTax + SECURITY_DEPOSIT).toFixed(2));
 }
 
 function updateOrderItemsTierText() {
@@ -977,14 +1028,41 @@ function updateTotal() {
     const total = productTotalWithTax + SECURITY_DEPOSIT;
     const pretaxSubtotal = productTotalWithTax > 0 ? (productTotalWithTax / NV_TAX_INCLUSIVE_FACTOR) : 0;
     const taxIncluded = Math.max(0, productTotalWithTax - pretaxSubtotal);
+    const manualOverrideAmount = getManualOverrideAmount();
+    const overrideExceedsComputed = manualOverrideAmount !== null && manualOverrideAmount > total;
+    const displayTotal = manualOverrideAmount !== null && !overrideExceedsComputed ? manualOverrideAmount : total;
 
     if (subtotalAmountEl) subtotalAmountEl.textContent = formatMoney(subtotal);
     if (discountAmountEl) discountAmountEl.textContent = `-$${Number(discount).toFixed(2)}`;
     if (securityDepositAmountEl) securityDepositAmountEl.textContent = formatMoney(SECURITY_DEPOSIT);
     if (pretaxAmountEl) pretaxAmountEl.textContent = formatMoney(pretaxSubtotal);
     if (taxAmountEl) taxAmountEl.textContent = formatMoney(taxIncluded);
-    document.getElementById('total-amount').textContent = `$${total.toFixed(2)}`;
-    document.getElementById('total-amount-input').value = total.toFixed(2);
+    document.getElementById('total-amount').textContent = `$${displayTotal.toFixed(2)}`;
+    document.getElementById('total-amount-input').value = displayTotal.toFixed(2);
+
+    if (finalPriceOverrideFeedback) {
+        if (overrideExceedsComputed) {
+            finalPriceOverrideFeedback.textContent = `Override cannot exceed computed total ${formatMoney(total)}.`;
+            finalPriceOverrideFeedback.className = 'mt-2 text-xs text-red-700';
+        } else if (manualOverrideAmount !== null) {
+            finalPriceOverrideFeedback.textContent = `Override active. Computed total is ${formatMoney(total)}; final total will be ${formatMoney(displayTotal)}.`;
+            finalPriceOverrideFeedback.className = 'mt-2 text-xs text-amber-700';
+        } else {
+            finalPriceOverrideFeedback.textContent = 'If set, this overrides the computed total and is tracked with your superadmin account.';
+            finalPriceOverrideFeedback.className = 'mt-2 text-xs text-slate-500';
+        }
+    }
+
+    if (finalPriceOverrideInput) {
+        finalPriceOverrideInput.max = total.toFixed(2);
+        if (overrideExceedsComputed) {
+            finalPriceOverrideInput.setCustomValidity(`Override cannot exceed computed total ${formatMoney(total)}.`);
+            finalPriceOverrideInput.classList.add('border-red-500', 'bg-red-50');
+        } else {
+            finalPriceOverrideInput.setCustomValidity('');
+            finalPriceOverrideInput.classList.remove('border-red-500', 'bg-red-50');
+        }
+    }
 }
 
 // Initial setup
@@ -1025,6 +1103,15 @@ if (promoCodeInput) {
             e.preventDefault();
             applyPromoCode();
         }
+    });
+}
+if (finalPriceOverrideInput) {
+    finalPriceOverrideInput.addEventListener('input', function() {
+        const normalized = String(this.value || '').replace(/[^0-9.]/g, '');
+        if (normalized !== this.value) {
+            this.value = normalized;
+        }
+        updateTotal();
     });
 }
 
@@ -1373,6 +1460,27 @@ bookingForm.addEventListener('submit', function(e) {
         e.preventDefault();
         alert('You must agree to the rental policy and terms before proceeding.');
         return;
+    }
+
+    if (finalPriceOverrideInput) {
+        const overrideRaw = String(finalPriceOverrideInput.value || '').trim();
+        if (overrideRaw !== '') {
+            const overrideAmount = getManualOverrideAmount();
+            if (overrideAmount === null) {
+                e.preventDefault();
+                alert('Final price override must be a valid amount greater than $0.00.');
+                return;
+            }
+            const computedTotal = getComputedWalkinTotal();
+            if (overrideAmount > computedTotal) {
+                e.preventDefault();
+                alert(`Final price override cannot exceed the computed total amount of ${formatMoney(computedTotal)}.`);
+                finalPriceOverrideInput.classList.add('border-red-500', 'bg-red-50');
+                finalPriceOverrideInput.focus();
+                return;
+            }
+            finalPriceOverrideInput.value = overrideAmount.toFixed(2);
+        }
     }
 
     const cart = [];

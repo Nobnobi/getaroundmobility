@@ -35,6 +35,10 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $sessionFirstName = trim((string)($_SESSION['first_name'] ?? ''));
 $sessionLastName = trim((string)($_SESSION['last_name'] ?? ''));
 $sessionFullName = trim((string)($_SESSION['name'] ?? ''));
@@ -108,7 +112,10 @@ if ($displayFullName === '') {
             <a href="/profile" class="text-blue-600 font-semibold">
                 Hi, <?= htmlspecialchars($displayFullName !== '' ? $displayFullName : 'User') ?>
             </a>
-            <a href="/logout" class="text-red-600 font-semibold">Logout</a>
+            <form method="post" action="/logout">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                <button type="submit" class="text-red-600 font-semibold">Logout</button>
+            </form>
         <?php else: ?>
             <a href="/login" class="text-blue-600 font-semibold">Login</a>
             <a href="javascript:void(0);" onclick="openRegisterModal()" class="h-9 w-22 text-sm font-medium px-4 py-1.5 border border-[#A4A7AE] rounded bg-[#0086C9] text-white shadow-md flex-wrap">Sign Up</a>
@@ -169,7 +176,10 @@ if ($displayFullName === '') {
             <a href="/profile" class="text-blue-600 font-semibold hover:underline text-[10px] md:text-xs">
                 Welcome, <?= htmlspecialchars($displayFirstName !== '' ? $displayFirstName : 'User') ?>
             </a>
-            <a href="/logout" class="ml-4 text-red-600 font-semibold hover:underline text-[10px] md:text-xs">Logout</a>
+            <form method="post" action="/logout" class="ml-4">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                <button type="submit" class="text-red-600 font-semibold hover:underline text-[10px] md:text-xs">Logout</button>
+            </form>
         <?php else: ?>
             <a href="/login?return=/" class="text-blue-600 font-semibold hover:underline">Login</a>
         <?php endif; ?>
@@ -179,6 +189,22 @@ if ($displayFullName === '') {
 
 <div id="cartToast"
      class="fixed bottom-6 right-6 z-50 bg-green-600 text-white px-4 py-2 rounded shadow-lg opacity-0 pointer-events-none transform translate-y-8 transition-all duration-500">
+</div>
+
+<!-- Power Chair Handedness Modal -->
+<div id="powerChairHandednessModal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-black/50 px-4">
+    <div class="relative w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+        <button type="button" id="powerChairHandednessClose" class="absolute right-3 top-2 text-2xl text-gray-500 hover:text-black" aria-label="Close">&times;</button>
+        <h3 class="text-xl font-bold text-[#062B41] font-[Barlow]">Power Chair Setup</h3>
+        <p id="powerChairHandednessPrompt" class="mt-2 text-sm text-gray-600">Select preferred handedness for this power chair.</p>
+        <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <button type="button" id="powerChairHandednessLeft" class="rounded-lg border border-[#0086C9] bg-white px-4 py-2 font-semibold text-[#0086C9] hover:bg-[#e8f4fd]">Left-Handed</button>
+            <button type="button" id="powerChairHandednessRight" class="rounded-lg border border-[#0086C9] bg-white px-4 py-2 font-semibold text-[#0086C9] hover:bg-[#e8f4fd]">Right-Handed</button>
+        </div>
+        <div class="mt-4 flex justify-end">
+            <button type="button" id="powerChairHandednessCancel" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100">Cancel</button>
+        </div>
+    </div>
 </div>
 
 <!-- Product Description Modal -->
@@ -377,6 +403,108 @@ function sanitizeImageUrl(value, fallback = '/img/default-scooter.png') {
     }
     return fallback;
 }
+
+function normalizeHandedness(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (raw === 'left' || raw === 'left-handed' || raw === 'lefthanded') return 'left';
+    if (raw === 'right' || raw === 'right-handed' || raw === 'righthanded') return 'right';
+    return '';
+}
+
+function handednessLabel(value) {
+    const normalized = normalizeHandedness(value);
+    if (normalized === 'left') return 'Left-Handed';
+    if (normalized === 'right') return 'Right-Handed';
+    return '';
+}
+
+function hasExistingHandednessTag(name) {
+    return /(?:^|\s|-)left-handed|(?:^|\s|-)right-handed/i.test(String(name || ''));
+}
+
+function appendHandednessToName(name, handedness) {
+    const label = handednessLabel(handedness);
+    const base = String(name || '').trim();
+    if (!label || !base) return base;
+    if (hasExistingHandednessTag(base)) return base;
+    return `${base} - ${label}`;
+}
+
+function isPowerChairProduct(productName, categoryName = '') {
+    const haystack = `${String(productName || '')} ${String(categoryName || '')}`.toLowerCase();
+    return haystack.includes('power chair') || haystack.includes('powerchair') || haystack.includes('power-chair');
+}
+
+(function initPowerChairHandednessModal() {
+    let resolveSelection = null;
+    let activeProductName = '';
+
+    const modal = document.getElementById('powerChairHandednessModal');
+    const closeBtn = document.getElementById('powerChairHandednessClose');
+    const cancelBtn = document.getElementById('powerChairHandednessCancel');
+    const leftBtn = document.getElementById('powerChairHandednessLeft');
+    const rightBtn = document.getElementById('powerChairHandednessRight');
+    const prompt = document.getElementById('powerChairHandednessPrompt');
+
+    function closeModal(selection) {
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        if (resolveSelection) {
+            const resolver = resolveSelection;
+            resolveSelection = null;
+            resolver(selection);
+        }
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', function () { closeModal(null); });
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { closeModal(null); });
+    if (leftBtn) leftBtn.addEventListener('click', function () { closeModal('left'); });
+    if (rightBtn) rightBtn.addEventListener('click', function () { closeModal('right'); });
+    if (modal) {
+        modal.addEventListener('click', function (event) {
+            if (event.target === modal) {
+                closeModal(null);
+            }
+        });
+    }
+
+    window.requirePowerChairHandednessSelection = function (product) {
+        const productName = String(product?.name || '').trim();
+        const categoryName = String(product?.category || '').trim();
+        const existing = normalizeHandedness(product?.power_chair_handedness || '');
+
+        if (!isPowerChairProduct(productName, categoryName)) {
+            return Promise.resolve('');
+        }
+        if (existing) {
+            return Promise.resolve(existing);
+        }
+        if (!modal) {
+            return Promise.resolve('');
+        }
+
+        activeProductName = productName;
+        if (prompt) {
+            prompt.textContent = productName
+                ? `Select preferred handedness for "${productName}".`
+                : 'Select preferred handedness for this power chair.';
+        }
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+
+        return new Promise(function (resolve) {
+            resolveSelection = resolve;
+        });
+    };
+
+    window.normalizePowerChairHandedness = normalizeHandedness;
+    window.getPowerChairHandednessLabel = handednessLabel;
+    window.appendPowerChairHandednessToName = appendHandednessToName;
+    window.isPowerChairProductName = isPowerChairProduct;
+})();
+
 function updateCartCountBadge() {
     const cart = loadCart();
     const badge = document.getElementById('cartCountBadge');
@@ -417,6 +545,7 @@ function renderCart() {
             const maxStock = Math.max(1, parseInt(item.scooter_count, 10) || 1);
             const safeId = String(item.id ?? '');
             const safeVariationId = String(item.variation_id ?? '');
+            const safeHandedness = String(item.power_chair_handedness ?? '');
             const price = Number(item.price) || 0;
             const lineTotal = price * qty;
             total += lineTotal;
@@ -440,8 +569,8 @@ function renderCart() {
                             ${variation ? `<span class='block text-xs text-blue-600 font-semibold mt-1 px-2 py-0.5 bg-blue-50 border border-blue-300 rounded-full w-fit mb-1'>${safeVariation}</span>` : ''}
                             <div class="flex items-center mt-1">
                                 <span class="text-blue-600 mr-2">$${price.toFixed(2)}</span>
-                                <input type="number" value="${qty}" min="1" max="${maxStock}" class="w-12 p-1 border rounded" data-id="${escapeHtml(safeId)}" data-variation-id="${escapeHtml(safeVariationId)}">
-                                <button class="cursor-pointer ml-2 remove-cart-item" data-id="${escapeHtml(safeId)}" data-variation-id="${escapeHtml(safeVariationId)}" title="Remove">
+                                <input type="number" value="${qty}" min="1" max="${maxStock}" class="w-12 p-1 border rounded" data-id="${escapeHtml(safeId)}" data-variation-id="${escapeHtml(safeVariationId)}" data-handedness="${escapeHtml(safeHandedness)}">
+                                <button class="cursor-pointer ml-2 remove-cart-item" data-id="${escapeHtml(safeId)}" data-variation-id="${escapeHtml(safeVariationId)}" data-handedness="${escapeHtml(safeHandedness)}" title="Remove">
                                     <img src="/img/delete_grey.png" alt="Delete" class="w-5 h-5 inline-block align-middle">
                                 </button>
                             </div>
@@ -472,13 +601,15 @@ function renderCart() {
         btn.addEventListener('click', function() {
             const id = this.dataset.id;
             const variationId = this.dataset.variationId;
+            const handedness = normalizeHandedness(this.dataset.handedness || '');
             let cart = loadCart();
             cart = cart.filter(item => {
+                const itemHandedness = normalizeHandedness(item.power_chair_handedness || '');
                 // Remove only if both id and variation_id match
                 if (variationId !== undefined && variationId !== null && variationId !== "") {
-                    return !(String(item.id) === String(id) && String(item.variation_id) === String(variationId));
+                    return !(String(item.id) === String(id) && String(item.variation_id) === String(variationId) && itemHandedness === handedness);
                 } else {
-                    return !(String(item.id) === String(id) && (!item.variation_id || item.variation_id === null || item.variation_id === ""));
+                    return !(String(item.id) === String(id) && (!item.variation_id || item.variation_id === null || item.variation_id === "") && itemHandedness === handedness);
                 }
             });
             saveCart(cart);
@@ -494,9 +625,12 @@ function renderCart() {
         input.addEventListener('change', function() {
             const id = this.dataset.id;
             const variationId = this.dataset.variationId;
+            const handedness = normalizeHandedness(this.dataset.handedness || '');
             let cart = loadCart();
             const item = cart.find(item => 
-                String(item.id) === String(id) && ((variationId && String(item.variation_id) === String(variationId)) || (!variationId && (!item.variation_id || item.variation_id === null || item.variation_id === "")))
+                String(item.id) === String(id)
+                && ((variationId && String(item.variation_id) === String(variationId)) || (!variationId && (!item.variation_id || item.variation_id === null || item.variation_id === "")))
+                && normalizeHandedness(item.power_chair_handedness || '') === handedness
             );
             if (item) {
                 let newQty = parseInt(this.value) || 1;
@@ -545,7 +679,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 // Add to Cart function (make sure this is global)
-function addToCart(name, id, price, image_url, scooter_count, variation_id = null, variation_name = null) {
+async function addToCart(name, id, price, image_url, scooter_count, variation_id = null, variation_name = null, category_name = '') {
     // Date validation
     const pickup = document.getElementById('pickupDatetime')?.value;
     const ret = document.getElementById('returnDatetime')?.value;
@@ -563,15 +697,31 @@ function addToCart(name, id, price, image_url, scooter_count, variation_id = nul
         return;
     }
 
+    const handednessSelection = typeof window.requirePowerChairHandednessSelection === 'function'
+        ? await window.requirePowerChairHandednessSelection({ name, category: category_name })
+        : '';
+
+    if (isPowerChairProduct(name, category_name) && handednessSelection === null) {
+        return;
+    }
+
+    const normalizedHandedness = normalizeHandedness(handednessSelection);
+    const displayName = normalizedHandedness ? appendHandednessToName(name, normalizedHandedness) : name;
+
     let cart = loadCart();
     let added = false;
     let existing = cart.find(item => {
+        const itemHandedness = normalizeHandedness(item.power_chair_handedness || '');
         // If variation_id is provided, match both id and variation_id
         if (variation_id !== undefined && variation_id !== null) {
-            return String(item.id) === String(id) && String(item.variation_id) === String(variation_id);
+            return String(item.id) === String(id)
+                && String(item.variation_id) === String(variation_id)
+                && itemHandedness === normalizedHandedness;
         } else {
             // No variation, match only id and no variation_id
-            return String(item.id) === String(id) && (!item.variation_id || item.variation_id === null);
+            return String(item.id) === String(id)
+                && (!item.variation_id || item.variation_id === null)
+                && itemHandedness === normalizedHandedness;
         }
     });
     if (existing) {
@@ -585,20 +735,21 @@ function addToCart(name, id, price, image_url, scooter_count, variation_id = nul
         added = true;
         cart.push({
             id,
-            name,
+            name: displayName,
             price: Number(price),
             qty: 1,
             image_url,
             scooter_count,
             variation_id: variation_id !== undefined ? variation_id : null,
-            variation_name: variation_name !== undefined ? variation_name : null
+            variation_name: variation_name !== undefined ? variation_name : null,
+            power_chair_handedness: normalizedHandedness || null
         });
     }
     saveCart(cart);
     renderCart();
     updateCartCountBadge();
     if (added && typeof showCartToast === 'function') {
-        showCartToast(name);
+        showCartToast(displayName);
     }
 }
 window.addToCart = addToCart; // Make it accessible globally
@@ -753,6 +904,15 @@ function openProductModal(product) {
                 // Calculate correct tiered price for selected days from API
                 price = await getTieredPrice(product.id, product.variation_id, days, price);
             }
+
+            const handednessSelection = typeof window.requirePowerChairHandednessSelection === 'function'
+                ? await window.requirePowerChairHandednessSelection({ name: product.name, category: product.category })
+                : '';
+            if (isPowerChairProduct(product.name, product.category) && handednessSelection === null) {
+                return;
+            }
+            const normalizedHandedness = normalizeHandedness(handednessSelection);
+
             // Prepare cart with only this product, including variation info if present
             const cartItem = {
                 id: product.id,
@@ -764,6 +924,10 @@ function openProductModal(product) {
             };
             if (product.variation_id) cartItem.variation_id = product.variation_id;
             if (product.variation_name) cartItem.variation_name = product.variation_name;
+            if (normalizedHandedness) {
+                cartItem.power_chair_handedness = normalizedHandedness;
+                cartItem.name = appendHandednessToName(cartItem.name, normalizedHandedness);
+            }
             const cart = [cartItem];
             localStorage.setItem('cart', JSON.stringify(cart));
             // Redirect to checkout
@@ -790,7 +954,8 @@ function openProductModal(product) {
                 product.image_url,
                 product.scooter_count,
                 product.variation_id,
-                product.variation_name
+                product.variation_name,
+                product.category
             );
         };
     }

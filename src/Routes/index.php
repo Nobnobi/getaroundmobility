@@ -45,7 +45,7 @@ $router->post('/login', UserController::class, 'processLogin');
 $router->get('/register', UserController::class, 'register');
 $router->post('/register', UserController::class, 'processRegister');
 
-$router->get('/logout', UserController::class, 'logout');
+$router->post('/logout', UserController::class, 'logout');
 
 $router->get('/profile', UserController::class, 'profile');
 $router->post('/profile', UserController::class, 'updateProfile');

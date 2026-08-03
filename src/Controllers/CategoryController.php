@@ -139,12 +139,13 @@ class CategoryController extends Controller {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
-        
-        $role = strtolower($_SESSION['admin_role'] ?? '');
-        if ($role !== 'admin' && $role !== 'superadmin') {
-            header('Location: /admin/categories');
+
+        if (empty($_SESSION['admin_id'])) {
+            header('Location: /admin/login');
             exit;
         }
+
+        $this->requireAdminRoleRedirect(['admin', 'superadmin'], '/admin/categories');
     }
 
 }

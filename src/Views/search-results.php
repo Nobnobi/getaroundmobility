@@ -667,13 +667,46 @@ function paginationUrl($page) {
         const days = rentalValidation.days;
         const vId = variation_id === null ? 'null' : String(variation_id);
         const price = await getTieredPrice(id, vId, days, 0);
+
+        const handednessSelection = typeof window.requirePowerChairHandednessSelection === 'function'
+            ? await window.requirePowerChairHandednessSelection({ name: name, category: '' })
+            : '';
+        const isPowerChair = typeof window.isPowerChairProductName === 'function'
+            ? window.isPowerChairProductName(name, '')
+            : false;
+        if (isPowerChair && handednessSelection === null) {
+            return;
+        }
+        const normalizeHandedness = typeof window.normalizePowerChairHandedness === 'function'
+            ? window.normalizePowerChairHandedness
+            : (value => {
+                const raw = String(value || '').trim().toLowerCase();
+                if (raw === 'left' || raw === 'left-handed' || raw === 'lefthanded') return 'left';
+                if (raw === 'right' || raw === 'right-handed' || raw === 'righthanded') return 'right';
+                return '';
+            });
+        const appendHandednessToName = typeof window.appendPowerChairHandednessToName === 'function'
+            ? window.appendPowerChairHandednessToName
+            : ((labelName, handedness) => {
+                const h = normalizeHandedness(handedness);
+                if (!h) return String(labelName || '');
+                return `${String(labelName || '')} - ${h === 'left' ? 'Left-Handed' : 'Right-Handed'}`;
+            });
+        const normalizedHandedness = normalizeHandedness(handednessSelection);
+        const displayName = normalizedHandedness ? appendHandednessToName(name, normalizedHandedness) : name;
+
         let cart = loadCart();
         let added = false;
         let existing = cart.find(item => {
+            const itemHandedness = normalizeHandedness(item.power_chair_handedness || '');
             if (variation_id !== undefined && variation_id !== null) {
-                return String(item.id) === String(id) && String(item.variation_id) === String(variation_id);
+                return String(item.id) === String(id)
+                    && String(item.variation_id) === String(variation_id)
+                    && itemHandedness === normalizedHandedness;
             } else {
-                return String(item.id) === String(id) && (!item.variation_id || item.variation_id === null);
+                return String(item.id) === String(id)
+                    && (!item.variation_id || item.variation_id === null)
+                    && itemHandedness === normalizedHandedness;
             }
         });
         if (existing) {
@@ -687,20 +720,21 @@ function paginationUrl($page) {
             added = true;
             cart.push({
                 id,
-                name,
+                name: displayName,
                 price: Number(price),
                 qty: 1,
                 image_url,
                 scooter_count,
                 variation_id: variation_id !== undefined ? variation_id : null,
-                variation_name: variation_name !== undefined ? variation_name : null
+                variation_name: variation_name !== undefined ? variation_name : null,
+                power_chair_handedness: normalizedHandedness || null
             });
         }
         saveCart(cart);
         renderCart();
         updateCartCountBadge();
         if (added && typeof showCartToast === 'function') {
-            showCartToast(name);
+            showCartToast(displayName);
         }
     }
     window.addToCartDynamicPrice = addToCartDynamicPrice;

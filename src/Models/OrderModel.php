@@ -10,12 +10,71 @@ use Dompdf\Options;
 class OrderModel {
             private const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
             private const SECURITY_DEPOSIT = 100.00;
+            private const ORDER_STATUS_TRANSITIONS = [
+                'pending' => ['approved', 'paid', 'cancelled'],
+                'approved' => ['paid', 'cancelled'],
+                'paid' => ['completed', 'cancelled'],
+                'completed' => [],
+                'cancelled' => [],
+            ];
+
+            private function isDebugEnabled(): bool {
+                $value = getenv('APP_DEBUG');
+                if ($value === false) {
+                    $value = $_ENV['APP_DEBUG'] ?? '';
+                }
+                $value = strtolower(trim((string)$value));
+                return in_array($value, ['1', 'true', 'yes', 'on'], true);
+            }
+
+            private function canPersistDebugLogs(): bool {
+                if (!$this->isDebugEnabled()) {
+                    return false;
+                }
+
+                $env = getenv('APP_ENV');
+                if ($env === false) {
+                    $env = $_ENV['APP_ENV'] ?? '';
+                }
+
+                $env = strtolower(trim((string)$env));
+                return in_array($env, ['local', 'development', 'dev'], true);
+            }
+
+            private function openDebugOrderLog() {
+                if (!$this->canPersistDebugLogs()) {
+                    return @fopen('php://temp', 'w+');
+                }
+
+                $logDir = dirname(__DIR__, 2) . '/storage/logs';
+                if (!is_dir($logDir)) {
+                    @mkdir($logDir, 0775, true);
+                }
+
+                $resource = @fopen(rtrim($logDir, '/\\') . '/order-debug.log', 'a');
+                if (is_resource($resource)) {
+                    return $resource;
+                }
+
+                return @fopen('php://temp', 'w+');
+            }
 
             private function sanitizeProductNameForStorage($name): string {
                 $value = trim((string)$name);
                 // Remove UI stock suffixes such as "(12 available)".
                 $value = preg_replace('/\s*\(\d+\s+available\)\s*$/i', '', $value);
                 return trim((string)$value);
+            }
+
+            private function normalizePowerChairHandednessValue($value): ?string {
+                $normalized = strtolower(trim((string)$value));
+                if (in_array($normalized, ['left', 'left-handed', 'lefthanded'], true)) {
+                    return 'left';
+                }
+                if (in_array($normalized, ['right', 'right-handed', 'righthanded'], true)) {
+                    return 'right';
+                }
+                return null;
             }
 
             private function normalizeVariationId($variationId): ?int {
@@ -142,23 +201,6 @@ class OrderModel {
                 return null;
             }
 
-            private ?bool $orderRefundsHasRefundMethodColumn = null;
-
-            private function hasOrderRefundMethodColumn(): bool {
-                if ($this->orderRefundsHasRefundMethodColumn !== null) {
-                    return $this->orderRefundsHasRefundMethodColumn;
-                }
-
-                try {
-                    $col = $this->db->query("SHOW COLUMNS FROM order_refunds LIKE 'refund_method'");
-                    $this->orderRefundsHasRefundMethodColumn = (bool)($col && $col->fetch(\PDO::FETCH_ASSOC));
-                } catch (\Throwable $e) {
-                    $this->orderRefundsHasRefundMethodColumn = false;
-                }
-
-                return $this->orderRefundsHasRefundMethodColumn;
-            }
-
             private function executeOrThrow(\PDOStatement $stmt, array $params): void {
                 if (!$stmt->execute($params)) {
                     $errorInfo = $stmt->errorInfo();
@@ -167,52 +209,20 @@ class OrderModel {
             }
 
             private function insertOrderRefundRecord(array $payload): void {
-                $supportsRefundMethod = $this->hasOrderRefundMethodColumn();
-
-                if ($supportsRefundMethod) {
-                    $stmt = $this->db->prepare(
-                        "INSERT INTO order_refunds (
-                            order_id, payment_provider, refund_method, requested_amount, approved_amount, reason, admin_id,
-                            provider_refund_id, provider_transaction_reference, status, provider_response_snapshot, idempotency_key
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                    );
-                    try {
-                        $this->executeOrThrow($stmt, [
-                            $payload['order_id'],
-                            $payload['payment_provider'],
-                            $payload['refund_method'],
-                            $payload['requested_amount'],
-                            $payload['approved_amount'],
-                            $payload['reason'],
-                            $payload['admin_id'],
-                            $payload['provider_refund_id'],
-                            $payload['provider_transaction_reference'],
-                            $payload['status'],
-                            $payload['provider_response_snapshot'],
-                            $payload['idempotency_key'],
-                        ]);
-                        return;
-                    } catch (\Throwable $e) {
-                        if (stripos($e->getMessage(), 'refund_method') === false) {
-                            throw $e;
-                        }
-                        $this->orderRefundsHasRefundMethodColumn = false;
-                    }
-                }
-
-                $legacyStmt = $this->db->prepare(
+                $stmt = $this->db->prepare(
                     "INSERT INTO order_refunds (
                         order_id, payment_provider, requested_amount, approved_amount, reason, admin_id,
-                        provider_refund_id, provider_transaction_reference, status, provider_response_snapshot, idempotency_key
+                        refund_method, provider_refund_id, provider_transaction_reference, status, provider_response_snapshot, idempotency_key
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 );
-                $this->executeOrThrow($legacyStmt, [
+                $this->executeOrThrow($stmt, [
                     $payload['order_id'],
                     $payload['payment_provider'],
                     $payload['requested_amount'],
                     $payload['approved_amount'],
                     $payload['reason'],
                     $payload['admin_id'],
+                    $payload['refund_method'],
                     $payload['provider_refund_id'],
                     $payload['provider_transaction_reference'],
                     $payload['status'],
@@ -303,7 +313,7 @@ class OrderModel {
     public function markScootersSoldIfForSale($cart, $assignedScooters, $orderSaleType = null) {
         // Mark as sold if sale_type is 'sale' or type is 'for-sale'
         $scooterIdsToMark = [];
-        $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+        $debugFile = $this->openDebugOrderLog();
         if (is_resource($debugFile)) {
             fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] ENTERED markScootersSoldIfForSale\nCart: " . print_r($cart, true) . "\nAssigned: " . print_r($assignedScooters, true));
         }
@@ -340,163 +350,178 @@ class OrderModel {
     public function __construct()
     {
         $this->db = Database::getInstance();
-        $this->ensureOrderColumns();
-        $this->ensureRefundTables();
-        $this->ensureBlockedDatesTable();
     }
 
-    private function ensureOrderColumns(): void
+    public function upsertCheckoutSession(array $data): bool
     {
-        $weightOptionCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'client_weight_option'");
-        if (!$weightOptionCol || !$weightOptionCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN client_weight_option VARCHAR(32) NULL AFTER guest_phone");
+        $checkoutRef = trim((string)($data['checkout_ref'] ?? ''));
+        $provider = strtolower(trim((string)($data['provider'] ?? 'stripe')));
+        $intentId = trim((string)($data['provider_payment_intent_id'] ?? ''));
+
+        if ($checkoutRef === '' && $intentId === '') {
+            return false;
         }
 
-        $weightLbsCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'client_weight_lbs'");
-        if (!$weightLbsCol || !$weightLbsCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN client_weight_lbs INT NULL AFTER client_weight_option");
+        $status = trim((string)($data['status'] ?? 'pending'));
+        $payloadJson = isset($data['payload_json']) ? (string)$data['payload_json'] : null;
+        $cartJson = isset($data['cart_json']) ? (string)$data['cart_json'] : null;
+        $customerEmail = trim((string)($data['customer_email'] ?? ''));
+        $finalizedOrderId = isset($data['finalized_order_id']) && is_numeric($data['finalized_order_id'])
+            ? (int)$data['finalized_order_id']
+            : null;
+        $lastError = isset($data['last_error']) ? (string)$data['last_error'] : null;
+
+        $select = $this->db->prepare(
+            "SELECT id
+             FROM checkout_sessions
+             WHERE (checkout_ref = ? AND ? <> '')
+                OR (provider_payment_intent_id = ? AND ? <> '')
+             ORDER BY id DESC
+             LIMIT 1"
+        );
+        $select->execute([$checkoutRef, $checkoutRef, $intentId, $intentId]);
+        $existingId = $select->fetchColumn();
+
+        if ($existingId) {
+            $update = $this->db->prepare(
+                "UPDATE checkout_sessions
+                 SET checkout_ref = COALESCE(NULLIF(?, ''), checkout_ref),
+                     provider = ?,
+                     provider_payment_intent_id = COALESCE(NULLIF(?, ''), provider_payment_intent_id),
+                     status = ?,
+                     customer_email = CASE WHEN ? <> '' THEN ? ELSE customer_email END,
+                     payload_json = COALESCE(?, payload_json),
+                     cart_json = COALESCE(?, cart_json),
+                     finalized_order_id = COALESCE(?, finalized_order_id),
+                     last_error = COALESCE(?, last_error)
+                 WHERE id = ?"
+            );
+            return $update->execute([
+                $checkoutRef,
+                $provider,
+                $intentId,
+                $status,
+                $customerEmail,
+                $customerEmail,
+                $payloadJson,
+                $cartJson,
+                $finalizedOrderId,
+                $lastError,
+                $existingId,
+            ]);
         }
 
-        $clientHeightCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'client_height'");
-        if (!$clientHeightCol || !$clientHeightCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN client_height VARCHAR(24) NULL AFTER client_weight_lbs");
-        }
+        $insert = $this->db->prepare(
+            "INSERT INTO checkout_sessions
+             (checkout_ref, provider, provider_payment_intent_id, status, customer_email, payload_json, cart_json, finalized_order_id, last_error)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
 
-        $powerChairHandednessCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'power_chair_handedness'");
-        if (!$powerChairHandednessCol || !$powerChairHandednessCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN power_chair_handedness VARCHAR(12) NULL AFTER client_height");
-        }
-
-        $bookingSourceCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'booking_source'");
-        if (!$bookingSourceCol || !$bookingSourceCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN booking_source VARCHAR(20) NULL AFTER customer_type");
-        }
-
-        $heardAboutOptionCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'heard_about_option_id'");
-        if (!$heardAboutOptionCol || !$heardAboutOptionCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN heard_about_option_id INT NULL AFTER booking_source");
-        }
-
-        $heardAboutLabelCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'heard_about_label'");
-        if (!$heardAboutLabelCol || !$heardAboutLabelCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN heard_about_label VARCHAR(120) NULL AFTER heard_about_option_id");
-        }
-
-        $promoCodeCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_code'");
-        if (!$promoCodeCol || !$promoCodeCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_code VARCHAR(32) NULL AFTER booking_source");
-        }
-
-        $promoDiscountCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_discount'");
-        if (!$promoDiscountCol || !$promoDiscountCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_discount DECIMAL(10,2) NULL AFTER promo_code");
-        }
-
-        $promoAdminIdCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_applied_by_admin_id'");
-        if (!$promoAdminIdCol || !$promoAdminIdCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_applied_by_admin_id INT NULL AFTER promo_discount");
-        }
-
-        $promoAdminRoleCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_applied_by_admin_role'");
-        if (!$promoAdminRoleCol || !$promoAdminRoleCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_applied_by_admin_role VARCHAR(32) NULL AFTER promo_applied_by_admin_id");
-        }
-
-        $promoAdminNameCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'promo_applied_by_admin_name'");
-        if (!$promoAdminNameCol || !$promoAdminNameCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN promo_applied_by_admin_name VARCHAR(120) NULL AFTER promo_applied_by_admin_role");
-        }
-
-        $createdByAdminIdCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'created_by_admin_id'");
-        if (!$createdByAdminIdCol || !$createdByAdminIdCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN created_by_admin_id INT NULL AFTER promo_applied_by_admin_name");
-        }
-
-        $createdByAdminRoleCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'created_by_admin_role'");
-        if (!$createdByAdminRoleCol || !$createdByAdminRoleCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN created_by_admin_role VARCHAR(32) NULL AFTER created_by_admin_id");
-        }
-
-        $createdByAdminNameCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'created_by_admin_name'");
-        if (!$createdByAdminNameCol || !$createdByAdminNameCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN created_by_admin_name VARCHAR(120) NULL AFTER created_by_admin_role");
-        }
-
-        $securityDepositCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit'");
-        if (!$securityDepositCol || !$securityDepositCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit DECIMAL(10,2) NULL AFTER total_amount");
-        }
-
-        $deliveryFeeCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'delivery_fee'");
-        if (!$deliveryFeeCol || !$deliveryFeeCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN delivery_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER security_deposit");
-        }
-
-        $returnHotelIdCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'return_hotel_id'");
-        if (!$returnHotelIdCol || !$returnHotelIdCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN return_hotel_id INT NULL AFTER hotel_id");
-        }
-
-        $securityDepositReasonCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_reason'");
-        if (!$securityDepositReasonCol || !$securityDepositReasonCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_reason TEXT NULL AFTER security_deposit");
-        }
-
-        $securityDepositUpdatedByCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_updated_by_admin_id'");
-        if (!$securityDepositUpdatedByCol || !$securityDepositUpdatedByCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_updated_by_admin_id INT NULL AFTER security_deposit_reason");
-        }
-
-        $securityDepositUpdatedAtCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_updated_at'");
-        if (!$securityDepositUpdatedAtCol || !$securityDepositUpdatedAtCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_updated_at DATETIME NULL AFTER security_deposit_updated_by_admin_id");
-        }
-
-        $paymentProviderCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'payment_provider'");
-        if (!$paymentProviderCol || !$paymentProviderCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN payment_provider VARCHAR(20) NULL AFTER payment_method");
-        }
-
-        $stripeIntentCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'provider_payment_intent_id'");
-        if (!$stripeIntentCol || !$stripeIntentCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN provider_payment_intent_id VARCHAR(80) NULL AFTER payment_provider");
-        }
-
-        $stripeChargeCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'provider_charge_id'");
-        if (!$stripeChargeCol || !$stripeChargeCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN provider_charge_id VARCHAR(80) NULL AFTER provider_payment_intent_id");
-        }
-
-        $paypalOrderCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'provider_paypal_order_id'");
-        if (!$paypalOrderCol || !$paypalOrderCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN provider_paypal_order_id VARCHAR(80) NULL AFTER provider_charge_id");
-        }
-
-        $paypalCaptureCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'provider_paypal_capture_id'");
-        if (!$paypalCaptureCol || !$paypalCaptureCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN provider_paypal_capture_id VARCHAR(80) NULL AFTER provider_paypal_order_id");
-        }
-
-        $depositRefundedCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'security_deposit_refunded_amount'");
-        if (!$depositRefundedCol || !$depositRefundedCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN security_deposit_refunded_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER security_deposit_updated_at");
-        }
-
-        $lastRefundAtCol = $this->db->query("SHOW COLUMNS FROM orders LIKE 'last_security_deposit_refund_at'");
-        if (!$lastRefundAtCol || !$lastRefundAtCol->fetch(\PDO::FETCH_ASSOC)) {
-            $this->db->exec("ALTER TABLE orders ADD COLUMN last_security_deposit_refund_at DATETIME NULL AFTER security_deposit_refunded_amount");
-        }
+        return $insert->execute([
+            $checkoutRef !== '' ? $checkoutRef : null,
+            $provider,
+            $intentId !== '' ? $intentId : null,
+            $status,
+            $customerEmail !== '' ? $customerEmail : null,
+            $payloadJson,
+            $cartJson,
+            $finalizedOrderId,
+            $lastError,
+        ]);
     }
 
-    private function ensureBlockedDatesTable(): void
+    public function getCheckoutSessionByPaymentIntentId(string $intentId): ?array
     {
-        $this->db->exec("CREATE TABLE IF NOT EXISTS booking_blocked_dates (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            blocked_date DATE NOT NULL UNIQUE,
-            reason VARCHAR(160) NULL,
-            created_by_admin_id INT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $intentId = trim($intentId);
+        if ($intentId === '') {
+            return null;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT *
+             FROM checkout_sessions
+             WHERE provider_payment_intent_id = ?
+             ORDER BY id DESC
+             LIMIT 1"
+        );
+        $stmt->execute([$intentId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    public function recordPaymentEvent(array $event): bool
+    {
+        $provider = strtolower(trim((string)($event['payment_provider'] ?? '')));
+        $eventType = trim((string)($event['event_type'] ?? ''));
+        if ($provider === '' || $eventType === '') {
+            return false;
+        }
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO payment_events
+             (order_id, checkout_ref, payment_provider, event_type, provider_reference, amount, payload_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
+        );
+
+        $orderId = isset($event['order_id']) && is_numeric($event['order_id']) ? (int)$event['order_id'] : null;
+        $amount = isset($event['amount']) && is_numeric($event['amount']) ? round((float)$event['amount'], 2) : null;
+
+        return $stmt->execute([
+            $orderId,
+            trim((string)($event['checkout_ref'] ?? '')) ?: null,
+            $provider,
+            $eventType,
+            trim((string)($event['provider_reference'] ?? '')) ?: null,
+            $amount,
+            isset($event['payload_json']) ? (string)$event['payload_json'] : null,
+        ]);
+    }
+
+    public function upsertOrderDocumentMetadata(
+        int $orderId,
+        string $documentType,
+        ?string $filePath,
+        string $status = 'generated',
+        ?string $lastError = null
+    ): bool {
+        if ($orderId <= 0) {
+            return false;
+        }
+
+        $documentType = strtolower(trim($documentType));
+        if (!in_array($documentType, ['contract', 'proforma', 'invoice'], true)) {
+            return false;
+        }
+
+        $fileSize = null;
+        if ($filePath && is_file($filePath)) {
+            $size = @filesize($filePath);
+            $fileSize = $size !== false ? (int)$size : null;
+        }
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO order_documents_metadata
+             (order_id, document_type, file_path, file_size, status, last_error, generated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                file_path = VALUES(file_path),
+                file_size = VALUES(file_size),
+                status = VALUES(status),
+                last_error = VALUES(last_error),
+                generated_at = VALUES(generated_at)"
+        );
+
+        $generatedAt = strtolower($status) === 'generated' ? date('Y-m-d H:i:s') : null;
+
+        return $stmt->execute([
+            $orderId,
+            $documentType,
+            $filePath,
+            $fileSize,
+            $status,
+            $lastError,
+            $generatedAt,
+        ]);
     }
 
     public function getBlockedDates(): array
@@ -575,49 +600,6 @@ class OrderModel {
             'id' => $optionId,
             'label' => $label,
         ];
-    }
-
-    private function ensureRefundTables(): void
-    {
-        $this->db->exec(
-            "CREATE TABLE IF NOT EXISTS order_refunds (
-                refund_id INT AUTO_INCREMENT PRIMARY KEY,
-                order_id INT NOT NULL,
-                payment_provider VARCHAR(20) NOT NULL,
-                refund_method VARCHAR(30) NULL,
-                requested_amount DECIMAL(10,2) NOT NULL,
-                approved_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-                reason TEXT NOT NULL,
-                admin_id INT NULL,
-                provider_refund_id VARCHAR(100) NULL,
-                provider_transaction_reference VARCHAR(100) NULL,
-                status VARCHAR(30) NOT NULL DEFAULT 'pending',
-                provider_response_snapshot LONGTEXT NULL,
-                idempotency_key VARCHAR(120) NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_order_refunds_order_id (order_id),
-                INDEX idx_order_refunds_provider_refund (provider_refund_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-        );
-
-        $requiredRefundColumns = [
-            'refund_method' => "ALTER TABLE order_refunds ADD COLUMN refund_method VARCHAR(30) NULL AFTER payment_provider",
-            'requested_amount' => "ALTER TABLE order_refunds ADD COLUMN requested_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER refund_method",
-            'approved_amount' => "ALTER TABLE order_refunds ADD COLUMN approved_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER requested_amount",
-            'provider_transaction_reference' => "ALTER TABLE order_refunds ADD COLUMN provider_transaction_reference VARCHAR(100) NULL AFTER provider_refund_id",
-            'status' => "ALTER TABLE order_refunds ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'pending' AFTER provider_transaction_reference",
-            'provider_response_snapshot' => "ALTER TABLE order_refunds ADD COLUMN provider_response_snapshot LONGTEXT NULL AFTER status",
-            'idempotency_key' => "ALTER TABLE order_refunds ADD COLUMN idempotency_key VARCHAR(120) NULL AFTER provider_response_snapshot",
-            'updated_at' => "ALTER TABLE order_refunds ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at",
-        ];
-
-        foreach ($requiredRefundColumns as $columnName => $alterSql) {
-            $colCheck = $this->db->query("SHOW COLUMNS FROM order_refunds LIKE '" . $columnName . "'");
-            if (!$colCheck || !$colCheck->fetch(\PDO::FETCH_ASSOC)) {
-                $this->db->exec($alterSql);
-            }
-        }
     }
 
     public function saveOrderPaymentProviderReferences(int $orderId, array $refs): bool
@@ -1193,13 +1175,10 @@ class OrderModel {
         $refunded = max(0, round((float)($order['security_deposit_refunded_amount'] ?? 0), 2));
         $remaining = round(max(0, $depositCharged - $refunded), 2);
 
-                $refundSelectMethod = $this->hasOrderRefundMethodColumn()
-                    ? 'refund_method'
-                    : 'NULL AS refund_method';
-                $refundStmt = $this->db->prepare(
-                    "SELECT refund_id, payment_provider, {$refundSelectMethod}, requested_amount, approved_amount, reason, admin_id, provider_refund_id, status, created_at
-                     FROM order_refunds WHERE order_id = ? ORDER BY refund_id DESC"
-                );
+        $refundStmt = $this->db->prepare(
+            "SELECT refund_id, payment_provider, refund_method, requested_amount, approved_amount, reason, admin_id, provider_refund_id, status, created_at
+             FROM order_refunds WHERE order_id = ? ORDER BY refund_id DESC"
+        );
         $refundStmt->execute([$orderId]);
 
         return [
@@ -1236,7 +1215,7 @@ class OrderModel {
         $return = date('Y-m-d H:i:00', strtotime($returnDatetime));
         $reservedScootersGlobal = [];
         $reservationStmt = $this->db->prepare("INSERT INTO reservations (scooter_id, pickup_datetime, return_datetime, order_id, status) VALUES (?, ?, ?, ?, 'pending')");
-        $itemStmt = $this->db->prepare("INSERT INTO order_items (order_id, product_id, product_name, price, quantity, image_url, variation_id, variation_name, scooter_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)");
+        $itemStmt = $this->db->prepare("INSERT INTO order_items (order_id, product_id, product_name, price, quantity, image_url, variation_id, variation_name, power_chair_handedness, scooter_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)");
 
         foreach ($cart as $item) {
             $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
@@ -1246,6 +1225,7 @@ class OrderModel {
             $price = $item['price'] ?? 0;
             $imageUrl = $item['image_url'] ?? null;
             $variationName = $item['variation_name'] ?? null;
+            $itemHandedness = $this->normalizePowerChairHandednessValue($item['power_chair_handedness'] ?? null);
             $scooterIdsForItem = [];
 
             for ($i = 0; $i < $qty; $i++) {
@@ -1300,6 +1280,7 @@ class OrderModel {
                     $imageUrl,
                     $variationId,
                     $variationName,
+                    $itemHandedness,
                     $scooterId
                 ];
                 $itemStmt->execute($itemParams);
@@ -1317,6 +1298,7 @@ class OrderModel {
                 'image_url' => $imageUrl,
                 'variation_id' => $variationId,
                 'variation_name' => $variationName,
+                'power_chair_handedness' => $itemHandedness,
                 'scooter_ids' => $scooterIdsForItem,
             ];
         }
@@ -1432,22 +1414,48 @@ class OrderModel {
         $orderData['promo_discount'] = $promoDiscount > 0 ? $promoDiscount : null;
         $productTotalWithTax = round(max(0, $trustedSubtotal - $promoDiscount), 2);
         $orderData['delivery_fee'] = $this->resolveDeliveryFeeForOrder($orderData);
-        $orderData['total_amount'] = round($productTotalWithTax + self::SECURITY_DEPOSIT + $orderData['delivery_fee'], 2);
+        $calculatedTotalAmount = round($productTotalWithTax + self::SECURITY_DEPOSIT + $orderData['delivery_fee'], 2);
+        $orderData['computed_total_amount'] = $calculatedTotalAmount;
+        $orderData['total_amount'] = $calculatedTotalAmount;
         $orderData['security_deposit'] = isset($orderData['security_deposit'])
             ? round(max(0, (float)$orderData['security_deposit']), 2)
             : self::SECURITY_DEPOSIT;
 
+        $overrideAmount = isset($orderData['final_price_override_amount'])
+            ? round((float)$orderData['final_price_override_amount'], 2)
+            : null;
+        $isEditedFlag = (int)($orderData['final_price_edited'] ?? 0) === 1;
+        $editedByRole = strtolower(trim((string)($orderData['final_price_edited_by_admin_role'] ?? '')));
+        $canApplyOverride = $isEditedFlag
+            && $overrideAmount !== null
+            && $overrideAmount > 0
+            && $overrideAmount <= $calculatedTotalAmount
+            && $editedByRole === 'superadmin';
+
+        if ($canApplyOverride) {
+            $orderData['total_amount'] = $overrideAmount;
+        } else {
+            $orderData['final_price_edited'] = 0;
+            $orderData['final_price_override_amount'] = null;
+            $orderData['final_price_edited_by_admin_id'] = null;
+            $orderData['final_price_edited_by_admin_role'] = null;
+            $orderData['final_price_edited_by_admin_name'] = null;
+            $orderData['final_price_edited_at'] = null;
+        }
+
         $sql = "INSERT INTO orders (
             user_id, guest_first_name, guest_last_name, guest_email, guest_phone,
-            client_weight_option, client_weight_lbs, client_height, power_chair_handedness,
+            client_weight_option, client_weight_lbs, client_height,
             address1, address2, state, zip,
             pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, pickup_location,
-            notes, payment_method, payment_provider, total_amount, security_deposit, delivery_fee, status, customer_type, booking_source,
+            notes, payment_method, payment_provider, total_amount, computed_total_amount, security_deposit, delivery_fee, final_price_edited,
+            final_price_edited_by_admin_id, final_price_edited_by_admin_role, final_price_edited_by_admin_name, final_price_edited_at,
+            status, customer_type, booking_source,
             promo_code, promo_discount, promo_applied_by_admin_id, promo_applied_by_admin_role, promo_applied_by_admin_name,
             created_by_admin_id, created_by_admin_role, created_by_admin_name,
             sale_type
         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )";
 
         $stmt = $this->db->prepare($sql);
@@ -1460,7 +1468,6 @@ class OrderModel {
             $orderData['client_weight_option'] ?? null,
             $orderData['client_weight_lbs'] ?? null,
             $orderData['client_height'] ?? null,
-            $orderData['power_chair_handedness'] ?? null,
             $orderData['address1'] ?? null,
             $orderData['address2'] ?? null,
             $orderData['state'] ?? null,
@@ -1475,8 +1482,14 @@ class OrderModel {
             $orderData['payment_method'],
             strtolower((string)($orderData['payment_method'] ?? '')) === 'paypal' ? 'paypal' : (strtolower((string)($orderData['payment_method'] ?? '')) === 'card' ? 'stripe' : null),
             $orderData['total_amount'],
+            $orderData['computed_total_amount'] ?? null,
             $orderData['security_deposit'],
             $orderData['delivery_fee'],
+            (int)($orderData['final_price_edited'] ?? 0) === 1 ? 1 : 0,
+            $orderData['final_price_edited_by_admin_id'] ?? null,
+            $orderData['final_price_edited_by_admin_role'] ?? null,
+            $orderData['final_price_edited_by_admin_name'] ?? null,
+            $orderData['final_price_edited_at'] ?? null,
             $orderData['customer_type'],
             $orderData['booking_source'] ?? null,
             $orderData['promo_code'] ?? null,
@@ -1495,8 +1508,8 @@ class OrderModel {
         // Insert order items (with variation support)
         $itemStmt = $this->db->prepare("
             INSERT INTO order_items 
-            (order_id, product_id, product_name, price, quantity, image_url, variation_id, variation_name, scooter_id) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (order_id, product_id, product_name, price, quantity, image_url, variation_id, variation_name, power_chair_handedness, scooter_id) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         // Track assigned scooter_ids for each item
         $assignedScooters = [];
@@ -1512,6 +1525,7 @@ class OrderModel {
             $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
             $variationId = isset($item['variation_id']) && $item['variation_id'] !== '' ? $item['variation_id'] : null;
             $productId = $item['id'];
+            $itemHandedness = $this->normalizePowerChairHandednessValue($item['power_chair_handedness'] ?? null);
             $scooterIdsForItem = [];
             for ($i = 0; $i < $qty; $i++) {
                 // Find available scooter for this product/variation and dates
@@ -1573,6 +1587,7 @@ class OrderModel {
                 'image_url' => $item['image_url'] ?? null,
                 'variation_id' => $item['variation_id'] ?? null,
                 'variation_name' => $item['variation_name'] ?? null,
+                'power_chair_handedness' => $itemHandedness,
                 'scooter_ids' => $scooterIdsForItem
             ];
         }
@@ -1588,6 +1603,7 @@ class OrderModel {
                     $item['image_url'],
                     $item['variation_id'],
                     $item['variation_name'],
+                    $item['power_chair_handedness'] ?? null,
                     $scooterId
                 ]);
             }
@@ -2026,6 +2042,12 @@ class OrderModel {
                 pl.name AS pickup_location_name,
                 pl.address AS pickup_location_address,
                 o.total_amount,
+                o.computed_total_amount,
+                o.final_price_edited,
+                o.final_price_edited_by_admin_id,
+                o.final_price_edited_by_admin_role,
+                o.final_price_edited_by_admin_name,
+                o.final_price_edited_at,
                 o.security_deposit,
                 o.delivery_fee,
                 o.promo_code,
@@ -2055,28 +2077,135 @@ class OrderModel {
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
+    public function getOrderStatusTransitionCheck($orderId, string $targetStatus): array
+    {
+        $orderId = (int)$orderId;
+        $targetStatus = strtolower(trim($targetStatus));
+        if ($orderId <= 0) {
+            return [
+                'allowed' => false,
+                'error' => 'Invalid order ID.',
+                'current_status' => null,
+                'target_status' => $targetStatus,
+                'order' => null,
+            ];
+        }
+
+        $stmt = $this->db->prepare("SELECT order_id, status, payment_method, payment_provider, total_amount, security_deposit, security_deposit_refunded_amount FROM orders WHERE order_id = ? LIMIT 1");
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$order) {
+            return [
+                'allowed' => false,
+                'error' => 'Order not found.',
+                'current_status' => null,
+                'target_status' => $targetStatus,
+                'order' => null,
+            ];
+        }
+
+        $currentStatus = strtolower(trim((string)($order['status'] ?? '')));
+        if (!array_key_exists($targetStatus, self::ORDER_STATUS_TRANSITIONS)) {
+            return [
+                'allowed' => false,
+                'error' => 'Invalid target order status.',
+                'current_status' => $currentStatus,
+                'target_status' => $targetStatus,
+                'order' => $order,
+            ];
+        }
+
+        if ($currentStatus === $targetStatus) {
+            return [
+                'allowed' => false,
+                'error' => 'Order is already ' . $targetStatus . '.',
+                'current_status' => $currentStatus,
+                'target_status' => $targetStatus,
+                'order' => $order,
+            ];
+        }
+
+        $allowedTargets = self::ORDER_STATUS_TRANSITIONS[$currentStatus] ?? [];
+        if (!in_array($targetStatus, $allowedTargets, true)) {
+            return [
+                'allowed' => false,
+                'error' => sprintf(
+                    'Cannot change order #%d from %s to %s.',
+                    $orderId,
+                    $currentStatus !== '' ? $currentStatus : 'unknown',
+                    $targetStatus
+                ),
+                'current_status' => $currentStatus,
+                'target_status' => $targetStatus,
+                'order' => $order,
+            ];
+        }
+
+        return [
+            'allowed' => true,
+            'error' => null,
+            'current_status' => $currentStatus,
+            'target_status' => $targetStatus,
+            'order' => $order,
+        ];
+    }
+
+    public function transitionOrderStatus($orderId, string $targetStatus): array
+    {
+        $check = $this->getOrderStatusTransitionCheck($orderId, $targetStatus);
+        if (!($check['allowed'] ?? false)) {
+            return [
+                'success' => false,
+                'error' => (string)($check['error'] ?? 'Order status change is not allowed.'),
+                'current_status' => $check['current_status'] ?? null,
+                'target_status' => $check['target_status'] ?? strtolower(trim($targetStatus)),
+                'order' => $check['order'] ?? null,
+            ];
+        }
+
+        $stmt = $this->db->prepare("UPDATE orders SET status = ? WHERE order_id = ? AND status = ?");
+        $stmt->execute([
+            $check['target_status'],
+            (int)$orderId,
+            $check['current_status'],
+        ]);
+
+        if ($stmt->rowCount() < 1) {
+            return [
+                'success' => false,
+                'error' => 'Order status changed before this action completed. Please refresh and try again.',
+                'current_status' => $check['current_status'],
+                'target_status' => $check['target_status'],
+                'order' => $check['order'],
+            ];
+        }
+
+        return [
+            'success' => true,
+            'current_status' => $check['current_status'],
+            'target_status' => $check['target_status'],
+            'order' => $check['order'],
+        ];
+    }
+
     // Update order status to 'approved'
     public function approveOrder($orderId) {
-        $stmt = $this->db->prepare("UPDATE orders SET status = 'approved' WHERE order_id = ?");
-        return $stmt->execute([$orderId]);
+        return $this->transitionOrderStatus($orderId, 'approved')['success'] ?? false;
     }
 
     // Update order status to 'completed'
     public function completeOrder($orderId) {
-        $stmt = $this->db->prepare("UPDATE orders SET status = 'completed' WHERE order_id = ?");
-        return $stmt->execute([$orderId]);
+        return $this->transitionOrderStatus($orderId, 'completed')['success'] ?? false;
     }
 
     // Update order status to 'cancelled'
     public function rejectOrder($orderId) {
-        $stmt = $this->db->prepare("UPDATE orders SET status = 'cancelled' WHERE order_id = ?");
-        return $stmt->execute([$orderId]);
+        return $this->transitionOrderStatus($orderId, 'cancelled')['success'] ?? false;
     }
 
     // Update order status to 'paid'
     public function markAsPaid($orderId) {
-        $stmt = $this->db->prepare("UPDATE orders SET status = 'paid' WHERE order_id = ?");
-        return $stmt->execute([$orderId]);
+        return $this->transitionOrderStatus($orderId, 'paid')['success'] ?? false;
     }
 
     public function updateOrderSecurityDeposit($orderId, $securityDeposit, $reason, $updatedByAdminId = null)
@@ -2417,13 +2546,13 @@ class OrderModel {
      * Full order process: creates order, items, reservations, generates PDFs, sends email, returns orderId
      */
     public function fullOrderProcess($form, $cart, $session) {
-                $myfile = @fopen("order-debug-log.txt", "a");
+                $myfile = $this->openDebugOrderLog();
                 if (is_resource($myfile)) {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Entered fullOrderProcess in OrderModel\n");
                     fclose($myfile);
                 }
             // DEBUG: Confirm function is called and file can be created
-            $myfile = @fopen("order-debug-log.txt", "a");
+            $myfile = $this->openDebugOrderLog();
             if (is_resource($myfile)) {
                 fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Entered fullOrderProcess\n");
                 fclose($myfile);
@@ -2493,11 +2622,6 @@ class OrderModel {
         $clientWeightLbsRaw = $form['client_weight_lbs'] ?? null;
         $clientWeightLbs = (is_numeric($clientWeightLbsRaw) && (int)$clientWeightLbsRaw > 0) ? (int)$clientWeightLbsRaw : null;
         $clientHeight = htmlspecialchars(trim((string)($form['client_height'] ?? '')));
-        $powerChairHandedness = strtolower(trim((string)($form['power_chair_handedness'] ?? '')));
-        if (!in_array($powerChairHandedness, ['left', 'right'], true)) {
-            $powerChairHandedness = '';
-        }
-
         $cart = $this->normalizeCartForTrustedPricing(
             is_array($cart) ? $cart : [],
             $form['pickup_datetime'] ?? null,
@@ -2574,7 +2698,6 @@ class OrderModel {
                     $clientWeightOption !== '' ? $clientWeightOption : null,
                     $clientWeightLbs,
                     $clientHeight !== '' ? $clientHeight : null,
-                    $powerChairHandedness !== '' ? $powerChairHandedness : null,
                     $address1,
                     $address2,
                     $state,
@@ -2601,31 +2724,31 @@ class OrderModel {
                     $hotelIdForOrder,
                     $returnHotelIdForOrder
                 ];
-                $myfile = @fopen("order-debug-log.txt", "a");
+                $myfile = $this->openDebugOrderLog();
                 if (is_resource($myfile)) {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess INSERT VALUES:\n" . print_r($insertValues, true) . "\n");
                 }
                 $stmt = $this->db->prepare("INSERT INTO orders (
-                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, provider_payment_intent_id, provider_charge_id, total_amount, security_deposit, delivery_fee, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, status, order_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+                    user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, address1, address2, state, zip, pickup_location, notes, payment_method, payment_provider, provider_payment_intent_id, provider_charge_id, total_amount, security_deposit, delivery_fee, customer_type, booking_source, heard_about_option_id, heard_about_label, created_by_admin_id, created_by_admin_role, created_by_admin_name, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, status, order_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
                 $stmt->execute($insertValues);
                 $orderId = $this->db->lastInsertId();
                 if (is_resource($myfile)) {
                     fwrite($myfile, "OrderModel fullOrderProcess LAST INSERT ID: " . print_r($orderId, true) . "\n\n");
                     fclose($myfile);
                 }
-                    $myfile = @fopen("order-debug-log.txt", "a");
+                    $myfile = $this->openDebugOrderLog();
                     if (is_resource($myfile)) {
                         fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Order insert SUCCESS. orderId: $orderId\nParams: " . var_export($insertValues, true) . "\n");
                         fclose($myfile);
                     }
             } catch (\PDOException $e) {
-                $myfile = @fopen("order-debug-log.txt", "a");
+                $myfile = $this->openDebugOrderLog();
                 if (is_resource($myfile)) {
                     fwrite($myfile, date('Y-m-d H:i:s') . "\nOrderModel fullOrderProcess SQL Error: " . $e->getMessage() . "\n\n");
                     fclose($myfile);
                 }
-                    $myfile = @fopen("order-debug-log.txt", "a");
+                    $myfile = $this->openDebugOrderLog();
                     if (is_resource($myfile)) {
                         fwrite($myfile, date('Y-m-d H:i:s') . "\n[ERROR] Order insert FAILED: " . $e->getMessage() . "\nParams: " . var_export($insertValues ?? [], true) . "\n");
                         fclose($myfile);
@@ -2633,7 +2756,7 @@ class OrderModel {
                 return false;
             }
         // Debug: Fetch the order after insert to verify and log (fix WHERE clause)
-        $debugFile = @fopen("order-debug-log.txt", "a");
+        $debugFile = $this->openDebugOrderLog();
         try {
             $stmt = $this->db->prepare("SELECT * FROM orders WHERE order_id = ?");
             $stmt->execute([$orderId]);
@@ -2663,7 +2786,7 @@ class OrderModel {
             $existingOrderItems = (int)$itemCountStmt->fetchColumn();
 
             if ($existingOrderItems === 0) {
-                $fallbackItemStmt = $this->db->prepare("INSERT INTO order_items (order_id, product_id, product_name, price, quantity, image_url, variation_id, variation_name, scooter_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)");
+                $fallbackItemStmt = $this->db->prepare("INSERT INTO order_items (order_id, product_id, product_name, price, quantity, image_url, variation_id, variation_name, power_chair_handedness, scooter_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)");
                 foreach ($cart as $item) {
                     $qty = max(1, (int)($item['qty'] ?? $item['quantity'] ?? 1));
                     $fallbackItemStmt->execute([
@@ -2675,6 +2798,7 @@ class OrderModel {
                         $item['image_url'] ?? null,
                         $item['variation_id'] ?? null,
                         $item['variation_name'] ?? null,
+                        $this->normalizePowerChairHandednessValue($item['power_chair_handedness'] ?? null),
                     ]);
                 }
             }
@@ -2701,7 +2825,7 @@ class OrderModel {
                     fclose($debugFile);
                 }
                // Mark scooters as sold if for-sale (for-sale flow)
-               $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+               $debugFile = $this->openDebugOrderLog();
                if (is_resource($debugFile)) {
                    fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] About to call markScootersSoldIfForSale in fullOrderProcess\nCart: " . print_r($cart, true) . "\nAssigned: " . print_r($assignedScooters, true));
                    fclose($debugFile);
@@ -2726,7 +2850,7 @@ class OrderModel {
         $proformaPath = null;
         try {
             ob_start();
-            $debugFile = @fopen("order-debug-log.txt", "a");
+            $debugFile = $this->openDebugOrderLog();
             if (is_resource($debugFile)) {
                 fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Entering PDF generation block in fullOrderProcess\n");
                 fclose($debugFile);
@@ -2747,6 +2871,7 @@ class OrderModel {
                 throw new \RuntimeException('Failed to write contract PDF.');
             }
             $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
+            $this->upsertOrderDocumentMetadata((int)$orderId, 'contract', $pdfPath, 'generated');
             
             // --- PRO-FORMA PDF GENERATION ---
             $invoiceItemsTable = '';
@@ -2808,15 +2933,18 @@ class OrderModel {
                 throw new \RuntimeException('Failed to write pro-forma PDF.');
             }
             $proformaPath = $proformaDir . "proforma-{$orderId}.pdf";
+            $this->upsertOrderDocumentMetadata((int)$orderId, 'proforma', $proformaPath, 'generated');
         } catch (\Throwable $e) {
             // PDF generation failed, but order is already created - log it and continue
             @ob_end_clean();
             error_log("Contract/Pro-forma generation failed for order {$orderId}: " . $e->getMessage());
-            $debugFile = @fopen("order-debug-log.txt", "a");
+            $debugFile = $this->openDebugOrderLog();
             if (is_resource($debugFile)) {
                 fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] PDF generation error: " . $e->getMessage() . "\n");
                 fclose($debugFile);
             }
+            $this->upsertOrderDocumentMetadata((int)$orderId, 'contract', $pdfPath, 'failed', $e->getMessage());
+            $this->upsertOrderDocumentMetadata((int)$orderId, 'proforma', $proformaPath, 'failed', $e->getMessage());
             // Continue without PDFs - don't break the order
         }
         
@@ -2833,7 +2961,7 @@ class OrderModel {
         if (filter_var($finalEmail, FILTER_VALIDATE_EMAIL)) {
             try {
                 $mail = new PHPMailer(true);
-                $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+                $debugFile = $this->openDebugOrderLog();
                 if (is_resource($debugFile)) {
                     fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Preparing to send contract/pro-forma email to: $finalEmail\n");
                 }
@@ -2880,7 +3008,7 @@ class OrderModel {
                     fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Contract/pro-forma email sent successfully to: $finalEmail\n");
                 }
             } catch (MailException $e) {
-                $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+                $debugFile = $this->openDebugOrderLog();
                 if (is_resource($debugFile)) {
                     fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Contract/pro-forma email failed: " . $mail->ErrorInfo . "\nException: " . $e->getMessage() . "\n");
                     fclose($debugFile);
@@ -2888,7 +3016,7 @@ class OrderModel {
                 error_log("Mailer Error: {$mail->ErrorInfo}");
             }
         } else {
-            $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+            $debugFile = $this->openDebugOrderLog();
             if (is_resource($debugFile)) {
                 fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Skipped email: invalid recipient for order {$orderId}. Value: {$finalEmail}\n");
                 fclose($debugFile);
@@ -2904,7 +3032,7 @@ class OrderModel {
     }
 
     public function ensureOrderDocumentsAndEmail($orderId, $cart = null) {
-        $debugFile = @fopen(__DIR__ . '/../../public/order-debug-log.txt', 'a');
+        $debugFile = $this->openDebugOrderLog();
         if (is_resource($debugFile)) {
             fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] ensureOrderDocumentsAndEmail started for orderId: {$orderId}\n");
         }
@@ -2989,6 +3117,7 @@ class OrderModel {
                 if ($written === false || !is_file($pdfPath) || filesize($pdfPath) === 0) {
                     throw new \RuntimeException('Failed to write recovery contract PDF.');
                 }
+                $this->upsertOrderDocumentMetadata((int)$orderId, 'contract', $pdfPath, 'generated');
                 if (is_resource($debugFile)) {
                     fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Contract PDF generated for orderId: {$orderId}\n");
                 }
@@ -2999,6 +3128,7 @@ class OrderModel {
             if (is_resource($debugFile)) {
                 fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Contract PDF error: " . $e->getMessage() . "\n");
             }
+            $this->upsertOrderDocumentMetadata((int)$orderId, 'contract', $pdfPath, 'failed', $e->getMessage());
             $pdfPath = null;
         }
 
@@ -3060,6 +3190,7 @@ class OrderModel {
                 if ($written === false || !is_file($invoicePath) || filesize($invoicePath) === 0) {
                     throw new \RuntimeException('Failed to write recovery pro-forma PDF.');
                 }
+                $this->upsertOrderDocumentMetadata((int)$orderId, 'proforma', $invoicePath, 'generated');
                 if (is_resource($debugFile)) {
                     fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Pro-forma PDF generated for orderId: {$orderId}\n");
                 }
@@ -3070,6 +3201,7 @@ class OrderModel {
             if (is_resource($debugFile)) {
                 fwrite($debugFile, date('Y-m-d H:i:s') . "\n[ERROR] Pro-forma PDF error: " . $e->getMessage() . "\n");
             }
+            $this->upsertOrderDocumentMetadata((int)$orderId, 'proforma', $invoicePath, 'failed', $e->getMessage());
             $invoicePath = null;
         }
 
@@ -3243,8 +3375,10 @@ class OrderModel {
         $invoiceDompdf->render();
         $written = @file_put_contents($invoicePath, $invoiceDompdf->output());
         if ($written === false || !is_file($invoicePath) || filesize($invoicePath) === 0) {
+            $this->upsertOrderDocumentMetadata((int)$orderId, 'invoice', $invoicePath, 'failed', 'Final invoice write failed');
             return false;
         }
+        $this->upsertOrderDocumentMetadata((int)$orderId, 'invoice', $invoicePath, 'generated');
 
         if ($customerEmail) {
             require_once __DIR__ . '/../Utils/Mailer.php';
@@ -3272,6 +3406,14 @@ class OrderModel {
      */
     public function completeOrderProcess($orderId){
         $pdo = $this->db;
+        $transition = $this->transitionOrderStatus($orderId, 'completed');
+        if (!($transition['success'] ?? false)) {
+            return [
+                '<strong>Order was not completed.</strong>',
+                htmlspecialchars((string)($transition['error'] ?? 'This order cannot be completed right now.')),
+            ];
+        }
+
         $messages = [];
         $messages[] = "<strong>Order Completed!</strong> (Order ID: " . htmlspecialchars($orderId) . ")";
 
@@ -3300,9 +3442,6 @@ class OrderModel {
             }
         }
 
-        // Update order status to 'completed'
-        $stmtOrder = $pdo->prepare("UPDATE orders SET status = 'completed' WHERE order_id = ?");
-        $stmtOrder->execute([$orderId]);
         $messages[] = "Order $orderId marked as completed.";
 
         // Update all reservations for this order to 'completed'
@@ -3355,6 +3494,11 @@ class OrderModel {
      */
     public function cancelOrderProcess($orderId) {
         $pdo = $this->db;
+        $transition = $this->transitionOrderStatus($orderId, 'cancelled');
+        if (!($transition['success'] ?? false)) {
+            return (string)($transition['error'] ?? 'This order cannot be cancelled right now.');
+        }
+
         // Get all order items for this order
         $stmt = $pdo->prepare("SELECT order_item_id, product_id, scooter_id, quantity FROM order_items WHERE order_id = ?");
         $stmt->execute([$orderId]);
@@ -3373,10 +3517,6 @@ class OrderModel {
                 }
             }
         }
-
-        // Update order status to 'cancelled'
-        $stmtOrder = $pdo->prepare("UPDATE orders SET status = 'cancelled' WHERE order_id = ?");
-        $stmtOrder->execute([$orderId]);
 
         // Keep reservation lifecycle in sync with order lifecycle.
         $stmtReservations = $pdo->prepare("UPDATE reservations SET status = 'cancelled' WHERE order_id = ?");

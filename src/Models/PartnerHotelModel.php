@@ -23,6 +23,17 @@ class PartnerHotelModel {
         return $stmt->fetchAll();
     }
 
+    public function getById($id): ?array {
+        $stmt = $this->db->prepare('SELECT * FROM partner_hotels WHERE id = ? LIMIT 1');
+        $stmt->execute([(int)$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function lastInsertId(): int {
+        return (int)$this->db->lastInsertId();
+    }
+
     public function getPaginated(string $search = '', int $page = 1, int $perPage = 20): array {
         $search = trim($search);
         $page = max(1, $page);

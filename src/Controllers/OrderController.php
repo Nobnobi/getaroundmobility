@@ -56,6 +56,31 @@ class OrderController extends Controller
 
     private $paypalClient;
 
+    private function isDebugEnabled(): bool
+    {
+        $value = getenv('APP_DEBUG');
+        if ($value === false) {
+            $value = $_ENV['APP_DEBUG'] ?? '';
+        }
+        $value = strtolower(trim((string)$value));
+        return in_array($value, ['1', 'true', 'yes', 'on'], true);
+    }
+
+    private function canPersistDebugLogs(): bool
+    {
+        if (!$this->isDebugEnabled()) {
+            return false;
+        }
+
+        $env = getenv('APP_ENV');
+        if ($env === false) {
+            $env = $_ENV['APP_ENV'] ?? '';
+        }
+
+        $env = strtolower(trim((string)$env));
+        return in_array($env, ['local', 'development', 'dev'], true);
+    }
+
     private function ensureAdminAuthenticatedJson(): void
     {
         if (session_status() === PHP_SESSION_NONE) {
@@ -90,8 +115,21 @@ class OrderController extends Controller
 
     private function openDebugLog($filename)
     {
-        $path = __DIR__ . '/../../public/' . $filename;
-        return @fopen($path, 'a');
+        if (!$this->canPersistDebugLogs()) {
+            return @fopen('php://temp', 'w+');
+        }
+
+        $logDir = dirname(__DIR__, 2) . '/storage/logs';
+        if (!is_dir($logDir)) {
+            @mkdir($logDir, 0775, true);
+        }
+        $path = rtrim($logDir, '/\\') . '/' . basename((string)$filename);
+        $resource = @fopen($path, 'a');
+        if (is_resource($resource)) {
+            return $resource;
+        }
+
+        return @fopen('php://temp', 'w+');
     }
 
     private function readJsonBody(): array
@@ -141,6 +179,34 @@ class OrderController extends Controller
             'created_by_admin_role' => $isAdminOrigin ? trim((string)($_SESSION['admin_role'] ?? '')) : '',
             'created_by_admin_name' => $isAdminOrigin ? trim((string)($_SESSION['admin_username'] ?? '')) : '',
         ];
+    }
+
+    private function persistCheckoutSessionSnapshot(
+        string $provider,
+        string $checkoutRef,
+        ?string $providerPaymentIntentId,
+        array $payload,
+        array $cart,
+        string $status = 'pending',
+        ?int $finalizedOrderId = null,
+        ?string $lastError = null
+    ): void {
+        try {
+            $orderModel = new OrderModel();
+            $orderModel->upsertCheckoutSession([
+                'checkout_ref' => $checkoutRef,
+                'provider' => $provider,
+                'provider_payment_intent_id' => $providerPaymentIntentId,
+                'status' => $status,
+                'customer_email' => trim((string)($payload['guest_email'] ?? $payload['email'] ?? '')),
+                'payload_json' => json_encode($payload, JSON_UNESCAPED_SLASHES),
+                'cart_json' => json_encode($cart, JSON_UNESCAPED_SLASHES),
+                'finalized_order_id' => $finalizedOrderId,
+                'last_error' => $lastError,
+            ]);
+        } catch (\Throwable $e) {
+            error_log('Checkout session persistence warning: ' . $e->getMessage());
+        }
     }
 
     private function validateIdPresenceAcknowledgement(array $source): ?string
@@ -339,6 +405,8 @@ class OrderController extends Controller
     {
         $PAYPAL_CLIENT_ID = getenv("PAYPAL_CLIENT_ID") ?: ($_ENV["PAYPAL_CLIENT_ID"] ?? '');
         $PAYPAL_CLIENT_SECRET = getenv("PAYPAL_CLIENT_SECRET") ?: ($_ENV["PAYPAL_CLIENT_SECRET"] ?? '');
+        $paypalMode = strtolower(trim((string)(getenv('PAYPAL_MODE') ?: ($_ENV['PAYPAL_MODE'] ?? 'sandbox'))));
+        $paypalEnvironment = $paypalMode === 'live' ? Environment::PRODUCTION : Environment::SANDBOX;
 
         $this->paypalClient = PaypalServerSdkClientBuilder::init()
             ->clientCredentialsAuthCredentials(
@@ -347,27 +415,18 @@ class OrderController extends Controller
                     $PAYPAL_CLIENT_SECRET
                 )
             )
-            ->environment(Environment::SANDBOX)
+            ->environment($paypalEnvironment)
             ->build();
     }
 
     public function processCheckout() {
-            // DEBUG: Top of processCheckout
-            $debugFile = fopen("order-debug-log.txt", "a");
-            fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Top of processCheckout\n");
-            fclose($debugFile);
-        // DEBUG: Confirm controller is being executed and log file can be created
-        $myfile = fopen("order-debug-log.txt", "a") or die("Unable to open file!");
-        fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] Entered processCheckout in OrderController\n");
-        fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] REQUEST_METHOD: " . $_SERVER['REQUEST_METHOD'] . "\n");
-        fwrite($myfile, date('Y-m-d H:i:s') . "\n[DEBUG] POST DATA: " . var_export($_POST, true) . "\n");
-        fclose($myfile);
         if (session_status() === PHP_SESSION_NONE) session_start();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 http_response_code(403);
                 die('Invalid CSRF token');
             }
+            $this->enforcePublicJsonRateLimit('checkout_cod_order', 5, 15);
 
             $cart = json_decode($_POST['cart'] ?? '[]', true);
             $pickup_datetime = $_POST['pickup_datetime'] ?? null;
@@ -464,10 +523,6 @@ class OrderController extends Controller
                 exit;
             }
         }
-        // DEBUG: Bottom of processCheckout (should never reach here for POST)
-        $debugFile = fopen("order-debug-log.txt", "a");
-        fwrite($debugFile, date('Y-m-d H:i:s') . "\n[DEBUG] Bottom of processCheckout\n");
-        fclose($debugFile);
     }
 
     public function completeOrder() {
@@ -489,8 +544,16 @@ class OrderController extends Controller
         }
 
         $orderModel = new OrderModel();
+        $transitionCheck = $orderModel->getOrderStatusTransitionCheck($orderId, 'completed');
+        if (!($transitionCheck['allowed'] ?? false)) {
+            $_SESSION['order_cancel_message'] = (string)($transitionCheck['error'] ?? 'This order cannot be completed right now.');
+            header("Location: /admin/orders");
+            exit;
+        }
+
         $messages = $orderModel->completeOrderProcess($orderId);
         $this->logAdminAction('order_completed', 'order', $orderId, [
+            'previous_status' => $transitionCheck['current_status'] ?? null,
             'new_status' => 'completed',
             'messages' => $messages,
             'handler' => 'order_controller',
@@ -519,8 +582,16 @@ class OrderController extends Controller
         }
 
         $orderModel = new OrderModel();
+        $transitionCheck = $orderModel->getOrderStatusTransitionCheck($orderId, 'cancelled');
+        if (!($transitionCheck['allowed'] ?? false)) {
+            $_SESSION['order_cancel_message'] = (string)($transitionCheck['error'] ?? 'This order cannot be cancelled right now.');
+            header("Location: /admin/orders");
+            exit;
+        }
+
         $message = $orderModel->cancelOrderProcess($orderId);
         $this->logAdminAction('order_cancelled', 'order', $orderId, [
+            'previous_status' => $transitionCheck['current_status'] ?? null,
             'new_status' => 'cancelled',
             'message' => $message,
         ]);
@@ -582,6 +653,10 @@ class OrderController extends Controller
         }
 
         $fileName = $type . '-' . $orderId . '.pdf';
+        $this->logAdminAction('order_document_downloaded', 'order', $orderId, [
+            'document_type' => $type,
+            'filename' => $fileName,
+        ]);
         header('Content-Type: application/pdf');
         header('Content-Length: ' . (string)filesize($path));
         header('Content-Disposition: inline; filename="' . $fileName . '"');
@@ -600,6 +675,7 @@ class OrderController extends Controller
         
         try {
             if (session_status() === PHP_SESSION_NONE) session_start();
+            $this->enforcePublicJsonRateLimit('create_checkout_session', 10, 15);
             
             $orderModel = new OrderModel();
             $result = $orderModel->createStripeCheckoutSession($_POST, $_SESSION);
@@ -630,6 +706,7 @@ class OrderController extends Controller
         
         try {
             if (session_status() === PHP_SESSION_NONE) session_start();
+            $this->enforcePublicJsonRateLimit('create_payment_intent', 10, 15);
 
             $cart = json_decode($_POST['cart'] ?? '[]', true);
             if (trim((string)($_POST['client_height'] ?? '')) === '') {
@@ -678,6 +755,17 @@ class OrderController extends Controller
                 $intentId = (string)$result['paymentIntentId'];
                 $_SESSION["stripe_intent_fallback_{$intentId}"] = $this->getStripeFallbackPayloadFromPost($postData);
                 $_SESSION["stripe_checkout_ref_by_intent_{$intentId}"] = $checkoutRef;
+
+                $payloadSnapshot = $this->getStripeFallbackPayloadFromPost($postData);
+                $cartSnapshot = json_decode((string)($payloadSnapshot['cart_json'] ?? '[]'), true);
+                $this->persistCheckoutSessionSnapshot(
+                    'stripe',
+                    $checkoutRef,
+                    $intentId,
+                    $payloadSnapshot,
+                    is_array($cartSnapshot) ? $cartSnapshot : [],
+                    'intent_created'
+                );
             }
             
             // Clear any stray output and return JSON
@@ -706,6 +794,7 @@ class OrderController extends Controller
         
         try {
             if (session_status() === PHP_SESSION_NONE) session_start();
+            $this->enforcePublicJsonRateLimit('stripe_finalize_payment', 20, 15);
             
             // Get payment intent ID from JSON body or POST
             $input = $this->readJsonBody();
@@ -764,7 +853,8 @@ class OrderController extends Controller
         try {
             $intent = \Stripe\PaymentIntent::retrieve($paymentIntentId);
         } catch (\Exception $e) {
-            return ['error' => 'Unable to verify Stripe payment: ' . $e->getMessage(), 'http_status' => 400];
+            error_log('Stripe retrieve intent error: ' . $e->getMessage());
+            return ['error' => 'Unable to verify payment right now. Please try again.', 'http_status' => 400];
         }
 
         if (($intent->status ?? '') !== 'succeeded') {
@@ -796,6 +886,29 @@ class OrderController extends Controller
             $mappedRef = $_SESSION["stripe_checkout_ref_by_intent_{$paymentIntentId}"] ?? '';
             $checkoutRef = is_string($mappedRef) ? trim($mappedRef) : '';
         }
+
+        $orderModel = new OrderModel();
+
+        $dbCheckoutSession = $orderModel->getCheckoutSessionByPaymentIntentId((string)$paymentIntentId);
+        if (is_array($dbCheckoutSession)) {
+            if ($checkoutRef === '') {
+                $checkoutRef = trim((string)($dbCheckoutSession['checkout_ref'] ?? ''));
+            }
+
+            $payloadJson = (string)($dbCheckoutSession['payload_json'] ?? '');
+            if ($payloadJson !== '') {
+                $dbPayload = json_decode($payloadJson, true);
+                if (is_array($dbPayload) && !empty($dbPayload)) {
+                    $meta = array_merge($dbPayload, $meta);
+                }
+            }
+
+            $cartJson = (string)($dbCheckoutSession['cart_json'] ?? '');
+            if ($cartJson !== '' && empty($meta['cart_json'])) {
+                $meta['cart_json'] = $cartJson;
+            }
+        }
+
         if ($checkoutRef !== '') {
             $sessionPayload = $_SESSION["stripe_checkout_payload_{$checkoutRef}"] ?? [];
             if (is_array($sessionPayload) && !empty($sessionPayload)) {
@@ -856,13 +969,6 @@ class OrderController extends Controller
         // Finalization is idempotent by payment intent id.
         $intentOrderSessionKey = "stripe_order_by_intent_{$paymentIntentId}";
         $orderId = $_SESSION[$intentOrderSessionKey] ?? null;
-
-        try {
-            $orderModel = new OrderModel();
-        } catch (\Throwable $e) {
-            error_log('Finalize payment model init error: ' . $e->getMessage());
-            return ['error' => 'Order initialization failed after payment.', 'http_status' => 500];
-        }
 
         $chargeId = null;
         if (isset($intent->latest_charge)) {
@@ -953,6 +1059,16 @@ class OrderController extends Controller
                     $orderId = $this->findRecentlyCreatedStripeOrderId($guestEmail, $cart, $meta);
                 }
                 if (!$orderId) {
+                    $this->persistCheckoutSessionSnapshot(
+                        'stripe',
+                        $checkoutRef,
+                        (string)$paymentIntentId,
+                        $meta,
+                        is_array($cart) ? $cart : [],
+                        'finalize_failed',
+                        null,
+                        'Could not store the Stripe order after payment.'
+                    );
                     return ['error' => 'Could not store the Stripe order after payment.', 'http_status' => 500];
                 }
             }
@@ -967,6 +1083,16 @@ class OrderController extends Controller
                     $orderId = $this->findRecentlyCreatedStripeOrderId($guestEmail, $cart, $meta);
                 }
                 if (!$orderId) {
+                    $this->persistCheckoutSessionSnapshot(
+                        'stripe',
+                        $checkoutRef,
+                        (string)$paymentIntentId,
+                        $meta,
+                        is_array($cart) ? $cart : [],
+                        'finalize_failed',
+                        null,
+                        'Could not store the Stripe order after payment.'
+                    );
                     return ['error' => 'Could not store the Stripe order after payment.', 'http_status' => 500];
                 }
             }
@@ -988,6 +1114,25 @@ class OrderController extends Controller
                 'provider_payment_intent_id' => (string)$paymentIntentId,
                 'provider_charge_id' => $chargeId,
             ]);
+            $orderModel->recordPaymentEvent([
+                'order_id' => (int)$orderId,
+                'checkout_ref' => $checkoutRef,
+                'payment_provider' => 'stripe',
+                'event_type' => 'payment_finalized',
+                'provider_reference' => $chargeId ?: (string)$paymentIntentId,
+                'amount' => isset($intent->amount_received) ? ((float)$intent->amount_received / 100) : null,
+                'payload_json' => json_encode($this->deepJsonSerialize($intent), JSON_UNESCAPED_SLASHES),
+            ]);
+            $this->persistCheckoutSessionSnapshot(
+                'stripe',
+                $checkoutRef,
+                (string)$paymentIntentId,
+                $meta,
+                is_array($cart) ? $cart : [],
+                'finalized',
+                (int)$orderId,
+                null
+            );
         } catch (\Throwable $e) {
             error_log('Finalize payment provider reference update warning: ' . $e->getMessage());
             $existingOrderId = $orderModel->findOrderIdByProviderReference([
@@ -1060,7 +1205,7 @@ class OrderController extends Controller
     public function stripeWebhook()
     {
         // TOP-LEVEL DEBUG: Confirm webhook handler is being executed and log file can be created
-        $myfile = fopen("stripe-webhook-logs.txt", "a");
+        $myfile = $this->openDebugLog('stripe-webhook-logs.txt');
         if ($myfile) {
             fwrite($myfile, date('Y-m-d H:i:s') . " [DEBUG] stripeWebhook handler ENTERED\n");
         } else {
@@ -1270,9 +1415,9 @@ class OrderController extends Controller
                 $pdo->beginTransaction();
                 $stmt = $pdo->prepare(
                     "INSERT INTO orders (
-                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, address1, address2, state, zip, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, delivery_fee, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
+                        user_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, address1, address2, state, zip, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_payment_intent_id, total_amount, security_deposit, delivery_fee, status, order_date, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type
                     ) VALUES (
-                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :client_height, :power_chair_handedness, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :delivery_type, :hotel_id, :return_hotel_id, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, :delivery_fee, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
+                        :user_id, :guest_first_name, :guest_last_name, :guest_email, :guest_phone, :client_weight_option, :client_weight_lbs, :client_height, :address1, :address2, :state, :zip, :pickup_datetime, :return_datetime, :delivery_type, :hotel_id, :return_hotel_id, :pickup_location, :notes, :heard_about_option_id, :heard_about_label, 'card', 'stripe', :provider_payment_intent_id, :total_amount, :security_deposit, :delivery_fee, 'paid', NOW(), :customer_type, :booking_source, :created_by_admin_id, :created_by_admin_role, :created_by_admin_name, :sale_type
                     )"
                 );
                 $params = [
@@ -1284,7 +1429,6 @@ class OrderController extends Controller
                     ':client_weight_option' => $clientWeightOption !== '' ? $clientWeightOption : null,
                     ':client_weight_lbs' => $clientWeightLbs,
                     ':client_height' => trim((string)($postData['client_height'] ?? '')) !== '' ? trim((string)($postData['client_height'] ?? '')) : null,
-                    ':power_chair_handedness' => $powerChairHandedness !== '' ? $powerChairHandedness : null,
                     ':address1' => $address1,
                     ':address2' => $address2,
                     ':state' => $state,
@@ -1331,6 +1475,10 @@ class OrderController extends Controller
                         $price = isset($item['price']) && $item['price'] !== null && $item['price'] !== '' ? $item['price'] : 0;
                         $name = isset($item['name']) && $item['name'] !== null && $item['name'] !== '' ? $item['name'] : '';
                         $image_url = isset($item['image_url']) && $item['image_url'] !== null && $item['image_url'] !== '' ? $item['image_url'] : '';
+                        $powerChairHandedness = strtolower(trim((string)($item['power_chair_handedness'] ?? '')));
+                        if (!in_array($powerChairHandedness, ['left', 'right'], true)) {
+                            $powerChairHandedness = null;
+                        }
 
                         $scooterIdsForItem = [];
                         for ($i = 0; $i < $qty; $i++) {
@@ -1387,13 +1535,14 @@ class OrderController extends Controller
                         foreach ($scooterIdsForItem as $scooterId) {
                             fwrite($myfile, "[DEBUG] About to insert order_item: order_id=$orderId, product_id=$pid, variation_id=$variation_id, scooter_id=$scooterId, price=$price, name=$name, image_url=$image_url\n");
                             $stmtItem = $pdo->prepare(
-                                "INSERT INTO order_items (order_id, product_id, variation_id, variation_name, scooter_id, quantity, price, product_name, image_url) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)"
+                                "INSERT INTO order_items (order_id, product_id, variation_id, variation_name, power_chair_handedness, scooter_id, quantity, price, product_name, image_url) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)"
                             );
                             $params = [
                                 $orderId,
                                 $pid,
                                 $variation_id,
                                 $variation_name,
+                                $powerChairHandedness,
                                 $scooterId,
                                 $price,
                                 $name,
@@ -1552,7 +1701,7 @@ class OrderController extends Controller
                     'note' => 'Your booking is confirmed. A pro-forma invoice is attached. Final invoice is issued after completion.',
                 ]);
                 $result = sendBookingConfirmation($customerEmail, $customerName, $subject, $body, $attachments);
-                $debugMailFile = fopen("order-debug-log.txt", "a");
+                $debugMailFile = $this->openDebugLog('order-debug-log.txt');
                 if ($result) {
                     fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] (STRIPE) Booking confirmation email sent successfully for orderId: $orderId to $customerEmail\n");
                 } else {
@@ -1626,6 +1775,7 @@ class OrderController extends Controller
     public function createPaypalOrder() {
         if (session_status() === PHP_SESSION_NONE) session_start();
         $this->prepareJsonResponse();
+        $this->enforcePublicJsonRateLimit('paypal_create_order', 10, 15);
 
         // Get cart from POST body
         $payload = file_get_contents('php://input');
@@ -1766,6 +1916,18 @@ class OrderController extends Controller
             'form_data' => $formData,
             'cart' => $cart
         ];
+
+        $paypalSnapshotPayload = [
+            'checkout_ref' => $orderToken,
+            'guest_email' => trim((string)($formData['email'] ?? '')),
+            'first_name' => trim((string)($formData['first_name'] ?? '')),
+            'last_name' => trim((string)($formData['last_name'] ?? '')),
+            'pickup_datetime' => trim((string)($formData['pickup_datetime'] ?? '')),
+            'return_datetime' => trim((string)($formData['return_datetime'] ?? '')),
+            'delivery_type' => trim((string)($formData['delivery_type'] ?? '')),
+            'sale_type' => trim((string)($formData['sale_type'] ?? 'rental')),
+        ];
+        $this->persistCheckoutSessionSnapshot('paypal', $orderToken, null, $paypalSnapshotPayload, $cart, 'paypal_created');
         
 
         $requestArray = [
@@ -1843,7 +2005,7 @@ class OrderController extends Controller
                 fclose($myfile);
             }
             error_log('PayPal create order error: ' . $e->getMessage());
-            echo json_encode(['error' => $e->getMessage()]);
+            echo json_encode(['error' => 'Unable to create PayPal order right now. Please try again.']);
         }
 
         exit;
@@ -1852,6 +2014,7 @@ class OrderController extends Controller
     // PayPal: Capture payment (called by app.js onApprove())
     public function capturePaypalOrder($orderId){
         $this->prepareJsonResponse();
+        $this->enforcePublicJsonRateLimit('paypal_capture_order', 20, 15);
         $myfile = $this->openDebugLog('paypal-order-logs.txt');
         $log = function ($message) use ($myfile) {
             if (is_resource($myfile)) {
@@ -2002,6 +2165,29 @@ class OrderController extends Controller
                 $log("CART IS EMPTY. No DB order will be created.\n");
             }
 
+            try {
+                $orderModel = new \App\Models\OrderModel();
+                $orderModel->recordPaymentEvent([
+                    'order_id' => $localOrderId ? (int)$localOrderId : null,
+                    'checkout_ref' => $orderToken,
+                    'payment_provider' => 'paypal',
+                    'event_type' => 'payment_captured',
+                    'provider_reference' => $paypalCaptureId ?: (string)$orderId,
+                    'payload_json' => json_encode($this->deepJsonSerialize($order), JSON_UNESCAPED_SLASHES),
+                ]);
+                $this->persistCheckoutSessionSnapshot(
+                    'paypal',
+                    (string)$orderToken,
+                    null,
+                    is_array($formData) ? $formData : [],
+                    is_array($cart) ? $cart : [],
+                    $localOrderId ? 'finalized' : 'captured_no_local_order',
+                    $localOrderId ? (int)$localOrderId : null
+                );
+            } catch (\Throwable $evtErr) {
+                $log('PAYPAL RECONCILIATION WARNING: ' . $evtErr->getMessage() . "\n");
+            }
+
             $log("CAPTURE SUCCESSFUL\n");
 
             $responsePayload = method_exists($order, 'jsonSerialize') ? $order->jsonSerialize() : $order;
@@ -2023,7 +2209,7 @@ class OrderController extends Controller
             http_response_code(500);
             $log("EXCEPTION: " . $e->getMessage() . "\n");
             error_log("PayPal capture error: " . $e->getMessage());
-            echo json_encode(['error' => $e->getMessage()]);
+            echo json_encode(['error' => 'Payment capture failed. Please contact support if this persists.']);
         }
 
 
@@ -2067,10 +2253,6 @@ class OrderController extends Controller
         $clientWeightLbsRaw = $formData['client_weight_lbs'] ?? null;
         $clientWeightLbs = (is_numeric($clientWeightLbsRaw) && (int)$clientWeightLbsRaw > 0) ? (int)$clientWeightLbsRaw : null;
         $clientHeight = htmlspecialchars(trim((string)($formData['client_height'] ?? '')));
-        $powerChairHandedness = strtolower(trim((string)($formData['power_chair_handedness'] ?? '')));
-        if (!in_array($powerChairHandedness, ['left', 'right'], true)) {
-            $powerChairHandedness = '';
-        }
         $notes = htmlspecialchars(trim($formData['notes'] ?? ''));
 
         $deliveryType = $formData['delivery_type'] ?? 'preferred';
@@ -2177,12 +2359,12 @@ class OrderController extends Controller
         $heardAboutLabel = $heardAboutResolved['label'];
         $stmt = $pdo->prepare(
             "INSERT INTO orders (
-                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, power_chair_handedness, total_amount, security_deposit, delivery_fee, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, total_amount, security_deposit, delivery_fee, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         try {
             $stmt->execute([
-                $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs, $clientHeight !== '' ? $clientHeight : null, $powerChairHandedness !== '' ? $powerChairHandedness : null,
+                $userId, $guestId, $first_name, $last_name, $guestEmail, $guestPhone, $clientWeightOption !== '' ? $clientWeightOption : null, $clientWeightLbs, $clientHeight !== '' ? $clientHeight : null,
                 $totalAmountWithTax, $securityDeposit, $deliveryFee, date('Y-m-d H:i:s'), 'paid',
                 $address1, $address2, $state, $zip, $pickupLocation, $notes,
                 $heardAboutOptionId,
@@ -2234,6 +2416,10 @@ class OrderController extends Controller
             $price = isset($item['price']) && $item['price'] !== null && $item['price'] !== '' ? $item['price'] : ($product['price'] ?? 0);
             $name = isset($item['name']) && $item['name'] !== null && $item['name'] !== '' ? $item['name'] : ($product['product_name'] ?? '');
             $image_url = isset($item['image_url']) && $item['image_url'] !== null && $item['image_url'] !== '' ? $item['image_url'] : ($product['image_url'] ?? '');
+            $powerChairHandedness = strtolower(trim((string)($item['power_chair_handedness'] ?? '')));
+            if (!in_array($powerChairHandedness, ['left', 'right'], true)) {
+                $powerChairHandedness = null;
+            }
 
             $reservedScooterIds = [];
             for ($i = 0; $i < $qty; $i++) {
@@ -2260,7 +2446,7 @@ class OrderController extends Controller
                 $scooterId = $stmtScooter->fetchColumn();
 
                 // Debug log for each attempt
-                $debugFile = fopen("paypal-order-logs.txt", "a");
+                $debugFile = $this->openDebugLog('paypal-order-logs.txt');
                 fwrite($debugFile, date('Y-m-d H:i:s') . " [DEBUG] Scooter Query: $scooterQuery\n");
                 fwrite($debugFile, date('Y-m-d H:i:s') . " [DEBUG] Params: " . var_export($params, true) . "\n");
                 fwrite($debugFile, date('Y-m-d H:i:s') . " [DEBUG] ScooterId found: " . var_export($scooterId, true) . "\n");
@@ -2274,14 +2460,15 @@ class OrderController extends Controller
 
                     // Insert order item for this scooter (use cart's data, fallback to DB)
                     $stmt = $pdo->prepare(
-                        "INSERT INTO order_items (order_id, product_id, variation_id, variation_name, scooter_id, quantity, price, product_name, image_url)
-                        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)"
+                        "INSERT INTO order_items (order_id, product_id, variation_id, variation_name, power_chair_handedness, scooter_id, quantity, price, product_name, image_url)
+                        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)"
                     );
                     $stmt->execute([
                         $orderId,
                         $pid,
                         $variation_id,
                         $variation_name,
+                        $powerChairHandedness,
                         $scooterId,
                         $price,
                         $name,
@@ -2358,6 +2545,12 @@ class OrderController extends Controller
         file_put_contents($pdfDir . "contract-{$orderId}.pdf", $dompdf->output());
         $pdfPath = $pdfDir . "contract-{$orderId}.pdf";
 
+        try {
+            $orderModel->upsertOrderDocumentMetadata((int)$orderId, 'contract', $pdfPath, 'generated');
+        } catch (\Throwable $e) {
+            error_log('PayPal document metadata warning (contract): ' . $e->getMessage());
+        }
+
         // --- PRO-FORMA PDF GENERATION ---
         $invoiceItemsTable = '';
         foreach ($cart as $item) {
@@ -2419,6 +2612,12 @@ class OrderController extends Controller
         file_put_contents($invoiceDir . "proforma-{$orderId}.pdf", $invoiceDompdf->output());
         $invoicePath = $invoiceDir . "proforma-{$orderId}.pdf";
 
+        try {
+            $orderModel->upsertOrderDocumentMetadata((int)$orderId, 'proforma', $invoicePath, 'generated');
+        } catch (\Throwable $e) {
+            error_log('PayPal document metadata warning (proforma): ' . $e->getMessage());
+        }
+
         // --- EMAIL SENDING ---
         require_once __DIR__ . '/../Utils/Mailer.php';
         $attachments = [
@@ -2443,7 +2642,7 @@ class OrderController extends Controller
             'note' => 'Your booking is confirmed. A pro-forma invoice is attached. Final invoice is issued after completion.',
         ]);
         $result = sendBookingConfirmation($customerEmail, $customerName, $subject, $body, $attachments);
-        $debugMailFile = fopen("order-debug-log.txt", "a");
+        $debugMailFile = $this->openDebugLog('order-debug-log.txt');
         if ($result) {
             fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] Booking confirmation email sent successfully for orderId: $orderId to $customerEmail\n");
         } else {
@@ -2458,15 +2657,13 @@ class OrderController extends Controller
 
     
     public function saveCheckoutForm(){
-        error_log('saveCheckoutForm called');
-        error_log('Session CSRF: ' . ($_SESSION['csrf_token'] ?? ''));
-        error_log('Posted CSRF: ' . ($_POST['csrf_token'] ?? ''));
         if (session_status() === PHP_SESSION_NONE) session_start();
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 http_response_code(403);
                 die('Invalid CSRF token');
             }
+            $this->enforcePublicJsonRateLimit('save_checkout_form', 30, 15);
         }
 
         $idPresenceError = $this->validateIdPresenceAcknowledgement($_POST);
@@ -2477,6 +2674,24 @@ class OrderController extends Controller
         }
 
         $_SESSION['checkout_form_data'] = $_POST;
+
+        $checkoutRef = trim((string)($_POST['checkout_ref'] ?? ''));
+        if ($checkoutRef === '') {
+            $checkoutRef = 'form_' . bin2hex(random_bytes(8));
+        }
+        $_SESSION['checkout_form_ref'] = $checkoutRef;
+
+        $payload = $this->getStripeFallbackPayloadFromPost($_POST);
+        $cart = json_decode((string)($payload['cart_json'] ?? '[]'), true);
+        $this->persistCheckoutSessionSnapshot(
+            'checkout',
+            $checkoutRef,
+            null,
+            $payload,
+            is_array($cart) ? $cart : [],
+            'form_saved'
+        );
+
         echo json_encode(['success' => true]);
         exit;
     }

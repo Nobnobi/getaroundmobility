@@ -32,9 +32,9 @@ class ScooterModel {
     }
 
     // Add a scooter and increment product stock
-    public function addScooterWithStock($product_id, $status, $available, $barcode) {
-        $stmt = $this->db->prepare("INSERT INTO scooters (product_id, status, available, barcode) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$product_id, $status, $available, $barcode]);
+    public function addScooterWithStock($product_id, $status, $barcode) {
+        $stmt = $this->db->prepare("INSERT INTO scooters (product_id, status, barcode) VALUES (?, ?, ?)");
+        $stmt->execute([$product_id, $status, $barcode]);
     }
 
     // Delete a scooter and decrement product stock
@@ -101,12 +101,10 @@ class ScooterModel {
 
     // Update scooter details by ID
     public function updateScooterById($scooterId, $data) {
-        $stmt = $this->db->prepare("UPDATE scooters SET product_id = ?, model = ?, status = ?, available = ?, barcode = ? WHERE scooter_id = ?");
+        $stmt = $this->db->prepare("UPDATE scooters SET product_id = ?, status = ?, barcode = ? WHERE scooter_id = ?");
         $stmt->execute([
             $data['product_id'],
-            $data['model'],
             $data['status'],
-            $data['available'],
             $data['barcode'],
             $scooterId
         ]);

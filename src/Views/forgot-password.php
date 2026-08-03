@@ -1,5 +1,4 @@
 <?php
-date_default_timezone_set('Asia/Manila'); // DELETE THIS LINE AFTER AFTER DEPLOYING SINCE THIS IS MANILA TIMEZONE.
 ?>
 
     <div class="flex-1 flex items-center justify-center">

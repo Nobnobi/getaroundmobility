@@ -193,6 +193,37 @@
     async function fastCheckoutProduct(product, event) {
         if (event) event.stopPropagation();
 
+        var handednessSelection = '';
+        if (typeof window.requirePowerChairHandednessSelection === 'function') {
+            handednessSelection = await window.requirePowerChairHandednessSelection({
+                name: product && product.name ? product.name : '',
+                category: product && product.category ? product.category : ''
+            });
+        }
+        var isPowerChair = typeof window.isPowerChairProductName === 'function'
+            ? window.isPowerChairProductName(product && product.name ? product.name : '', product && product.category ? product.category : '')
+            : false;
+        if (isPowerChair && handednessSelection === null) {
+            return;
+        }
+
+        var normalizeHandedness = typeof window.normalizePowerChairHandedness === 'function'
+            ? window.normalizePowerChairHandedness
+            : function (value) {
+                var raw = String(value || '').trim().toLowerCase();
+                if (raw === 'left' || raw === 'left-handed' || raw === 'lefthanded') return 'left';
+                if (raw === 'right' || raw === 'right-handed' || raw === 'righthanded') return 'right';
+                return '';
+            };
+        var appendHandednessToName = typeof window.appendPowerChairHandednessToName === 'function'
+            ? window.appendPowerChairHandednessToName
+            : function (name, handedness) {
+                var label = normalizeHandedness(handedness) === 'left' ? 'Left-Handed' : (normalizeHandedness(handedness) === 'right' ? 'Right-Handed' : '');
+                if (!label || !name) return String(name || '');
+                return String(name) + ' - ' + label;
+            };
+        var normalizedHandedness = normalizeHandedness(handednessSelection);
+
         localStorage.removeItem('cart');
 
         var days = 1;
@@ -222,6 +253,10 @@
 
         if (product.variation_id) cartItem.variation_id = product.variation_id;
         if (product.variation_name) cartItem.variation_name = product.variation_name;
+        if (normalizedHandedness) {
+            cartItem.power_chair_handedness = normalizedHandedness;
+            cartItem.name = appendHandednessToName(cartItem.name, normalizedHandedness);
+        }
 
         localStorage.setItem('cart', JSON.stringify([cartItem]));
         window.location.href = '/checkout';
