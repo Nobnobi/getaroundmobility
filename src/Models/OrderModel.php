@@ -156,6 +156,77 @@ class OrderModel {
                 return $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
             }
 
+            private function getDefaultSecurityDeposit(): float {
+                $raw = getenv('SECURITY_DEPOSIT_DEFAULT');
+                if ($raw === false) {
+                    $raw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
+                }
+
+                if ($raw === null || trim((string)$raw) === '' || !is_numeric($raw)) {
+                    return self::SECURITY_DEPOSIT;
+                }
+
+                return round(max(0, (float)$raw), 2);
+            }
+
+            private function getSecurityDepositOverrideMap(): array {
+                $raw = getenv('SECURITY_DEPOSIT_PRODUCT_OVERRIDES');
+                if ($raw === false) {
+                    $raw = $_ENV['SECURITY_DEPOSIT_PRODUCT_OVERRIDES'] ?? '';
+                }
+
+                $map = [];
+                foreach (explode(',', (string)$raw) as $pair) {
+                    $pair = trim($pair);
+                    if ($pair === '' || strpos($pair, ':') === false) {
+                        continue;
+                    }
+
+                    [$productIdRaw, $amountRaw] = array_map('trim', explode(':', $pair, 2));
+                    if (!is_numeric($productIdRaw) || !is_numeric($amountRaw)) {
+                        continue;
+                    }
+
+                    $productId = (int)$productIdRaw;
+                    $amount = round(max(0, (float)$amountRaw), 2);
+                    if ($productId > 0) {
+                        $map[$productId] = $amount;
+                    }
+                }
+
+                return $map;
+            }
+
+            public function resolveSecurityDepositForCart(array $cart): float {
+                $defaultDeposit = $this->getDefaultSecurityDeposit();
+                $overrideMap = $this->getSecurityDepositOverrideMap();
+                if (empty($overrideMap) || empty($cart)) {
+                    return $defaultDeposit;
+                }
+
+                $productIds = [];
+                foreach ($cart as $item) {
+                    $productId = isset($item['id']) && is_numeric($item['id'])
+                        ? (int)$item['id']
+                        : (isset($item['product_id']) && is_numeric($item['product_id']) ? (int)$item['product_id'] : 0);
+                    if ($productId > 0) {
+                        $productIds[$productId] = true;
+                    }
+                }
+
+                // Safety: only apply an override when cart contains exactly one unique product.
+                if (count($productIds) !== 1) {
+                    return $defaultDeposit;
+                }
+
+                $productId = (int)array_key_first($productIds);
+                if (!isset($overrideMap[$productId])) {
+                    return $defaultDeposit;
+                }
+
+                return round(max(0, (float)$overrideMap[$productId]), 2);
+            }
+
             private function getPrivateDocumentDir(string $folder): string {
                 $baseDir = dirname(__DIR__, 2) . '/storage/documents';
                 $targetDir = $baseDir . '/' . trim($folder, '/');
@@ -213,7 +284,7 @@ class OrderModel {
                     "INSERT INTO order_refunds (
                         order_id, payment_provider, requested_amount, approved_amount, reason, admin_id,
                         refund_method, provider_refund_id, provider_transaction_reference, status, provider_response_snapshot, idempotency_key
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 );
                 $this->executeOrThrow($stmt, [
                     $payload['order_id'],
@@ -567,7 +638,9 @@ class OrderModel {
         $pickupDate = date('Y-m-d', $pickupTs);
         $returnDate = date('Y-m-d', $returnTs);
 
-        $stmt = $this->db->prepare("SELECT 1 FROM booking_blocked_dates WHERE blocked_date BETWEEN ? AND ? LIMIT 1");
+        // Business rule: blocked dates prevent pickup/return on that day,
+        // but do not block rentals that only span across the day.
+        $stmt = $this->db->prepare("SELECT 1 FROM booking_blocked_dates WHERE blocked_date IN (?, ?) LIMIT 1");
         $stmt->execute([$pickupDate, $returnDate]);
         return (bool)$stmt->fetchColumn();
     }
@@ -1414,12 +1487,13 @@ class OrderModel {
         $orderData['promo_discount'] = $promoDiscount > 0 ? $promoDiscount : null;
         $productTotalWithTax = round(max(0, $trustedSubtotal - $promoDiscount), 2);
         $orderData['delivery_fee'] = $this->resolveDeliveryFeeForOrder($orderData);
-        $calculatedTotalAmount = round($productTotalWithTax + self::SECURITY_DEPOSIT + $orderData['delivery_fee'], 2);
-        $orderData['computed_total_amount'] = $calculatedTotalAmount;
-        $orderData['total_amount'] = $calculatedTotalAmount;
+        $resolvedDeposit = $this->resolveSecurityDepositForCart($cart);
         $orderData['security_deposit'] = isset($orderData['security_deposit'])
             ? round(max(0, (float)$orderData['security_deposit']), 2)
-            : self::SECURITY_DEPOSIT;
+            : $resolvedDeposit;
+        $calculatedTotalAmount = round($productTotalWithTax + $orderData['security_deposit'] + $orderData['delivery_fee'], 2);
+        $orderData['computed_total_amount'] = $calculatedTotalAmount;
+        $orderData['total_amount'] = $calculatedTotalAmount;
 
         $overrideAmount = isset($orderData['final_price_override_amount'])
             ? round((float)$orderData['final_price_override_amount'], 2)
@@ -2661,7 +2735,8 @@ class OrderModel {
             $totalAmount += $item['qty'] * $item['price'];
         }
         $deliveryFee = $this->resolveDeliveryFeeForOrder($form);
-        $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee);
+        $securityDeposit = $this->resolveSecurityDepositForCart($cart);
+        $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, $securityDeposit, $deliveryFee);
         $productTotalWithTax = $totals['product_total_with_tax'];
         $securityDeposit = $totals['security_deposit'];
         $totalAmountWithTax = $totals['total_amount_with_tax'];
@@ -2909,7 +2984,8 @@ class OrderModel {
 
             $itemsTable = $invoiceItemsTable;
             $deliveryFee = $this->resolveDeliveryFeeForOrder($form);
-            $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($subtotal, $discountAmount, self::SECURITY_DEPOSIT, $deliveryFee);
+            $resolvedDeposit = $this->resolveSecurityDepositForCart($cart);
+            $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($subtotal, $discountAmount, $resolvedDeposit, $deliveryFee);
             $productTotalWithTax = $totals['product_total_with_tax'];
             $securityDeposit = $totals['security_deposit'];
             $productPreTax = $totals['product_pre_tax'];
@@ -3630,11 +3706,13 @@ class OrderModel {
             return ['error' => 'No valid items'];
         }
 
+        $securityDeposit = $this->resolveSecurityDepositForCart($cart);
+
         $lineItems[] = [
             'price_data' => [
                 'currency' => 'usd',
                 'product_data' => ['name' => 'Refundable Security Deposit'],
-                'unit_amount' => (int) round(self::SECURITY_DEPOSIT * 100),
+                'unit_amount' => (int) round($securityDeposit * 100),
             ],
             'quantity' => 1,
         ];
@@ -3649,7 +3727,7 @@ class OrderModel {
                 'quantity' => 1,
             ];
         }
-        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee)['total_amount_with_tax'];
+        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, $securityDeposit, $deliveryFee)['total_amount_with_tax'];
 
         $pickup_location_id = $post['pickup_location'] ?? '';
         $pickup_location = '';
@@ -3702,7 +3780,7 @@ class OrderModel {
             'sale_type' => htmlspecialchars(trim($post['sale_type'] ?? 'rental')),
             'cart_json' => json_encode($cart),
             'total_amount' => (string)$totalAmount,
-            'security_deposit' => (string)self::SECURITY_DEPOSIT,
+            'security_deposit' => (string)$securityDeposit,
             'delivery_fee' => (string)$deliveryFee,
             'logged_in_user_id' => (string)($session['user_id'] ?? ''),
             'created_by_admin_id' => (string)($session['admin_id'] ?? ''),
@@ -3797,7 +3875,8 @@ class OrderModel {
         }
 
         $deliveryFee = $this->resolveDeliveryFeeForOrder($post);
-        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee)['total_amount_with_tax'];
+        $securityDeposit = $this->resolveSecurityDepositForCart($cart);
+        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, $securityDeposit, $deliveryFee)['total_amount_with_tax'];
 
         if ($totalAmount <= 0) {
             return ['error' => 'No valid items'];
@@ -3833,7 +3912,7 @@ class OrderModel {
             'heard_about_other_text' => htmlspecialchars(trim((string)($post['heard_about_other_text'] ?? ''))),
             'sale_type' => htmlspecialchars(trim($post['sale_type'] ?? 'rental')),
             'total_amount' => (string)$totalAmount,
-            'security_deposit' => (string)self::SECURITY_DEPOSIT,
+            'security_deposit' => (string)$securityDeposit,
             'delivery_fee' => (string)$deliveryFee,
             'logged_in_user_id' => (string)($session['user_id'] ?? ''),
             'created_by_admin_id' => (string)($session['admin_id'] ?? ''),

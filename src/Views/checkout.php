@@ -804,8 +804,75 @@ if (file_exists(__DIR__ . '/../../.env')) {
         return Number.isFinite(fee) && fee > 0 ? fee : 0;
     }
 
+    const SECURITY_DEPOSIT_DEFAULT = <?php
+        $securityDepositDefaultRaw = getenv('SECURITY_DEPOSIT_DEFAULT');
+        if ($securityDepositDefaultRaw === false) {
+            $securityDepositDefaultRaw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
+        }
+        $securityDepositDefault = 100.0;
+        if ($securityDepositDefaultRaw !== null && trim((string)$securityDepositDefaultRaw) !== '' && is_numeric($securityDepositDefaultRaw)) {
+            $securityDepositDefault = round(max(0, (float)$securityDepositDefaultRaw), 2);
+        }
+        echo json_encode($securityDepositDefault, JSON_UNESCAPED_SLASHES);
+    ?>;
+    const SECURITY_DEPOSIT_OVERRIDES = <?php
+        $securityDepositOverridesRaw = getenv('SECURITY_DEPOSIT_PRODUCT_OVERRIDES');
+        if ($securityDepositOverridesRaw === false) {
+            $securityDepositOverridesRaw = $_ENV['SECURITY_DEPOSIT_PRODUCT_OVERRIDES'] ?? '';
+        }
+        $securityDepositOverridesForJs = [];
+        foreach (explode(',', (string)$securityDepositOverridesRaw) as $pair) {
+            $pair = trim($pair);
+            if ($pair === '' || strpos($pair, ':') === false) {
+                continue;
+            }
+
+            [$productIdRaw, $amountRaw] = array_map('trim', explode(':', $pair, 2));
+            if (!is_numeric($productIdRaw) || !is_numeric($amountRaw)) {
+                continue;
+            }
+
+            $productId = (int)$productIdRaw;
+            $amount = round(max(0, (float)$amountRaw), 2);
+            if ($productId > 0) {
+                $securityDepositOverridesForJs[(string)$productId] = $amount;
+            }
+        }
+        echo json_encode($securityDepositOverridesForJs, JSON_UNESCAPED_SLASHES);
+    ?>;
+
+    function resolveSecurityDepositForCart(cart) {
+        if (!Array.isArray(cart) || cart.length === 0 || !SECURITY_DEPOSIT_OVERRIDES || typeof SECURITY_DEPOSIT_OVERRIDES !== 'object') {
+            return SECURITY_DEPOSIT_DEFAULT;
+        }
+
+        const productIds = new Set();
+        cart.forEach(item => {
+            const rawId = item?.id ?? item?.product_id;
+            const id = Number(rawId);
+            if (Number.isFinite(id) && id > 0) {
+                productIds.add(String(Math.trunc(id)));
+            }
+        });
+
+        if (productIds.size !== 1) {
+            return SECURITY_DEPOSIT_DEFAULT;
+        }
+
+        const productId = Array.from(productIds)[0];
+        if (!(productId in SECURITY_DEPOSIT_OVERRIDES)) {
+            return SECURITY_DEPOSIT_DEFAULT;
+        }
+
+        const amount = Number(SECURITY_DEPOSIT_OVERRIDES[productId]);
+        if (!Number.isFinite(amount) || amount < 0) {
+            return SECURITY_DEPOSIT_DEFAULT;
+        }
+
+        return amount;
+    }
+
     function renderCheckoutSummary() {
-        const SECURITY_DEPOSIT = 100;
         const cart = loadCart();
         const summaryContainer = document.getElementById('checkoutSummary');
         const deliveryFeeInput = document.getElementById('deliveryFeeInput');
@@ -854,7 +921,8 @@ if (file_exists(__DIR__ . '/../../.env')) {
         const pretaxSubtotal = productTotalWithTax / 1.08375;
         const tax = productTotalWithTax - pretaxSubtotal;
         const deliveryFee = getSelectedDeliveryFee();
-        const total = productTotalWithTax + SECURITY_DEPOSIT + deliveryFee;
+        const securityDeposit = resolveSecurityDepositForCart(cart);
+        const total = productTotalWithTax + securityDeposit + deliveryFee;
         if (deliveryFeeInput) {
             deliveryFeeInput.value = deliveryFee.toFixed(2);
         }
@@ -870,7 +938,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
             </div>
             <div class="flex justify-between mb-2">
                 <span>Refundable security deposit</span>
-                <span>$${SECURITY_DEPOSIT.toFixed(2)}</span>
+                <span>$${securityDeposit.toFixed(2)}</span>
             </div>
             <div class="flex justify-between mb-2">
                 <span>Hotel delivery fee</span>

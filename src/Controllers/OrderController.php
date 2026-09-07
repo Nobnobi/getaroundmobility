@@ -255,7 +255,7 @@ class OrderController extends Controller
 
         $orderModel = new OrderModel();
         if ($orderModel->isRangeBlocked($pickupRaw, $returnRaw)) {
-            return 'Selected date is blocked for online bookings. Please choose another date.';
+            return 'Pickup or return date is blocked for online bookings. Please choose different dates.';
         }
 
         return null;
@@ -323,6 +323,23 @@ class OrderController extends Controller
         return $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
     }
 
+    private function resolveSecurityDepositForCart(array $cart): float
+    {
+        try {
+            $orderModel = new OrderModel();
+            return $orderModel->resolveSecurityDepositForCart($cart);
+        } catch (\Throwable $e) {
+            $raw = getenv('SECURITY_DEPOSIT_DEFAULT');
+            if ($raw === false) {
+                $raw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
+            }
+            if ($raw !== null && trim((string)$raw) !== '' && is_numeric($raw)) {
+                return round(max(0, (float)$raw), 2);
+            }
+            return self::SECURITY_DEPOSIT;
+        }
+    }
+
     private function validateHeardAboutSelection(array $source): ?string
     {
         $selection = trim((string)($source['heard_about_option_id'] ?? ''));
@@ -363,12 +380,13 @@ class OrderController extends Controller
             }
 
             $deliveryFee = $this->resolveDeliveryFeeForInput($meta);
+            $securityDeposit = $this->resolveSecurityDepositForCart($cart);
 
             // Prefer metadata total when available, otherwise derive by adding mandatory deposit.
             $metaTotal = (float)($meta['total_amount'] ?? 0);
             $totalAmount = $metaTotal > 0
                 ? round($metaTotal, 2)
-                : (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee)['total_amount_with_tax'];
+                : (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productAmount, 0.0, $securityDeposit, $deliveryFee)['total_amount_with_tax'];
 
             $pickup = trim((string)($meta['pickup_datetime'] ?? ''));
             $return = trim((string)($meta['return_datetime'] ?? ''));
@@ -1363,9 +1381,10 @@ class OrderController extends Controller
                 $totalAmount += $item['qty'] * $item['price'];
             }
             $productTotalWithTax = round($totalAmount, 2);
+            $resolvedSecurityDeposit = $this->resolveSecurityDepositForCart(is_array($cart) ? $cart : []);
             $securityDeposit = $metadataSecurityDeposit !== null
                 ? round(max(0, $metadataSecurityDeposit), 2)
-                : self::SECURITY_DEPOSIT;
+                : $resolvedSecurityDeposit;
             $deliveryFee = $this->resolveDeliveryFeeForInput([
                 'delivery_type' => $delivery_type,
                 'hotel_id' => $hotel_id,
@@ -1611,7 +1630,8 @@ class OrderController extends Controller
                 $pickupDate = $pickup_datetime ?? '';
                 $returnDate = $return_datetime ?? '';
                 $productTotalWithTax = round((float)$subtotal, 2);
-                $totalAmountWithTax = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
+                $securityDeposit = $this->resolveSecurityDepositForCart($cart);
+                $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
                 ob_start();
                 include __DIR__ . '/../../Contracts/contract-template.php';
                 $html = ob_get_clean();
@@ -1651,7 +1671,7 @@ class OrderController extends Controller
                 $itemsTable = $invoiceItemsTable;
                 $orderDate = date('Y-m-d H:i:s');
                 $productTotalWithTax = round((float)$subtotal, 2);
-                $securityDeposit = self::SECURITY_DEPOSIT;
+                $securityDeposit = $this->resolveSecurityDepositForCart($cart);
                 $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, 0.0);
                 $totalAmountWithTax = $totals['total_amount_with_tax'];
                 $productPreTax = $totals['product_pre_tax'];
@@ -1873,11 +1893,13 @@ class OrderController extends Controller
             ];
         }
 
+        $securityDeposit = $this->resolveSecurityDepositForCart($cart);
+
         $items[] = [
             'name' => 'Refundable Security Deposit',
             'unit_amount' => [
                 'currency_code' => 'USD',
-                'value' => number_format(self::SECURITY_DEPOSIT, 2, '.', '')
+                'value' => number_format($securityDeposit, 2, '.', '')
             ],
             'quantity' => '1',
             'category' => 'PHYSICAL_GOODS'
@@ -1896,7 +1918,7 @@ class OrderController extends Controller
             ];
         }
 
-        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, self::SECURITY_DEPOSIT, $deliveryFee)['total_amount_with_tax'];
+        $totalAmount = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($totalAmount, 0.0, $securityDeposit, $deliveryFee)['total_amount_with_tax'];
 
         if (is_resource($myfile)) {
             fwrite($myfile,"Items array: \n" . print_r($items, true) . "\n");
@@ -2346,7 +2368,7 @@ class OrderController extends Controller
             $totalAmount += ($item['qty'] ?? $item['quantity'] ?? 1) * ($item['price'] ?? 0);
         }
         $productTotalWithTax = round($totalAmount, 2);
-        $securityDeposit = self::SECURITY_DEPOSIT;
+        $securityDeposit = $this->resolveSecurityDepositForCart($cart);
         $deliveryFee = $this->resolveDeliveryFeeForInput($formData);
         $totalAmountWithTax = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, $deliveryFee)['total_amount_with_tax'];
 
@@ -2525,7 +2547,8 @@ class OrderController extends Controller
         $pickupDate = $pickup_datetime ?? '';
         $returnDate = $return_datetime ?? '';
         $productTotalWithTax = round((float)$subtotal, 2);
-        $totalAmountWithTax = round($productTotalWithTax + self::SECURITY_DEPOSIT, 2);
+        $securityDeposit = $this->resolveSecurityDepositForCart($cart);
+        $totalAmountWithTax = round($productTotalWithTax + $securityDeposit, 2);
 
         ob_start();
         include __DIR__ . '/../../Contracts/contract-template.php';
@@ -2582,7 +2605,7 @@ class OrderController extends Controller
         $itemsTable = $invoiceItemsTable;
         $orderDate = date('Y-m-d H:i:s');
         $productTotalWithTax = round((float)$subtotal, 2);
-        $securityDeposit = self::SECURITY_DEPOSIT;
+        $securityDeposit = $this->resolveSecurityDepositForCart($cart);
         $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, 0.0);
         $totalAmountWithTax = $totals['total_amount_with_tax'];
         $productPreTax = $totals['product_pre_tax'];

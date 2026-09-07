@@ -400,7 +400,17 @@ const finalPriceOverrideInput = document.getElementById('final-price-override');
 const finalPriceOverrideFeedback = document.getElementById('final-price-override-feedback');
 
 const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
-const SECURITY_DEPOSIT = 100;
+const SECURITY_DEPOSIT = <?php
+    $securityDepositDefaultRaw = getenv('SECURITY_DEPOSIT_DEFAULT');
+    if ($securityDepositDefaultRaw === false) {
+        $securityDepositDefaultRaw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
+    }
+    $securityDepositDefault = 100.0;
+    if ($securityDepositDefaultRaw !== null && trim((string)$securityDepositDefaultRaw) !== '' && is_numeric($securityDepositDefaultRaw)) {
+        $securityDepositDefault = round(max(0, (float)$securityDepositDefaultRaw), 2);
+    }
+    echo json_encode($securityDepositDefault, JSON_UNESCAPED_SLASHES);
+?>;
 
 const WALKIN_PROMO_RULES = window.WALKIN_PROMO_RULES || {};
 let activePromoCode = '';

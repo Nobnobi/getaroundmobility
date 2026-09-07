@@ -203,10 +203,64 @@ $isGuest = empty($_SESSION['user_id']);
 
         // Prices are tax-inclusive. Show tax breakdown without adding it again.
         const TAX_FACTOR = 1.08375;
-        const SECURITY_DEPOSIT = 100;
+        const SECURITY_DEPOSIT_DEFAULT = <?php
+            $securityDepositDefaultRaw = getenv('SECURITY_DEPOSIT_DEFAULT');
+            if ($securityDepositDefaultRaw === false) {
+                $securityDepositDefaultRaw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
+            }
+            $securityDepositDefault = 100.0;
+            if ($securityDepositDefaultRaw !== null && trim((string)$securityDepositDefaultRaw) !== '' && is_numeric($securityDepositDefaultRaw)) {
+                $securityDepositDefault = round(max(0, (float)$securityDepositDefaultRaw), 2);
+            }
+            echo json_encode($securityDepositDefault, JSON_UNESCAPED_SLASHES);
+        ?>;
+        const SECURITY_DEPOSIT_OVERRIDES = <?php
+            $securityDepositOverridesRaw = getenv('SECURITY_DEPOSIT_PRODUCT_OVERRIDES');
+            if ($securityDepositOverridesRaw === false) {
+                $securityDepositOverridesRaw = $_ENV['SECURITY_DEPOSIT_PRODUCT_OVERRIDES'] ?? '';
+            }
+            $securityDepositOverridesForJs = [];
+            foreach (explode(',', (string)$securityDepositOverridesRaw) as $pair) {
+                $pair = trim($pair);
+                if ($pair === '' || strpos($pair, ':') === false) {
+                    continue;
+                }
+
+                [$productIdRaw, $amountRaw] = array_map('trim', explode(':', $pair, 2));
+                if (!is_numeric($productIdRaw) || !is_numeric($amountRaw)) {
+                    continue;
+                }
+
+                $productId = (int)$productIdRaw;
+                $amount = round(max(0, (float)$amountRaw), 2);
+                if ($productId > 0) {
+                    $securityDepositOverridesForJs[(string)$productId] = $amount;
+                }
+            }
+            echo json_encode($securityDepositOverridesForJs, JSON_UNESCAPED_SLASHES);
+        ?>;
+        let securityDeposit = SECURITY_DEPOSIT_DEFAULT;
+        if (cart.length > 0 && SECURITY_DEPOSIT_OVERRIDES && typeof SECURITY_DEPOSIT_OVERRIDES === 'object') {
+            const productIds = new Set();
+            cart.forEach(item => {
+                const rawId = item?.id ?? item?.product_id;
+                const id = Number(rawId);
+                if (Number.isFinite(id) && id > 0) {
+                    productIds.add(String(Math.trunc(id)));
+                }
+            });
+
+            if (productIds.size === 1) {
+                const productId = Array.from(productIds)[0];
+                const overrideValue = Number(SECURITY_DEPOSIT_OVERRIDES[productId]);
+                if (Number.isFinite(overrideValue) && overrideValue >= 0) {
+                    securityDeposit = overrideValue;
+                }
+            }
+        }
         const pretaxSubtotal = subtotal / TAX_FACTOR;
         const tax = subtotal - pretaxSubtotal;
-        const total = subtotal + SECURITY_DEPOSIT;
+        const total = subtotal + securityDeposit;
         const ctaText = getCheckoutButtonText(cart);
 
         summaryContainer.innerHTML = `
@@ -221,7 +275,7 @@ $isGuest = empty($_SESSION['user_id']);
             </div>
             <div class="flex justify-between mb-4">
                 <span>Refundable Security Deposit</span>
-                <span>$${SECURITY_DEPOSIT.toFixed(2)}</span>
+                <span>$${securityDeposit.toFixed(2)}</span>
             </div>
             <div class="flex justify-between font-bold text-lg mb-6">
                 <span>Total</span>

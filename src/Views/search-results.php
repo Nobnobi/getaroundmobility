@@ -272,7 +272,6 @@ function paginationUrl($page) {
                                                         <tr class="bg-blue-50">
                                                             <th class="py-1 px-2 text-left">Variation</th>
                                                             <th class="py-1 px-2 text-right">Price</th>
-                                                            <th class="py-1 px-2 text-center">Stock</th>
                                                             <th class="py-1 px-2"></th>
                                                         </tr>
                                                     </thead>
@@ -282,9 +281,6 @@ function paginationUrl($page) {
                                                                 <td class="py-1 px-2 font-medium text-gray-700"><?= htmlspecialchars($var['variation_name']); ?></td>
                                                                 <td class="py-1 px-2 text-right text-blue-700 variation-price" data-product-id="<?= $item['product_id'] ?>" data-variation-id="<?= $var['variation_id'] ?>">
                                                                     $<?= number_format($var['price'], 2); ?>
-                                                                </td>
-                                                                <td class="py-1 px-2 text-center">
-                                                                    <?= $var['stock'] > 0 ? $var['stock'] : '<span class="text-red-500">0</span>' ?>
                                                                 </td>
                                                                 <td class="py-1 px-2">
                                                                     <?php if ($var['stock'] > 0): ?>
@@ -304,9 +300,6 @@ function paginationUrl($page) {
                                         <?php if (empty($item['variations'])): ?>
                                             <span class="block text-blue-700 font-semibold text-lg mb-1 base-product-price" data-product-id="<?= $item['product_id'] ?>">$<?= number_format($item['price'], 2) ?></span>
                                         <?php endif; ?>
-                                        <span class="text-gray-500 text-xs ml-2 font-[Barlow]">
-                                            <?= ($count > 0) ? "In stock: {$count}" : "Out of stock" ?>
-                                        </span>
                                         <?php if ($count > 0 && empty($item['variations'])): ?>
                                             <button type="button" onclick="event.stopPropagation();addToCartDynamicPrice('<?= htmlspecialchars($item['product_name']); ?>', <?= $item['product_id']; ?>, null, '<?= htmlspecialchars($item['image_url']); ?>', <?= $count; ?>)" class="add-to-cart-btn mt-3 w-full bg-[#0086C9] text-white py-2 rounded hover:bg-blue-700 cursor-pointer">
                                                 Add to Cart
