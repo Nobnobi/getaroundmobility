@@ -482,38 +482,18 @@ class UserController extends Controller{
                     if (!$name || !$email || !$subject || !$message) {
                         $error = 'Please fill in all fields.';
                     } else {
-                        require_once __DIR__ . '/../../vendor/autoload.php';
-                        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
-                        try {
-                            $mail->isSMTP();
-                            $mail->Host = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
-                            $mail->SMTPAuth = true;
-                            $mail->Username = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
-                            $mail->Password = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
-                            $mail->SMTPSecure = 'tls';
-                            $mail->Port = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
-
-                            // Correct contact form behavior
-                            $mail->setFrom($email, 'Get Around Mobility Contact Form');
-                            $mail->addAddress(getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? null), 'Site Admin');
-                            $mail->addReplyTo($email, $name);
-
-                            $mail->Subject = $subject;
-                            $body = '';
-                            $body .= '<strong>Name:</strong> ' . htmlspecialchars($name) . '<br>';
-                            if ($contact_number) {
-                                $body .= '<strong>Contact Number:</strong> ' . htmlspecialchars($contact_number) . '<br>';
-                            }
-                            $body .= '<strong>Email:</strong> ' . htmlspecialchars($email) . '<br>';
-                            $body .= '<strong>Message:</strong><br>' . nl2br($message);
-                            $mail->Body = $body;
-                            $mail->isHTML(true);
-
-                            $mail->send();
+                        require_once __DIR__ . '/../Utils/Mailer.php';
+                        $sent = sendContactMessageToAdmin(
+                            (string)$name,
+                            (string)$email,
+                            (string)$contact_number,
+                            (string)$subject,
+                            nl2br((string)$message)
+                        );
+                        if ($sent) {
                             $success = 'Thank you for contacting us! We will get back to you soon.';
-                        } catch (\Exception $e) {
+                        } else {
                             $error = 'Failed to send message. Please try again later.';
-                            error_log("Contact Mailer Error: {$mail->ErrorInfo}");
                         }
                     }
                 }

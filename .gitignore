@@ -22,6 +22,7 @@ backups/
 order-debug-log.txt
 stripe-debug.txt
 stripe-webhook-logs.txt
+mail-debug-log.txt
 debug_*.txt
 public/*-debug-log.txt
 public/paypal-create-order-logs.txt

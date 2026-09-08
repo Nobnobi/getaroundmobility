@@ -67,6 +67,7 @@ $isStaff = ($role === 'staff');
     function renderPriceForm(productId, productName, productVariations) {
         let html = `<form method="post" action="/admin/rental-prices/save" id="rentalPriceForm" class="flex flex-col min-h-0">
             <input type="hidden" name="product_id" value="${productId}">
+            <input type="hidden" name="source_variation_id" id="sourceVariationId" value="null">
             <input type="hidden" name="csrf_token" value="${csrfToken}">`;
         // Tabs for variations (styled like locations.php)
         let tabs = '';
@@ -85,6 +86,10 @@ $isStaff = ($role === 'staff');
         html += `<div class="min-h-0">${tabContents}</div>`;
         if (!isStaff) {
             html += `<div class="mt-6 flex flex-wrap gap-2 items-center justify-end" id="rentalActionButtons" style="display:none;">
+                    <label class="mr-auto inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name="apply_all_variations" id="applyAllVariationsCheckbox" value="1" class="h-4 w-4 rounded border-gray-300 text-[#0086C9] focus:ring-[#0086C9]">
+                        Apply this variation pricing to all variations
+                    </label>
                     <button type="button" id="addBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 ml-4 cursor-pointer">Add Tier</button>
                     <button type="submit" class="bg-[#0086C9] text-white px-4 py-2 rounded hover:bg-[#006a9c] ml-2 cursor-pointer">Save</button>
                     <button type="button" id="cancelBtn" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 ml-2 cursor-pointer">Cancel</button>
@@ -113,8 +118,23 @@ $isStaff = ($role === 'staff');
                 this.classList.remove('bg-blue-50');
                 document.querySelectorAll('.variation-tab-content').forEach(tc => tc.style.display = 'none');
                 document.getElementById(this.getAttribute('data-tab')).style.display = 'block';
+
+                const sourceVariationInput = document.getElementById('sourceVariationId');
+                if (sourceVariationInput) {
+                    const tabId = this.getAttribute('data-tab') || '';
+                    sourceVariationInput.value = tabId.replace('tab-', '') || 'null';
+                }
             };
         });
+
+        const firstTab = document.querySelector('.variation-tab');
+        if (firstTab) {
+            const sourceVariationInput = document.getElementById('sourceVariationId');
+            if (sourceVariationInput) {
+                const tabId = firstTab.getAttribute('data-tab') || '';
+                sourceVariationInput.value = tabId.replace('tab-', '') || 'null';
+            }
+        }
 
         // Edit button functionality
         const editRentalBtn = document.getElementById('editRentalBtn');
@@ -163,6 +183,65 @@ $isStaff = ($role === 'staff');
             cancelBtn.onclick = function() {
                 closeModal();
             };
+        }
+
+        const rentalPriceForm = document.getElementById('rentalPriceForm');
+        if (rentalPriceForm) {
+            rentalPriceForm.addEventListener('submit', function() {
+                const applyAllCheckbox = document.getElementById('applyAllVariationsCheckbox');
+                if (!applyAllCheckbox || !applyAllCheckbox.checked) {
+                    return;
+                }
+
+                const sourceVariationInput = document.getElementById('sourceVariationId');
+                const sourceVariationId = sourceVariationInput ? String(sourceVariationInput.value || 'null') : 'null';
+                const sourceRows = document.querySelectorAll(`#variation-table-${sourceVariationId} tbody tr`);
+                if (!sourceRows.length) {
+                    return;
+                }
+
+                const allVariationIds = Array.from(new Set(
+                    Array.from(document.querySelectorAll('.variation-tab'))
+                        .map(tab => String((tab.getAttribute('data-tab') || '').replace('tab-', '') || ''))
+                        .filter(Boolean)
+                ));
+
+                allVariationIds.forEach(variationId => {
+                    if (variationId === sourceVariationId) {
+                        return;
+                    }
+
+                    sourceRows.forEach((sourceRow, index) => {
+                        const sourceDayInput = sourceRow.querySelector(`input[name^="days[${productId}][${sourceVariationId}]"]`);
+                        const sourcePriceInput = sourceRow.querySelector(`input[name^="price[${productId}][${sourceVariationId}]"]`);
+                        if (!sourceDayInput || !sourcePriceInput) {
+                            return;
+                        }
+
+                        const targetDayName = `days[${productId}][${variationId}][${index}]`;
+                        const targetPriceName = `price[${productId}][${variationId}][${index}]`;
+
+                        let targetDayInput = rentalPriceForm.querySelector(`input[name="${targetDayName}"]`);
+                        if (!targetDayInput) {
+                            targetDayInput = document.createElement('input');
+                            targetDayInput.type = 'hidden';
+                            targetDayInput.name = targetDayName;
+                            rentalPriceForm.appendChild(targetDayInput);
+                        }
+
+                        let targetPriceInput = rentalPriceForm.querySelector(`input[name="${targetPriceName}"]`);
+                        if (!targetPriceInput) {
+                            targetPriceInput = document.createElement('input');
+                            targetPriceInput.type = 'hidden';
+                            targetPriceInput.name = targetPriceName;
+                            rentalPriceForm.appendChild(targetPriceInput);
+                        }
+
+                        targetDayInput.value = sourceDayInput.value;
+                        targetPriceInput.value = sourcePriceInput.value;
+                    });
+                });
+            });
         }
     }
 

@@ -14,6 +14,65 @@ function isMailerDebugEnabled(): bool {
     return in_array($value, ['1', 'true', 'yes', 'on'], true);
 }
 
+function mailerEnvValue(string $key, $default = null): ?string {
+    $raw = getenv($key);
+    if ($raw === false) {
+        $raw = $_ENV[$key] ?? $default;
+    }
+
+    if ($raw === null) {
+        return null;
+    }
+
+    $value = trim((string)$raw);
+    if ($value === '') {
+        return is_string($default) ? trim($default) : null;
+    }
+
+    if ((str_starts_with($value, '"') && str_ends_with($value, '"')) || (str_starts_with($value, "'") && str_ends_with($value, "'"))) {
+        $value = substr($value, 1, -1);
+    }
+
+    return trim($value);
+}
+
+function getMailerConfig(): array {
+    $smtpHost = mailerEnvValue('SMTP_HOST', 'smtp.gmail.com') ?? 'smtp.gmail.com';
+    $smtpUsername = mailerEnvValue('SMTP_USERNAME');
+    $smtpPassword = mailerEnvValue('SMTP_PASSWORD');
+    $smtpPortRaw = mailerEnvValue('SMTP_PORT', '587') ?? '587';
+    $smtpPort = is_numeric($smtpPortRaw) ? (int)$smtpPortRaw : 587;
+    $fromEmail = mailerEnvValue('SMTP_FROM_EMAIL', $smtpUsername ?: '');
+    $fromName = mailerEnvValue('SMTP_FROM_NAME', 'Get Around Mobility') ?? 'Get Around Mobility';
+
+    // Gmail app-passwords are often copied with spaces (xxxx xxxx xxxx xxxx).
+    if ($smtpPassword !== null && stripos($smtpHost, 'gmail.com') !== false) {
+        $compact = preg_replace('/\s+/', '', $smtpPassword);
+        if (is_string($compact) && strlen($compact) >= 16) {
+            $smtpPassword = $compact;
+        }
+    }
+
+    return [
+        'smtp_host' => $smtpHost,
+        'smtp_username' => $smtpUsername,
+        'smtp_password' => $smtpPassword,
+        'smtp_port' => $smtpPort,
+        'from_email' => $fromEmail,
+        'from_name' => $fromName,
+    ];
+}
+
+function configureMailerTransport(PHPMailer $mail, array $config): void {
+    $mail->isSMTP();
+    $mail->Host = (string)($config['smtp_host'] ?? 'smtp.gmail.com');
+    $mail->SMTPAuth = true;
+    $mail->Username = (string)($config['smtp_username'] ?? '');
+    $mail->Password = (string)($config['smtp_password'] ?? '');
+    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+    $mail->Port = (int)($config['smtp_port'] ?? 587);
+}
+
 function buildBookingEmailTemplate(array $data = []): string {
         $esc = static function ($value): string {
                 return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -134,6 +193,7 @@ function buildBookingEmailTemplate(array $data = []): string {
 
 function sendBookingConfirmation($toEmail, $toName, $subject, $bodyHtml, $attachments = []) {
     $mail = new PHPMailer(true);
+    $config = getMailerConfig();
     $debugMailFile = null;
     if (isMailerDebugEnabled()) {
         $debugMailFile = fopen("mail-debug-log.txt", 'a');
@@ -143,36 +203,19 @@ function sendBookingConfirmation($toEmail, $toName, $subject, $bodyHtml, $attach
     if (is_resource($debugMailFile)) {
         fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] sendBookingConfirmation called\n");
     }
-    $smtpHost = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
-    $smtpUsername = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
-    $smtpPassword = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
-    $smtpPort = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
-    $fromEmail = getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? ($smtpUsername));
-    $fromName = getenv('SMTP_FROM_NAME') ?: ($_ENV['SMTP_FROM_NAME'] ?? 'Get Around Mobility');
     if (is_resource($debugMailFile)) {
-        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] SMTP host/port loaded. host=$smtpHost, port=$smtpPort\n");
-        if ($smtpPassword) {
+        fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] SMTP host/port loaded. host=" . ($config['smtp_host'] ?? '') . ", port=" . ($config['smtp_port'] ?? '') . "\n");
+        if (!empty($config['smtp_password'])) {
             fwrite($debugMailFile, date('Y-m-d H:i:s') . " [DEBUG] SMTP password is set\n");
         } else {
             fwrite($debugMailFile, date('Y-m-d H:i:s') . " [ERROR] SMTP password is not set\n");
         }
     }
     try {
-        // SMTP config from environment variables (getenv or $_ENV fallback)
-        $smtpHost = getenv('SMTP_HOST') ?: ($_ENV['SMTP_HOST'] ?? 'smtp.gmail.com');
-        $smtpUsername = getenv('SMTP_USERNAME') ?: ($_ENV['SMTP_USERNAME'] ?? null);
-        $smtpPassword = getenv('SMTP_PASSWORD') ?: ($_ENV['SMTP_PASSWORD'] ?? null);
-        $smtpPort = getenv('SMTP_PORT') ?: ($_ENV['SMTP_PORT'] ?? 587);
-        $fromEmail = getenv('SMTP_FROM_EMAIL') ?: ($_ENV['SMTP_FROM_EMAIL'] ?? ($smtpUsername));
-        $fromName = getenv('SMTP_FROM_NAME') ?: ($_ENV['SMTP_FROM_NAME'] ?? 'Get Around Mobility');
+        configureMailerTransport($mail, $config);
 
-        $mail->isSMTP();
-        $mail->Host = $smtpHost;
-        $mail->SMTPAuth = true;
-        $mail->Username = $smtpUsername;
-        $mail->Password = $smtpPassword;
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port = $smtpPort;
+        $fromEmail = (string)($config['from_email'] ?? '');
+        $fromName = (string)($config['from_name'] ?? 'Get Around Mobility');
 
         // Sender & recipient
         $mail->setFrom($fromEmail, $fromName);
@@ -215,6 +258,40 @@ function sendBookingConfirmation($toEmail, $toName, $subject, $bodyHtml, $attach
             fclose($debugMailFile);
         }
         error_log('Mailer Error: ' . $mail->ErrorInfo . ' | Exception: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function sendContactMessageToAdmin(string $name, string $email, string $contactNumber, string $subject, string $messageHtml): bool {
+    $mail = new PHPMailer(true);
+    $config = getMailerConfig();
+
+    try {
+        configureMailerTransport($mail, $config);
+
+        $fromEmail = (string)($config['from_email'] ?? '');
+        $fromName = (string)($config['from_name'] ?? 'Get Around Mobility');
+        $mail->setFrom($fromEmail, $fromName);
+        $mail->addAddress($fromEmail, 'Site Admin');
+        $mail->addReplyTo($email, $name);
+
+        $mail->isHTML(true);
+        $mail->Subject = $subject;
+
+        $body = '';
+        $body .= '<strong>Name:</strong> ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '<br>';
+        if (trim($contactNumber) !== '') {
+            $body .= '<strong>Contact Number:</strong> ' . htmlspecialchars($contactNumber, ENT_QUOTES, 'UTF-8') . '<br>';
+        }
+        $body .= '<strong>Email:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '<br>';
+        $body .= '<strong>Message:</strong><br>' . $messageHtml;
+
+        $mail->Body = $body;
+        $mail->AltBody = trim(preg_replace('/\s+/', ' ', strip_tags($body)));
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log('Contact Mailer Error: ' . $mail->ErrorInfo . ' | Exception: ' . $e->getMessage());
         return false;
     }
 }

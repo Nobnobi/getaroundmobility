@@ -51,8 +51,45 @@ class RentalPriceController extends Controller {
             }
 
             $rentalPriceModel = new RentalPriceModel();
+            $productModel = new ProductModel();
             $days = $_POST['days'] ?? [];
             $prices = $_POST['price'] ?? [];
+
+            $applyToAllVariations = isset($_POST['apply_all_variations'])
+                && in_array(strtolower(trim((string)$_POST['apply_all_variations'])), ['1', 'true', 'on', 'yes'], true);
+            $postedProductId = isset($_POST['product_id']) && is_numeric($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
+            $sourceVariationId = isset($_POST['source_variation_id'])
+                ? trim((string)$_POST['source_variation_id'])
+                : null;
+
+            if ($applyToAllVariations && $postedProductId > 0 && isset($days[$postedProductId]) && isset($prices[$postedProductId])) {
+                $sourceKey = ($sourceVariationId === null || $sourceVariationId === '' || strtolower($sourceVariationId) === 'null')
+                    ? 'null'
+                    : (string)$sourceVariationId;
+
+                $sourceDays = $days[$postedProductId][$sourceKey] ?? null;
+                $sourcePrices = $prices[$postedProductId][$sourceKey] ?? null;
+                if (is_array($sourceDays) && is_array($sourcePrices)) {
+                    $allVariations = $productModel->getAllVariationsGrouped();
+                    $variationRows = $allVariations[$postedProductId] ?? [];
+
+                    if (!empty($variationRows)) {
+                        foreach ($variationRows as $variationRow) {
+                            $targetKey = (string)($variationRow['variation_id'] ?? '');
+                            if ($targetKey === '') {
+                                continue;
+                            }
+                            $days[$postedProductId][$targetKey] = $sourceDays;
+                            $prices[$postedProductId][$targetKey] = $sourcePrices;
+                        }
+                    } else {
+                        // Product without variations: treat base product as target.
+                        $days[$postedProductId]['null'] = $sourceDays;
+                        $prices[$postedProductId]['null'] = $sourcePrices;
+                    }
+                }
+            }
+
             $rentalPriceModel->saveRentalPrices($days, $prices);
             $groupCount = 0;
             $tierCount = 0;
