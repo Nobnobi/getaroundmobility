@@ -486,17 +486,46 @@ class ProductModel{
         ];
     }
 
-    public function getProductsForSale(bool $includeHidden = false)
+    public function getProductsForSale(bool $includeHidden = false, array $filters = [])
     {
-        $hiddenClause = $includeHidden ? '' : ' AND COALESCE(p.is_hidden, 0) = 0';
-        $stmt = $this->db->prepare("
-            SELECT p.*, 
+        $selectedCategory = trim((string)($filters['category'] ?? ''));
+        $priceOrder = trim((string)($filters['price_order'] ?? ''));
+        $availableOnly = isset($filters['available_only']) ? (bool)$filters['available_only'] : true;
+
+        $where = ["p.sale_type = 'sale'"];
+        $params = [];
+
+        if (!$includeHidden) {
+            $where[] = 'COALESCE(p.is_hidden, 0) = 0';
+        }
+
+        if ($selectedCategory !== '' && strtolower($selectedCategory) !== 'all' && is_numeric($selectedCategory)) {
+            $where[] = 'p.product_category_id = :category_id';
+            $params[':category_id'] = (int)$selectedCategory;
+        }
+
+        if ($availableOnly) {
+            $where[] = "EXISTS (SELECT 1 FROM scooters s WHERE s.product_id = p.product_id AND s.status = 'available')";
+        }
+
+        $orderBy = 'p.product_id DESC';
+        if ($priceOrder === '1') {
+            $orderBy = 'p.price DESC, p.product_id DESC';
+        } elseif ($priceOrder === '2') {
+            $orderBy = 'p.price ASC, p.product_id DESC';
+        }
+
+        $sql = "
+            SELECT p.*, c.category_name,
                 (SELECT COUNT(*) FROM scooters s WHERE s.product_id = p.product_id AND s.status = 'available') AS available_scooter_count
             FROM products p
-            WHERE p.sale_type = 'sale'
-            $hiddenClause
-        ");
-        $stmt->execute();
+            LEFT JOIN categories c ON p.product_category_id = c.category_id
+            WHERE " . implode(' AND ', $where) . "
+            ORDER BY {$orderBy}
+        ";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 

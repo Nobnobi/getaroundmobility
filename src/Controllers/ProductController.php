@@ -329,7 +329,12 @@ class ProductController extends Controller {
 
     public function forSale(){
         $productModel = new ProductModel();
-        $products = $productModel->getProductsForSale(false);
+        $filters = [
+            'category' => $_GET['category'] ?? '',
+            'price_order' => $_GET['price_order'] ?? '',
+            'available_only' => isset($_GET['available_only']) ? ($_GET['available_only'] == '1') : true,
+        ];
+        $products = $productModel->getProductsForSale(false, $filters);
         $categories = $productModel->getCategories();
 
         $this->render('for-sale', [

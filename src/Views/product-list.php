@@ -39,18 +39,22 @@
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
                 <?php foreach ($products as $item): ?>
+                    <?php
+                    $modalData = [
+                        'id' => (int)$item['product_id'],
+                        'name' => (string)($item['product_name'] ?? ''),
+                        'price' => (float)($item['price'] ?? 0),
+                        'image_url' => (string)($item['image_url'] ?? ''),
+                        'category' => (string)($item['category_name'] ?? ''),
+                        'short_description' => (string)($item['short_description'] ?? ''),
+                        'description' => (string)($item['description'] ?? ''),
+                        'total_stock' => isset($item['total_stock']) ? (int)$item['total_stock'] : 0,
+                    ];
+                    $modalDataJson = htmlspecialchars(json_encode($modalData, JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8');
+                    ?>
                     <div
                         class="bg-white rounded-lg shadow p-4 flex flex-col cursor-pointer transition font-[Barlow] hover:bg-blue-50 hover:shadow-lg"
-                        onclick="window.isProductListModal = true; openProductListModal({
-                            id: <?= (int)$item['product_id'] ?>,
-                            name: '<?= htmlspecialchars($item['product_name'], ENT_QUOTES) ?>',
-                            price: <?= $item['price'] ?>,
-                            image_url: '<?= htmlspecialchars($item['image_url'], ENT_QUOTES) ?>',
-                            category: '<?= htmlspecialchars($item['category_name'] ?? '', ENT_QUOTES) ?>',
-                            short_description: '<?= htmlspecialchars($item['short_description'] ?? '', ENT_QUOTES) ?>',
-                            description: '<?= htmlspecialchars($item['description'] ?? '', ENT_QUOTES) ?>',
-                            total_stock: <?= isset($item['total_stock']) ? (int)$item['total_stock'] : 0 ?>
-                        })"
+                        onclick="window.isProductListModal = true; openProductListModal(<?= $modalDataJson ?>)"
                     >
                         <img src="<?= htmlspecialchars($item['image_url']); ?>" alt="<?= htmlspecialchars($item['product_name']); ?>" class="mb-4 w-full h-60 object-contain rounded">
                         <div class="mb-2">
