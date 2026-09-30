@@ -13,6 +13,19 @@ class ScooterModel {
         $this->db = Database::getInstance();
     }
 
+    private function normalizeScooterNumber($value) {
+        $normalized = trim((string)($value ?? ''));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (strlen($normalized) > 100) {
+            return false;
+        }
+
+        return $normalized;
+    }
+
     // Get all products and their scooter counts
     public function getProductScooterCounts() {
         $stmt = $this->db->query("SELECT p.product_id, p.product_name, COUNT(s.scooter_id) AS scooter_count FROM products p LEFT JOIN scooters s ON p.product_id = s.product_id AND s.status <> 'archived' GROUP BY p.product_id");
@@ -101,11 +114,12 @@ class ScooterModel {
 
     // Update scooter details by ID
     public function updateScooterById($scooterId, $data) {
-        $stmt = $this->db->prepare("UPDATE scooters SET product_id = ?, status = ?, barcode = ? WHERE scooter_id = ?");
+        $stmt = $this->db->prepare("UPDATE scooters SET product_id = ?, status = ?, barcode = ?, scooter_number = ? WHERE scooter_id = ?");
         $stmt->execute([
             $data['product_id'],
             $data['status'],
             $data['barcode'],
+            $data['scooter_number'] ?? null,
             $scooterId
         ]);
     }
@@ -176,7 +190,7 @@ class ScooterModel {
                 $errors[] = "Invalid status for scooter #$scooterId.";
                 continue;
             }
-            $stmtOld = $this->db->prepare("SELECT status, barcode, product_id, variation_id FROM scooters WHERE scooter_id = ?");
+            $stmtOld = $this->db->prepare("SELECT status, barcode, product_id, variation_id, scooter_number FROM scooters WHERE scooter_id = ?");
             $stmtOld->execute([$scooterId]);
             $old = $stmtOld->fetch(PDO::FETCH_ASSOC);
             if (!$old) {
@@ -186,23 +200,33 @@ class ScooterModel {
             $newBarcode = $data['barcode'] ?? $old['barcode'];
             $newProductId = $data['product_id'] ?? $old['product_id'];
             $newVariationId = $data['variation_id'] ?? $old['variation_id'];
+            $newScooterNumber = $this->normalizeScooterNumber($data['scooter_number'] ?? $old['scooter_number']);
             if (!in_array((string)$newProductId, $validProductIds)) {
                 $errors[] = "Invalid product for scooter #$scooterId.";
+                continue;
+            }
+            if ($newScooterNumber === false) {
+                $errors[] = "Scooter number is too long for scooter #$scooterId.";
                 continue;
             }
             // Always allow variation_id to be NULL or empty
             if (empty($newVariationId) || !ctype_digit((string)$newVariationId)) {
                 $newVariationId = null;
             }
-            if ($old['status'] !== $data['status'] || $old['barcode'] !== $newBarcode || $old['product_id'] != $newProductId || $old['variation_id'] != $newVariationId) {
+            if ($old['status'] !== $data['status'] || $old['barcode'] !== $newBarcode || $old['product_id'] != $newProductId || $old['variation_id'] != $newVariationId || (($old['scooter_number'] ?? null) !== $newScooterNumber)) {
                 try {
-                    $stmt = $this->db->prepare("UPDATE scooters SET status = ?, barcode = ?, product_id = ?, variation_id = ? WHERE scooter_id = ?");
-                    $stmt->execute([$data['status'], $newBarcode, $newProductId, $newVariationId, $scooterId]);
+                    $stmt = $this->db->prepare("UPDATE scooters SET status = ?, barcode = ?, product_id = ?, variation_id = ?, scooter_number = ? WHERE scooter_id = ?");
+                    $stmt->execute([$data['status'], $newBarcode, $newProductId, $newVariationId, $newScooterNumber, $scooterId]);
                     if ($old['status'] !== $data['status']) {
                         $statusChanges[] = "Scooter #$scooterId status updated from {$old['status']} to {$data['status']}.";
                     }
                 } catch (\Exception $e) {
-                    $errors[] = "Failed to update scooter #$scooterId: " . $e->getMessage();
+                    $message = $e->getMessage();
+                    if (stripos($message, 'scooter_number') !== false) {
+                        $errors[] = "Invalid scooter number '{$newScooterNumber}' for scooter #$scooterId.";
+                    } else {
+                        $errors[] = "Failed to update scooter #$scooterId: " . $message;
+                    }
                 }
             }
         }
@@ -217,12 +241,17 @@ class ScooterModel {
             $prodId = $data['product_id'] ?? null;
             $status = $data['status'] ?? 'available';
             $variationId = $data['variation_id'] ?? null;
+            $scooterNumber = $this->normalizeScooterNumber($data['scooter_number'] ?? null);
             if (!in_array($status, ['available', 'maintenance'])) {
                 $errors[] = "Invalid status for new scooter.";
                 continue;
             }
             if (!in_array((string)$prodId, $validProductIds)) {
                 $errors[] = "Invalid product for new scooter.";
+                continue;
+            }
+            if ($scooterNumber === false) {
+                $errors[] = "Scooter number is too long for new scooter.";
                 continue;
             }
             // Always allow variation_id to be NULL or empty
@@ -233,12 +262,18 @@ class ScooterModel {
             $productName = $this->getProductNameById($prodId);
             $barcode = $this->generateBarcodeForProductName($productName);
             try {
-                $stmt = $this->db->prepare("INSERT INTO scooters (product_id, variation_id, status, barcode) VALUES (?, ?, ?, ?)");
-                $stmt->execute([$prodId, $variationId, $status, $barcode]);
+                $stmt = $this->db->prepare("INSERT INTO scooters (product_id, variation_id, status, barcode, scooter_number) VALUES (?, ?, ?, ?, ?)");
+                $stmt->execute([$prodId, $variationId, $status, $barcode, $scooterNumber]);
                 $newId = $this->db->lastInsertId();
-                $addChanges[] = "Scooter #$newId (barcode: $barcode, status: $status) was added.";
+                $displayNumber = $scooterNumber !== null ? " / number: $scooterNumber" : '';
+                $addChanges[] = "Scooter #$newId{$displayNumber} (barcode: $barcode, status: $status) was added.";
             } catch (\Exception $e) {
-                $errors[] = "Failed to add new scooter: " . $e->getMessage();
+                $message = $e->getMessage();
+                if (stripos($message, 'scooter_number') !== false) {
+                    $errors[] = "Invalid scooter number '{$scooterNumber}' for new scooter.";
+                } else {
+                    $errors[] = "Failed to add new scooter: " . $message;
+                }
             }
         }
         return ['addChanges' => $addChanges, 'errors' => $errors];
@@ -273,7 +308,7 @@ class ScooterModel {
 
     // Get all scooters for a given product_id, including sale_type
     public function getScootersByProductId($product_id) {
-        $stmt = $this->db->prepare("SELECT s.scooter_id, s.status, s.barcode, s.variation_id, p.sale_type FROM scooters s JOIN products p ON s.product_id = p.product_id WHERE s.product_id = ? AND s.status <> 'archived'");
+        $stmt = $this->db->prepare("SELECT s.scooter_id, s.scooter_number, s.status, s.barcode, s.variation_id, p.sale_type FROM scooters s JOIN products p ON s.product_id = p.product_id WHERE s.product_id = ? AND s.status <> 'archived'");
         $stmt->execute([$product_id]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -285,6 +320,82 @@ class ScooterModel {
         $sql = "UPDATE scooters SET status = 'Sold' WHERE scooter_id IN ($in)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($scooterIds);
+    }
+
+    public function autoAssignMissingScooterNumbers(?int $productId = null): array {
+        $assigned = 0;
+        $productsTouched = 0;
+
+        $this->db->beginTransaction();
+        try {
+            $params = [];
+            $productWhere = '';
+            if ($productId !== null && $productId > 0) {
+                $productWhere = ' AND product_id = ?';
+                $params[] = $productId;
+            }
+
+            $productStmt = $this->db->prepare(
+                "SELECT DISTINCT product_id
+                 FROM scooters
+                 WHERE status <> 'archived'
+                   AND (scooter_number IS NULL OR TRIM(scooter_number) = '')" . $productWhere . "
+                 ORDER BY product_id ASC"
+            );
+            $productStmt->execute($params);
+            $productIds = $productStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            foreach ($productIds as $pid) {
+                $pid = (int)$pid;
+                if ($pid <= 0) {
+                    continue;
+                }
+
+                $maxStmt = $this->db->prepare(
+                    "SELECT COALESCE(MAX(CAST(scooter_number AS UNSIGNED)), 0)
+                     FROM scooters
+                     WHERE product_id = ?
+                       AND scooter_number REGEXP '^[0-9]+$'"
+                );
+                $maxStmt->execute([$pid]);
+                $currentMax = (int)$maxStmt->fetchColumn();
+
+                $missingStmt = $this->db->prepare(
+                    "SELECT scooter_id
+                     FROM scooters
+                     WHERE product_id = ?
+                       AND status <> 'archived'
+                       AND (scooter_number IS NULL OR TRIM(scooter_number) = '')
+                     ORDER BY scooter_id ASC"
+                );
+                $missingStmt->execute([$pid]);
+                $missingIds = $missingStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                if (empty($missingIds)) {
+                    continue;
+                }
+
+                $updateStmt = $this->db->prepare("UPDATE scooters SET scooter_number = ? WHERE scooter_id = ?");
+                foreach ($missingIds as $sid) {
+                    $currentMax++;
+                    $updateStmt->execute([(string)$currentMax, (int)$sid]);
+                    $assigned++;
+                }
+
+                $productsTouched++;
+            }
+
+            $this->db->commit();
+            return [
+                'assigned' => $assigned,
+                'products_touched' => $productsTouched,
+            ];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
     }
 
 }

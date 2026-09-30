@@ -33,6 +33,11 @@ public/*-logs.txt
 # Temporary tooling artifacts
 .tmp-sri/
 scripts/tmp_*.php
+tmp_*.php
+tmp_*.html
+
+# Generated storage files
+storage/
 
 # OS files
 .DS_Store

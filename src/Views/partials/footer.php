@@ -15,7 +15,7 @@
       </div>
 
       <!-- LINKS WRAPPER -->
-      <div class="flex flex-wrap gap-8 flex-1 justify-start text-sm">
+      <div class="flex flex-wrap items-start gap-8 flex-1 justify-start text-sm">
                 
         <!-- Company -->
         <div class="min-w-[120px]">
@@ -32,14 +32,14 @@
         </div>
 
         <!-- Quick Links -->
-        <div class="min-w-[120px]">
+        <div class="min-w-[170px]">
           <h5 class="font-semibold mb-2">Quick Links</h5>
           <ul class="space-y-1 text-gray-400">
-            <li><a href="/" class="hover:underline hover:text-white transition">Home</a></li>
-            <li><a href="/product-list" class="hover:underline hover:text-white transition">Rentals</a></li>
-            <li><a href="/for-sale" class="hover:underline hover:text-white transition">For Sale</a></li>
-            <li><a href="/tips-troubleshooting" class="hover:underline hover:text-white transition">Tips &amp; Troubleshooting</a></li>
-            <li><a href="/contact" class="hover:underline hover:text-white transition">Contact Us</a></li>
+            <li><a href="/" class="inline-block leading-6 hover:underline hover:text-white transition">Home</a></li>
+            <li><a href="/product-list" class="inline-block leading-6 hover:underline hover:text-white transition">Rentals</a></li>
+            <li><a href="/for-sale" class="inline-block leading-6 hover:underline hover:text-white transition">For Sale</a></li>
+            <li><a href="/tips-troubleshooting" class="inline-block leading-6 hover:underline hover:text-white transition">Tips &amp; Troubleshooting</a></li>
+            <li><a href="/contact" class="inline-block leading-6 hover:underline hover:text-white transition">Contact Us</a></li>
           </ul>
         </div>
 
@@ -63,6 +63,26 @@
             <li><a href="/contact" class="hover:underline hover:text-white transition">Send a Message</a></li>
           </ul>
         </div>
+
+        <!-- Contact -->
+        <div class="min-w-[110px] max-w-[190px] self-start">
+          <h5 class="mb-1.5 text-sm font-semibold tracking-wide text-white/95">Contact</h5>
+          <ul class="space-y-1 text-xs text-gray-300 leading-tight">
+            <li>
+              <a href="tel:+17026370008" class="group inline-flex items-start gap-2 hover:text-white transition-colors">
+                <span class="mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[10px]">&#9742;</span>
+                <span>702-637-0008</span>
+              </a>
+            </li>
+            <li>
+              <a href="https://maps.google.com/?q=3420+Spring+Mountain+Rd+A,+Las+Vegas,+NV+89102" target="_blank" rel="noopener noreferrer" class="group inline-flex items-start gap-2 hover:text-white transition-colors">
+                <span class="mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[10px]">&#128205;</span>
+                <span>3420 Spring Mountain Rd A, Las Vegas, NV 89102</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+
 
       </div>
     </div>

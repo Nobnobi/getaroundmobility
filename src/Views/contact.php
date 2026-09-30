@@ -13,6 +13,8 @@
             </div>
             <h1 class="text-2xl font-bold text-center mb-4 font-[Barlow]">Contact Us</h1>
             <p class="text-center text-gray-500 mb-6 font-sans">Our friendly team would love to hear from you</p>
+            <p class="text-center text-gray-500 mb-6 font-sans">You may also contact us at <span class="font-bold">702-637-0008</span></p>
+
 
             <!-- Display success message if exists -->
             <?php if (!empty($success)): ?>
@@ -53,7 +55,14 @@
                         class="px-3 py-3 mt-1 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"></textarea>
                 </div>
                 <button type="submit" class="w-full bg-[#0086C9] cursor-pointer text-white py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Send Message</button>
+            
+                 
+            
             </form>
+
+           
+
+            
         </div>
     </div>
 </div>

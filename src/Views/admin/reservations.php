@@ -132,12 +132,18 @@
                         ?>
                         <tr class="hover:bg-blue-50 transition-colors">
                             <td class="py-2 px-4 border-b border-gray-200 align-middle text-center font-bold text-[#062B41]">
+                                <?php
+                                    $resScooterNumber = trim((string)($res['scooter_number'] ?? ''));
+                                    $resScooterLabel = $resScooterNumber !== ''
+                                        ? ('#' . $resScooterNumber)
+                                        : ('ID ' . (int)$res['scooter_id']);
+                                ?>
                                 <button
                                     type="button"
                                     onclick="openReservationOrderModal(<?= (int)$res['order_id'] ?>)"
                                     class="font-bold text-[#0086C9] hover:text-blue-700 cursor-pointer"
                                     title="View full order details">
-                                    #<?= (int)$res['scooter_id'] ?>
+                                    <?= htmlspecialchars($resScooterLabel) ?>
                                 </button>
                             </td>
                             <td class="py-2 px-4 border-b border-gray-200 align-middle text-left text-gray-700">
@@ -163,11 +169,16 @@
                                     <input type="hidden" name="reservation_id" value="<?= (int)$res['reservation_id'] ?>">
                                     <input type="hidden" name="redirect_query" value="<?= htmlspecialchars(http_build_query($_GET)) ?>">
 
-                                    <?php $options = $assignableScooters[(int)$res['reservation_id']] ?? [(int)$res['scooter_id']]; ?>
+                                    <?php $options = $assignableScooters[(int)$res['reservation_id']] ?? [['scooter_id' => (int)$res['scooter_id'], 'scooter_number' => ($res['scooter_number'] ?? null)]]; ?>
                                     <select name="scooter_id" class="w-full rounded-lg border border-blue-300 px-3 py-2 text-sm font-semibold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-400">
-                                        <?php foreach ($options as $sid): ?>
-                                            <option value="<?= (int)$sid ?>" <?= ((int)$sid === (int)$res['scooter_id']) ? 'selected' : '' ?>>
-                                                Scooter #<?= (int)$sid ?>
+                                        <?php foreach ($options as $option): ?>
+                                            <?php
+                                                $sid = (int)($option['scooter_id'] ?? 0);
+                                                $scooterNumber = trim((string)($option['scooter_number'] ?? ''));
+                                                $label = $scooterNumber !== '' ? ('Scooter #' . $scooterNumber) : ('Scooter ID ' . $sid);
+                                            ?>
+                                            <option value="<?= $sid ?>" <?= ($sid === (int)$res['scooter_id']) ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars($label) ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
@@ -321,19 +332,27 @@
                 }
 
                 const items = Array.isArray(data.items) ? data.items : [];
+                const getScooterLabel = (item) => {
+                    const scooterNumber = String(item.scooter_number || '').trim();
+                    if (scooterNumber !== '') {
+                        return `#${scooterNumber}`;
+                    }
+                    const sid = Number(item.scooter_id || 0);
+                    return sid > 0 ? `ID ${sid}` : '';
+                };
                 if (items.length > 0) {
-                    const scooterIds = Array.from(new Set(
+                    const scooterLabels = Array.from(new Set(
                         items
-                            .map(item => Number(item.scooter_id || 0))
-                            .filter(id => id > 0)
+                            .map(getScooterLabel)
+                            .filter(label => label !== '')
                     ));
 
-                    if (scooterIds.length > 0) {
+                    if (scooterLabels.length > 0) {
                         html += `
                             <div class="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
-                                <div class="mb-2 font-semibold text-[#062B41]">Assigned Scooter IDs</div>
+                                <div class="mb-2 font-semibold text-[#062B41]">Assigned Scooters</div>
                                 <div class="flex flex-wrap gap-2">
-                                    ${scooterIds.map(id => `<span class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200">#${id}</span>`).join('')}
+                                    ${scooterLabels.map(label => `<span class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200">${esc(label)}</span>`).join('')}
                                 </div>
                             </div>
                         `;
@@ -352,15 +371,15 @@
                                 variation_name: variationName,
                                 quantity: 0,
                                 price,
-                                scooter_ids: []
+                                scooter_labels: []
                             });
                         }
 
                         const grouped = groupedItemsMap.get(key);
                         grouped.quantity += Number(item.quantity || 1);
-                        const sid = Number(item.scooter_id || 0);
-                        if (sid > 0 && !grouped.scooter_ids.includes(sid)) {
-                            grouped.scooter_ids.push(sid);
+                        const label = getScooterLabel(item);
+                        if (label && !grouped.scooter_labels.includes(label)) {
+                            grouped.scooter_labels.push(label);
                         }
                     });
 
@@ -382,8 +401,8 @@
                                 <tbody>
                     `;
                     groupedItems.forEach(item => {
-                        const scooterCell = item.scooter_ids.length > 0
-                            ? item.scooter_ids.map(id => `#${id}`).join(', ')
+                        const scooterCell = item.scooter_labels.length > 0
+                            ? item.scooter_labels.join(', ')
                             : '—';
                         html += `
                             <tr>

@@ -53,10 +53,27 @@ $customerName = $customerName ?? ($finalName ?? '');
 $customerAddress = $customerAddress ?? '';
 $customerEmail = $customerEmail ?? ($finalEmail ?? '');
 $customerPhone = $customerPhone ?? '';
-$pickupLocation = $pickupLocation ?? ($pickup_location ?? '');
-$paymentMethod = $paymentMethod ?? ($payment_method ?? '');
-$deliveryType = $deliveryType ?? ($delivery_type ?? '');
-$promoCode = $promoCode ?? ($promo_code ?? '');
+$firstNonEmpty = static function (...$values): string {
+    foreach ($values as $value) {
+        if ($value === null) {
+            continue;
+        }
+        $text = trim((string)$value);
+        if ($text !== '') {
+            return $text;
+        }
+    }
+    return '';
+};
+
+$pickupLocation = $firstNonEmpty($pickupLocation ?? null, $pickup_location ?? null, $order['pickup_location'] ?? null);
+$paymentMethod = strtolower($firstNonEmpty($paymentMethod ?? null, $payment_method ?? null, $order['payment_method'] ?? null));
+$paymentCardLast4 = preg_replace('/\D+/', '', $firstNonEmpty($paymentCardLast4 ?? null, $payment_card_last4 ?? null, $order['payment_card_last4'] ?? null));
+if (is_string($paymentCardLast4) && strlen($paymentCardLast4) > 4) {
+    $paymentCardLast4 = substr($paymentCardLast4, -4);
+}
+$deliveryType = $firstNonEmpty($deliveryType ?? null, $delivery_type ?? null, $order['delivery_type'] ?? null);
+$promoCode = $firstNonEmpty($promoCode ?? null, $promo_code ?? null, $order['promo_code'] ?? null);
 $itemsTable = $itemsTable ?? '';
 $documentTitle = trim((string)($documentTitle ?? 'INVOICE'));
 $documentDisclaimer = trim((string)($documentDisclaimer ?? ''));
@@ -241,10 +258,21 @@ $fmtDate = static function ($value): string {
                         <?php if (!empty($customerPhone)): ?><div><?= $esc($customerPhone) ?></div><?php endif; ?>
                     </td>
                     <td style="width: 45%;">
-                        <?php if (!empty($pickupLocation)): ?><div><span class="label">Pickup Location:</span> <?= $esc($pickupLocation) ?></div><?php endif; ?>
-                        <?php if (!empty($deliveryType)): ?><div><span class="label">Delivery Type:</span> <?= $esc($deliveryType) ?></div><?php endif; ?>
-                        <?php if (!empty($paymentMethod)): ?><div><span class="label">Payment Method:</span> <?= $esc(ucfirst((string)$paymentMethod)) ?></div><?php endif; ?>
-                        <?php if (!empty($promoCode)): ?><div><span class="label">Promo Code:</span> <?= $esc($promoCode) ?></div><?php endif; ?>
+                        <?php if ($pickupLocation !== ''): ?>
+                            <div><span class="label">Pickup Location:</span> <?= $esc($pickupLocation) ?></div>
+                        <?php endif; ?>
+                        <?php if ($deliveryType !== ''): ?>
+                            <div><span class="label">Delivery Type:</span> <?= $esc($deliveryType) ?></div>
+                        <?php endif; ?>
+                        <?php if ($paymentMethod !== ''): ?>
+                            <div><span class="label">Payment Method:</span> <?= $esc(ucfirst((string)$paymentMethod)) ?></div>
+                        <?php endif; ?>
+                        <?php if (!empty($paymentCardLast4)): ?>
+                            <div><span class="label">Card:</span> **** <?= $esc($paymentCardLast4) ?></div>
+                        <?php endif; ?>
+                        <?php if ($promoCode !== ''): ?>
+                            <div><span class="label">Promo Code:</span> <?= $esc($promoCode) ?></div>
+                        <?php endif; ?>
                     </td>
                 </tr>
             </table>

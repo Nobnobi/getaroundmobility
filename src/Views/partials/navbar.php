@@ -272,6 +272,10 @@ if ($displayFullName === '') {
                     <span id="productListModalCategory" class="inline-block text-xs sm:text-sm px-2 py-1 mb-2 bg-gray-200 rounded-full text-gray-700 font-[Barlow]"></span>
                     <p id="productListModalDescription" class="text-gray-700 mb-2 sm:mb-3 font-[Barlow] text-xs sm:text-sm md:text-base leading-snug"></p>                    
                 </div>
+                <div class="mt-3 border-t border-gray-100 pt-3">
+                    <button id="productListModalRentNowBtn" type="button" class="w-full bg-[#0086C9] text-white py-2 rounded hover:bg-blue-700 font-[Barlow] cursor-pointer font-semibold text-base transition-all duration-150">Rent Now</button>
+                    <p class="mt-2 text-xs sm:text-sm text-gray-600 font-[Barlow]">Check the availability of this item by selecting your desired date.</p>
+                </div>
             </div>
         </div>
     </div>
@@ -1057,6 +1061,7 @@ function openProductListModal(product) {
     const nameElem = document.getElementById('productListModalName');
     const categoryElem = document.getElementById('productListModalCategory');
     const descriptionElem = document.getElementById('productListModalDescription');
+    const rentNowBtn = document.getElementById('productListModalRentNowBtn');
 
     if (!modal || !imageElem || !nameElem || !categoryElem || !descriptionElem) return;
 
@@ -1066,6 +1071,34 @@ function openProductListModal(product) {
     categoryElem.textContent = product.category || '';
     categoryElem.style.display = product.category ? '' : 'none';
     descriptionElem.textContent = (product.description && product.description.trim() !== '') ? product.description : 'No description available.';
+
+    if (rentNowBtn) {
+        rentNowBtn.onclick = function(e) {
+            e.preventDefault();
+            closeProductListModal();
+
+            const rentalForm = document.getElementById('productListForm');
+            const overlay = document.getElementById('formOverlay');
+            if (rentalForm) {
+                rentalForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                rentalForm.classList.add('ring-4', 'ring-blue-400', 'shadow-2xl', 'z-50', 'relative');
+
+                if (overlay) {
+                    overlay.classList.remove('hidden');
+                }
+
+                setTimeout(() => {
+                    rentalForm.classList.remove('ring-4', 'ring-blue-400', 'shadow-2xl', 'z-50', 'relative');
+                    if (overlay) {
+                        overlay.classList.add('hidden');
+                    }
+                }, 2000);
+                return;
+            }
+
+            window.location.href = '/#rentalForm';
+        };
+    }
 
     modal.classList.remove('hidden');
 

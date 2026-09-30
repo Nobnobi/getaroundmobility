@@ -7,6 +7,10 @@ if (file_exists(__DIR__ . '/../../.env')) {
     $dotenv = \Dotenv\Dotenv::createImmutable(__DIR__ . '/../../');
     $dotenv->load();
 }
+
+$walkinCheckout = !empty($walkinCheckout);
+$walkinPrefill = (isset($walkinPrefill) && is_array($walkinPrefill)) ? $walkinPrefill : [];
+$walkinCart = (isset($walkinCart) && is_array($walkinCart)) ? $walkinCart : [];
 ?>
     
     <!-- Loading overlay (hidden by default) -->
@@ -19,9 +23,9 @@ if (file_exists(__DIR__ . '/../../.env')) {
 
     <!-- CHECKOUT SUMMARY -->
     <div class="container mx-auto px-2 py-8 mt-15">
-        <a href="/cart" class="inline-flex items-center gap-1.5 text-[#0086C9] font-medium hover:underline focus:outline-none focus:underline">
+        <a href="<?= $walkinCheckout ? '/walkin-booking' : '/cart' ?>" class="inline-flex items-center gap-1.5 text-[#0086C9] font-medium hover:underline focus:outline-none focus:underline">
             <span class="text-lg leading-none">←</span>
-            <span>Back to Cart</span>
+            <span><?= $walkinCheckout ? 'Back to Walk-in Booking' : 'Back to Cart' ?></span>
         </a>
         <h1 class="text-2xl font-bold mt-4 mb-6 font-[Barlow]">Checkout</h1>
 
@@ -49,6 +53,12 @@ if (file_exists(__DIR__ . '/../../.env')) {
                 
                 <form id="checkoutForm" class="h-full flex flex-col <?php echo $showConfirmation ? 'hidden' : ''; ?>" method="post" action="/checkout">
                     <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                    <?php if ($walkinCheckout): ?>
+                        <input type="hidden" name="booking_source" value="walk-in">
+                        <input type="hidden" name="created_by_admin_id" value="<?= htmlspecialchars((string)($walkinPrefill['created_by_admin_id'] ?? '')) ?>">
+                        <input type="hidden" name="created_by_admin_role" value="<?= htmlspecialchars((string)($walkinPrefill['created_by_admin_role'] ?? '')) ?>">
+                        <input type="hidden" name="created_by_admin_name" value="<?= htmlspecialchars((string)($walkinPrefill['created_by_admin_name'] ?? '')) ?>">
+                    <?php endif; ?>
                     <div class="bg-white rounded-lg shadow p-6 flex flex-col gap-6 h-full">
                         <!-- PROMPT USER -->
                         <?php if (!$user): ?>
@@ -64,7 +74,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                             <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
                                 <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40">First Name</label>
                                 <input type="text" name="first_name"
-                                    value="<?= htmlspecialchars($user['first_name'] ?? '') ?>"
+                                    value="<?= htmlspecialchars($walkinPrefill['first_name'] ?? ($user['first_name'] ?? '')) ?>"
                                     class="border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] max-w-md w-full md:w-64"
                                     required <?= $user ? 'readonly' : '' ?>
                                     placeholder="e.g. John">
@@ -72,7 +82,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                             <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
                                 <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40">Last Name</label>
                                 <input type="text" name="last_name"
-                                    value="<?= htmlspecialchars($user['last_name'] ?? '') ?>"
+                                    value="<?= htmlspecialchars($walkinPrefill['last_name'] ?? ($user['last_name'] ?? '')) ?>"
                                     class="border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] max-w-md w-full md:w-64"
                                     required <?= $user ? 'readonly' : '' ?>
                                     placeholder="e.g. Smith">
@@ -82,7 +92,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                             <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
                                 <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40">Contact Number</label>
                                 <input type="tel" name="phone"
-                                    value="<?= htmlspecialchars($user['phone'] ?? '') ?>"
+                                    value="<?= htmlspecialchars($walkinPrefill['phone'] ?? ($user['phone'] ?? '')) ?>"
                                     class="border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] max-w-md w-full md:w-64"
                                     required 
                                     placeholder="e.g. 7021234567"
@@ -94,7 +104,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                             <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
                                 <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40">Email Address</label>
                                 <input type="email" name="email"
-                                    value="<?= htmlspecialchars($user['email'] ?? '') ?>"
+                                    value="<?= htmlspecialchars($walkinPrefill['email'] ?? ($user['email'] ?? '')) ?>"
                                     class="border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] max-w-md w-full md:w-72"
                                     required <?= $user ? 'readonly' : '' ?>
                                     placeholder="e.g. john@email.com">
@@ -102,7 +112,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                             <div class="mb-4 flex flex-col md:flex-row md:items-start gap-2">
                                 <label class="block text-sm font-medium mb-1 md:mb-0 md:w-40 md:pt-2">Client Weight (lbs)</label>
                                 <div class="w-full max-w-md">
-                                    <input type="number" name="client_weight_option" id="clientWeightRange" min="1" step="1" inputmode="numeric" placeholder="e.g. 160" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]" required>
+                                    <input type="number" name="client_weight_option" id="clientWeightRange" min="1" step="1" inputmode="numeric" value="<?= htmlspecialchars((string)($walkinPrefill['client_weight_option'] ?? '')) ?>" placeholder="e.g. 160" class="w-full border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862]" required>
                                 </div>
                             </div>
                             <div class="mb-4 flex flex-col md:flex-row md:items-center gap-2">
@@ -154,11 +164,11 @@ if (file_exists(__DIR__ . '/../../.env')) {
                             <div class="mb-4">
                                 <div class="flex gap-4 mb-2">
                                     <label>
-                                        <input type="radio" name="delivery_type" value="hotel" id="deliveryHotel" checked>
+                                        <input type="radio" name="delivery_type" value="hotel" id="deliveryHotel" <?= (($walkinPrefill['delivery_type'] ?? 'hotel') !== 'pickup') ? 'checked' : '' ?>>
                                         Deliver to partner hotel
                                     </label>
                                     <label>
-                                        <input type="radio" name="delivery_type" value="pickup" id="deliveryPickup">
+                                        <input type="radio" name="delivery_type" value="pickup" id="deliveryPickup" <?= (($walkinPrefill['delivery_type'] ?? '') === 'pickup') ? 'checked' : '' ?>>
                                         Pickup at store
                                     </label>
                                 </div>
@@ -168,6 +178,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                         <option value="">Select a hotel</option>
                                         <?php foreach ($partnerHotels as $hotel): ?>
                                             <option value="<?= $hotel['id'] ?>"
+                                                <?= ((string)$hotel['id'] === (string)($walkinPrefill['hotel_id'] ?? '')) ? 'selected' : '' ?>
                                                 data-address1="<?= htmlspecialchars($hotel['address1']) ?>"
                                                 data-address2="<?= htmlspecialchars($hotel['address2']) ?>"
                                                 data-state="<?= htmlspecialchars($hotel['state']) ?>"
@@ -179,11 +190,11 @@ if (file_exists(__DIR__ . '/../../.env')) {
 
                                     <div id="deliveryAddressFields" class="mb-4">
                                         <label class="block text-sm font-semibold mb-2 text-gray-800 mt-2">Delivery Address</label>
-                                        <input type="text" name="address1" class="w-full border rounded p-2 mb-2" required placeholder="Delivery Address Line 1">
-                                        <input type="text" name="address2" class="w-full border rounded p-2 mb-2" placeholder="Delivery Address Line 2">
+                                        <input type="text" name="address1" value="<?= htmlspecialchars((string)($walkinPrefill['address1'] ?? '')) ?>" class="w-full border rounded p-2 mb-2" required placeholder="Delivery Address Line 1">
+                                        <input type="text" name="address2" value="<?= htmlspecialchars((string)($walkinPrefill['address2'] ?? '')) ?>" class="w-full border rounded p-2 mb-2" placeholder="Delivery Address Line 2">
                                         <div class="flex flex-col md:flex-row gap-2">
-                                            <input type="text" name="state" class="border rounded p-2 mb-2 md:mb-0 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] w-full md:w-32" required placeholder="e.g. NV">
-                                            <input type="text" name="zip" class="border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] w-full md:w-32" required placeholder="e.g. 89109">
+                                            <input type="text" name="state" value="<?= htmlspecialchars((string)($walkinPrefill['state'] ?? '')) ?>" class="border rounded p-2 mb-2 md:mb-0 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] w-full md:w-32" required placeholder="e.g. NV">
+                                            <input type="text" name="zip" value="<?= htmlspecialchars((string)($walkinPrefill['zip'] ?? '')) ?>" class="border rounded p-2 border-[#535862] focus:outline-none focus:ring-2 focus:ring-[#535862] w-full md:w-32" required placeholder="e.g. 89109">
                                         </div>
                                     </div>
                                 </div>
@@ -199,8 +210,10 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                         <option value="">Select return hotel</option>
                                         <?php foreach ($partnerHotels as $hotel): ?>
                                             <option value="<?= $hotel['id'] ?>"
+                                                <?= ((string)$hotel['id'] === (string)($walkinPrefill['return_hotel_id'] ?? '')) ? 'selected' : '' ?>
                                                 data-address1="<?= htmlspecialchars($hotel['address1']) ?>"
                                                 data-address2="<?= htmlspecialchars($hotel['address2']) ?>"
+                                                data-delivery-fee="<?= htmlspecialchars(number_format((float)($hotel['delivery_fee'] ?? 0), 2, '.', '')) ?>"
                                             ><?= htmlspecialchars($hotel['name']) ?></option>
                                         <?php endforeach; ?>
                                     </select>
@@ -219,7 +232,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                     <select name="pickup_location" class="w-full border rounded p-2 border-[#535862]">
                                         <option value="">Select a pickup location</option>
                                         <?php foreach ($pickupLocations as $location): ?>
-                                            <option value="<?= $location['id'] ?>"><?= htmlspecialchars($location['name']) ?> - <?= htmlspecialchars($location['address']) ?></option>
+                                            <option value="<?= $location['id'] ?>" <?= ((string)$location['id'] === (string)($walkinPrefill['pickup_location'] ?? '')) ? 'selected' : '' ?>><?= htmlspecialchars($location['name']) ?> - <?= htmlspecialchars($location['address']) ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
@@ -232,7 +245,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                             <h2 class="text-lg font-semibold mb-2 text-black">Payment Options</h2>
                             <div class="flex flex-col gap-2">
                                 <label class="flex items-center space-x-2">
-                                    <input type="radio" name="payment" value="card" id="paymentCard" class="form-radio" required>
+                                    <input type="radio" name="payment" value="card" id="paymentCard" class="form-radio" required <?= (($walkinPrefill['payment'] ?? '') === 'card') ? 'checked' : '' ?>>
                                     <span>Debit/Credit Card powered by Stripe</span>
                                 </label>
 
@@ -242,7 +255,7 @@ if (file_exists(__DIR__ . '/../../.env')) {
                                 </div>
 
                                 <label class="flex items-center space-x-2">
-                                    <input type="radio" name="payment" value="paypal" id="paymentPaypal" class="form-radio" required>
+                                    <input type="radio" name="payment" value="paypal" id="paymentPaypal" class="form-radio" required <?= (($walkinPrefill['payment'] ?? '') === 'paypal') ? 'checked' : '' ?>>
                                     <span>Paypal</span>
                                 </label>
                                 <div id="checkoutAcknowledgements" class="mt-2 rounded-md border border-[#d1d5db] bg-[#f8fbfd] px-3 py-3 space-y-3">
@@ -272,8 +285,8 @@ if (file_exists(__DIR__ . '/../../.env')) {
                             Confirm Order
                         </button>
 
-                        <input type="hidden" name="pickup_datetime" id="pickupDatetimeCheckout" value="">
-                        <input type="hidden" name="return_datetime" id="returnDatetimeCheckout" value="">
+                        <input type="hidden" name="pickup_datetime" id="pickupDatetimeCheckout" value="<?= htmlspecialchars((string)($walkinPrefill['pickup_datetime'] ?? '')) ?>">
+                        <input type="hidden" name="return_datetime" id="returnDatetimeCheckout" value="<?= htmlspecialchars((string)($walkinPrefill['return_datetime'] ?? '')) ?>">
                         <input type="hidden" name="delivery_fee" id="deliveryFeeInput" value="0.00">
                     </div>
                 </form>
@@ -736,7 +749,38 @@ if (file_exists(__DIR__ . '/../../.env')) {
         return false;
     }
 
+    const WALKIN_MODE = <?= $walkinCheckout ? 'true' : 'false' ?>;
+    const WALKIN_CART = <?= json_encode($walkinCart, JSON_UNESCAPED_SLASHES) ?>;
+    const WALKIN_PREFILL = <?= json_encode($walkinPrefill, JSON_UNESCAPED_SLASHES) ?>;
+
+    function seedWalkinDraftStorage() {
+        if (!WALKIN_MODE) return;
+
+        if (Array.isArray(WALKIN_CART) && WALKIN_CART.length > 0) {
+            localStorage.setItem('cart', JSON.stringify(WALKIN_CART));
+        }
+
+        if (WALKIN_PREFILL && typeof WALKIN_PREFILL === 'object') {
+            const pickup = String(WALKIN_PREFILL.pickup_datetime || '').trim();
+            const ret = String(WALKIN_PREFILL.return_datetime || '').trim();
+            if (pickup) {
+                localStorage.setItem('pickupDatetime', pickup);
+                const pickupHidden = document.getElementById('pickupDatetimeCheckout');
+                if (pickupHidden) pickupHidden.value = pickup;
+            }
+            if (ret) {
+                localStorage.setItem('returnDatetime', ret);
+                const returnHidden = document.getElementById('returnDatetimeCheckout');
+                if (returnHidden) returnHidden.value = ret;
+            }
+        }
+    }
+
     function loadCart() {
+        if (WALKIN_MODE && Array.isArray(WALKIN_CART) && WALKIN_CART.length > 0) {
+            return WALKIN_CART;
+        }
+
         const keysToTry = ['cart', 'getaround_cart', 'cart_items'];
         for (const key of keysToTry) {
             const raw = localStorage.getItem(key);
@@ -797,11 +841,18 @@ if (file_exists(__DIR__ . '/../../.env')) {
         if (deliveryType !== 'hotel') return 0;
 
         const hotelSelect = document.querySelector('select[name="hotel_id"]');
+        const returnHotelSelect = document.querySelector('select[name="return_hotel_id"]');
         if (!hotelSelect) return 0;
-        const selected = hotelSelect.options[hotelSelect.selectedIndex];
-        const rawFee = selected ? selected.getAttribute('data-delivery-fee') : null;
-        const fee = Number(rawFee || 0);
-        return Number.isFinite(fee) && fee > 0 ? fee : 0;
+
+        const selectedDelivery = hotelSelect.options[hotelSelect.selectedIndex];
+        const selectedReturn = returnHotelSelect ? returnHotelSelect.options[returnHotelSelect.selectedIndex] : null;
+
+        const deliveryFee = Number(selectedDelivery ? (selectedDelivery.getAttribute('data-delivery-fee') || 0) : 0);
+        const returnFee = Number(selectedReturn ? (selectedReturn.getAttribute('data-delivery-fee') || 0) : 0);
+
+        const safeDeliveryFee = Number.isFinite(deliveryFee) && deliveryFee > 0 ? deliveryFee : 0;
+        const safeReturnFee = Number.isFinite(returnFee) && returnFee > 0 ? returnFee : 0;
+        return Math.max(safeDeliveryFee, safeReturnFee);
     }
 
     const SECURITY_DEPOSIT_DEFAULT = <?php
@@ -1026,8 +1077,11 @@ window.addEventListener('storage', function(e) {
 });
 
 // call on load
-document.addEventListener('DOMContentLoaded', renderCheckoutSummary);
-document.addEventListener('DOMContentLoaded', renderSelectedDatesSummary);
+document.addEventListener('DOMContentLoaded', function() {
+    seedWalkinDraftStorage();
+    renderCheckoutSummary();
+    renderSelectedDatesSummary();
+});
 document.addEventListener('DOMContentLoaded', setupHeardAboutFields);
 document.addEventListener('DOMContentLoaded', syncReturnHotelSelection);
 
@@ -1036,9 +1090,16 @@ const stripeClient = stripePk ? Stripe(stripePk) : null;
 let stripeElements = null;
 let stripePaymentElement = null;
 let stripeInitializing = false;
+const CHECKOUT_SALE_TYPE = (WALKIN_PREFILL && typeof WALKIN_PREFILL.sale_type === 'string' && WALKIN_PREFILL.sale_type.trim() !== '')
+    ? WALKIN_PREFILL.sale_type.trim()
+    : 'rental';
+const CHECKOUT_CUSTOMER_TYPE = WALKIN_MODE ? 'guest' : <?= $user ? "'user'" : "'guest'" ?>;
 
 function appUrl(path) {
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    if (WALKIN_MODE) {
+        return cleanPath;
+    }
     const match = window.location.pathname.match(/^(.*)\/checkout(?:\/.*)?$/);
     const basePath = match ? match[1] : '';
     return `${basePath}${cleanPath}`;
@@ -1213,7 +1274,8 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
                     'delivery_type', 'hotel_id', 'return_hotel_id',
                     'pickup_datetime', 'return_datetime', 'pickup_location',
                     'notes', 'heard_about_option_id', 'heard_about_other_text',
-                    'sale_type'
+                    'sale_type', 'booking_source', 'created_by_admin_id',
+                    'created_by_admin_role', 'created_by_admin_name'
                 ];
                 liveKeys.forEach(function(key) {
                     if (liveFormData.has(key)) {
@@ -1329,8 +1391,8 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
 
     const formData = new FormData(form);
     formData.append('cart', localStorage.getItem('cart') || '[]');
-    formData.append('customer_type', <?= $user ? "'user'" : "'guest'" ?>);
-    formData.append('sale_type', 'rental');
+    formData.append('customer_type', CHECKOUT_CUSTOMER_TYPE);
+    formData.append('sale_type', CHECKOUT_SALE_TYPE);
     formData.append("csrf_token", document.querySelector('input[name="csrf_token"]').value);
 
 
@@ -1525,6 +1587,9 @@ function renderPayPalButton() {
             }
 
             if (!ensureAcknowledgementsChecked()) {
+                const msg = 'Please check both required acknowledgements before continuing with PayPal.';
+                resultMessage(msg);
+                alert(msg);
                 throw new Error('Acknowledgements incomplete');
             }
 
@@ -1599,8 +1664,15 @@ function renderPayPalButton() {
                 return;
             }
 
+            if (result.local_order_id && result.local_order_token) {
+                window.location.href = appUrl(`/checkout?order=${encodeURIComponent(String(result.local_order_id))}&token=${encodeURIComponent(String(result.local_order_token))}`);
+                return;
+            }
+
             if (result.status === 'COMPLETED' || result.status === 'APPROVED') {
-                throw new Error('PayPal payment completed, but the local order redirect was not returned.');
+                resultMessage('Payment completed. Finalizing your booking...');
+                window.location.href = appUrl('/checkout');
+                return;
             }
         } catch (err) {
             alert('Payment failed: ' + err.message);
@@ -1707,7 +1779,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     if (sameAsDeliveryAddress) {
-        sameAsDeliveryAddress.addEventListener('change', syncReturnHotelSelection);
+        sameAsDeliveryAddress.addEventListener('change', function() {
+            syncReturnHotelSelection();
+            renderCheckoutSummary();
+        });
     }
 
     if (returnHotelSelect) {
@@ -1716,6 +1791,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (sameAsDeliveryAddress && sameAsDeliveryAddress.checked) {
                 syncReturnHotelSelection();
             }
+            renderCheckoutSummary();
         });
     }
 

@@ -146,6 +146,7 @@ class ScooterController extends Controller {
             'product_id' => isset($_POST['product_id']) ? intval($_POST['product_id']) : null,
             'status' => in_array($_POST['status'] ?? 'available', $this->allowedStatuses) ? $_POST['status'] : 'available',
             'barcode' => htmlspecialchars(trim($_POST['barcode'] ?? '')),
+            'scooter_number' => trim((string)($_POST['scooter_number'] ?? '')),
         ];
         $scooterModel->updateScooterById($scooterId, $data);
         header('Location: /admin/scooters');
@@ -180,13 +181,15 @@ class ScooterController extends Controller {
             $barcodes = $_POST['barcode'] ?? [];
             $productIds = $_POST['product_id'] ?? [];
             $variationIds = $_POST['variation_id'] ?? [];
+            $scooterNumbers = $_POST['scooter_number'] ?? [];
             $updates = [];
             foreach ($statuses as $scooterId => $newStatus) {
                 $updates[$scooterId] = [
                     'status' => $newStatus,
                     'barcode' => $barcodes[$scooterId] ?? null,
                     'product_id' => $productIds[$scooterId] ?? null,
-                    'variation_id' => $variationIds[$scooterId] ?? null
+                    'variation_id' => $variationIds[$scooterId] ?? null,
+                    'scooter_number' => $scooterNumbers[$scooterId] ?? null,
                 ];
             }
             $updateResult = $scooterModel->batchUpdateScooters($updates, $validProductIds);
@@ -197,12 +200,14 @@ class ScooterController extends Controller {
                 $newProductIds = is_array($_POST['product_id']['new']) ? $_POST['product_id']['new'] : [$_POST['product_id']['new']];
                 $newStatuses = is_array($_POST['status']['new']) ? $_POST['status']['new'] : [$_POST['status']['new']];
                 $newVariationIds = is_array($_POST['variation_id']['new']) ? $_POST['variation_id']['new'] : [$_POST['variation_id']['new']];
+                $newScooterNumbers = is_array($_POST['scooter_number']['new'] ?? null) ? $_POST['scooter_number']['new'] : [($_POST['scooter_number']['new'] ?? '')];
                 $newScooters = [];
                 foreach ($newProductIds as $i => $prodId) {
                     $newScooters[] = [
                         'product_id' => $prodId,
                         'status' => $newStatuses[$i] ?? 'available',
-                        'variation_id' => $newVariationIds[$i] ?? null
+                        'variation_id' => $newVariationIds[$i] ?? null,
+                        'scooter_number' => $newScooterNumbers[$i] ?? null,
                     ];
                 }
                 $addResult = $scooterModel->batchInsertScooters($newScooters, $validProductIds);
@@ -240,6 +245,45 @@ class ScooterController extends Controller {
             header('Location: /admin/scooters');
             exit;
         }
+    }
+
+    public function autoNumberMissing() {
+        $this->requireInventoryManager();
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            die('Method not allowed');
+        }
+
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
+            http_response_code(403);
+            die('Invalid CSRF token');
+        }
+
+        $scooterModel = new \App\Models\ScooterModel();
+        try {
+            $result = $scooterModel->autoAssignMissingScooterNumbers();
+            $assigned = (int)($result['assigned'] ?? 0);
+            $productsTouched = (int)($result['products_touched'] ?? 0);
+
+            if ($assigned > 0) {
+                $_SESSION['status_changes'] = [
+                    "Auto-assigned scooter numbers for {$assigned} scooter(s) across {$productsTouched} product(s)."
+                ];
+            } else {
+                $_SESSION['status_changes'] = ['No scooters without numbers were found.'];
+            }
+
+            $this->logAdminAction('scooter_auto_number_missing', 'scooter', null, [
+                'assigned' => $assigned,
+                'products_touched' => $productsTouched,
+            ]);
+        } catch (\Throwable $e) {
+            $_SESSION['status_changes'] = ['Failed to auto-assign scooter numbers: ' . $e->getMessage()];
+        }
+
+        header('Location: /admin/scooters');
+        exit;
     }
 
 

@@ -253,9 +253,14 @@ class AdminController extends Controller
 
         $totalPages = max(1, ceil($totalOrders / $perPage));
 
+        $pdo = \App\Utils\Database::getInstance();
+        $hotelStmt = $pdo->query("SELECT id, name FROM partner_hotels ORDER BY name ASC");
+        $partnerHotels = $hotelStmt ? $hotelStmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
         // Use renderAdmin to render the orders page with admin layout
         $this->renderAdmin('admin/orders', [
             'orders' => $orders,
+            'partnerHotels' => $partnerHotels,
             'searchTerm' => $searchTerm,
             'statusFilter' => strtolower($statusFilter),
             'customerTypeFilter' => strtolower($customerTypeFilter),
@@ -513,10 +518,19 @@ class AdminController extends Controller
                 && (empty($p['expires_at']) || strtotime($p['expires_at']) >= strtotime('today'));
         });
 
+        $db = \App\Utils\Database::getInstance();
+        $hotelStmt = $db->query("SELECT * FROM partner_hotels ORDER BY name ASC");
+        $partnerHotels = $hotelStmt ? $hotelStmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+        $pickupStmt = $db->query("SELECT * FROM pickup_locations ORDER BY name ASC");
+        $pickupLocations = $pickupStmt ? $pickupStmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
         return [
             'products' => $products,
             'rentalPrices' => $rentalPrices,
             'activePromos' => array_values($activePromos),
+            'partnerHotels' => $partnerHotels,
+            'pickupLocations' => $pickupLocations,
             'canEditFinalPrice' => $this->isCurrentAdminSuperadmin(),
             'formAction' => '/admin/orders/new',
             'availabilityEndpoint' => '/admin/orders/availability',
@@ -524,6 +538,37 @@ class AdminController extends Controller
             'cancelLabel' => 'Cancel',
             'kioskMode' => false,
         ];
+    }
+
+    public function walkinCheckout(): void {
+        $this->requireWalkinBookingAuth();
+
+        $draft = $_SESSION['walkin_checkout_draft'] ?? null;
+        if (!is_array($draft) || empty($draft['cart']) || empty($draft['prefill'])) {
+            $_SESSION['form_errors'] = ['Please complete the walk-in booking details first.'];
+            header('Location: /walkin-booking');
+            exit;
+        }
+
+        $pdo = \App\Utils\Database::getInstance();
+        $hotelStmt = $pdo->query("SELECT * FROM partner_hotels ORDER BY name ASC");
+        $partnerHotels = $hotelStmt ? $hotelStmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+        $pickupStmt = $pdo->query("SELECT * FROM pickup_locations ORDER BY name ASC");
+        $pickupLocations = $pickupStmt ? $pickupStmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+        $heardAboutOptions = (new HeardAboutOptionModel())->getActive();
+
+        $this->render('checkout', [
+            'user' => null,
+            'csrf_token' => $_SESSION['csrf_token'],
+            'partnerHotels' => $partnerHotels,
+            'pickupLocations' => $pickupLocations,
+            'heardAboutOptions' => $heardAboutOptions,
+            'showConfirmation' => false,
+            'order' => null,
+            'walkinCheckout' => true,
+            'walkinPrefill' => (array)($draft['prefill'] ?? []),
+            'walkinCart' => (array)($draft['cart'] ?? []),
+        ]);
     }
 
     public function newOrderAvailability() {
@@ -570,6 +615,54 @@ class AdminController extends Controller
         $guestFirstName = htmlspecialchars(trim($_POST['guest_first_name'] ?? ''));
         $guestLastName = htmlspecialchars(trim($_POST['guest_last_name'] ?? ''));
         $fullName = trim($guestFirstName . ' ' . $guestLastName);
+        $deliveryType = strtolower(trim((string)($_POST['delivery_type'] ?? 'hotel')));
+        if (!in_array($deliveryType, ['hotel', 'pickup'], true)) {
+            $deliveryType = 'hotel';
+        }
+        $hotelId = isset($_POST['hotel_id']) && is_numeric($_POST['hotel_id']) ? (int)$_POST['hotel_id'] : null;
+        $returnHotelId = isset($_POST['return_hotel_id']) && is_numeric($_POST['return_hotel_id']) ? (int)$_POST['return_hotel_id'] : null;
+        $pickupLocationSelection = trim((string)($_POST['pickup_location'] ?? ''));
+
+        $address1 = htmlspecialchars(trim($_POST['address1'] ?? ''));
+        $address2 = htmlspecialchars(trim($_POST['address2'] ?? ''));
+        $state = htmlspecialchars(trim($_POST['state'] ?? ''));
+        $zip = htmlspecialchars(trim($_POST['zip'] ?? ''));
+
+        if ($deliveryType === 'hotel') {
+            if (!$hotelId || $hotelId <= 0) {
+                $_SESSION['form_errors'] = ['Please select a partner hotel for delivery.'];
+                header('Location: ' . $newOrderRoute);
+                exit;
+            }
+
+            $pdo = \App\Utils\Database::getInstance();
+            $hotelStmt = $pdo->prepare("SELECT id, name, address1, address2, state, zip FROM partner_hotels WHERE id = ? LIMIT 1");
+            $hotelStmt->execute([$hotelId]);
+            $hotel = $hotelStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+            if (!$hotel) {
+                $_SESSION['form_errors'] = ['Selected delivery hotel is no longer available.'];
+                header('Location: ' . $newOrderRoute);
+                exit;
+            }
+
+            $address1 = htmlspecialchars(trim((string)($hotel['address1'] ?? '')));
+            $address2 = htmlspecialchars(trim((string)($hotel['address2'] ?? '')));
+            $state = htmlspecialchars(trim((string)($hotel['state'] ?? '')));
+            $zip = htmlspecialchars(trim((string)($hotel['zip'] ?? '')));
+            $pickupLocationSelection = 'walk-in booking';
+
+            if (!$returnHotelId || $returnHotelId <= 0) {
+                $returnHotelId = $hotelId;
+            }
+        } else {
+            if ($pickupLocationSelection === '') {
+                $_SESSION['form_errors'] = ['Please select a pickup location.'];
+                header('Location: ' . $newOrderRoute);
+                exit;
+            }
+            $hotelId = null;
+            $returnHotelId = null;
+        }
 
         $orderData = [
             'user_id' => null,
@@ -580,11 +673,16 @@ class AdminController extends Controller
             'guest_phone' => preg_replace('/\D/', '', $_POST['phone'] ?? ''),
             'client_weight_option' => htmlspecialchars(substr(trim((string)($_POST['client_weight_option'] ?? '')), 0, 32)),
             'client_weight_lbs' => null,
-            'address1' => htmlspecialchars(trim($_POST['address1'] ?? '')),
-            // Pickup location is set to default for walk-in booking
-            'pickup_location' => 'walk-in booking',
+            'address1' => $address1,
+            'address2' => $address2,
+            'state' => $state,
+            'zip' => $zip,
+            'pickup_location' => htmlspecialchars($pickupLocationSelection),
             'notes' => htmlspecialchars(trim($_POST['notes'] ?? '')),
             'payment_method' => htmlspecialchars(trim($_POST['payment_method'] ?? '')),
+            'delivery_type' => $deliveryType,
+            'hotel_id' => $hotelId,
+            'return_hotel_id' => $returnHotelId,
             'total_amount' => 0,
             'customer_type' => 'guest',
             'booking_source' => 'walk-in',
@@ -660,6 +758,13 @@ class AdminController extends Controller
             exit;
         }
 
+        $paymentMethodKey = strtolower(trim((string)($orderData['payment_method'] ?? '')));
+        if (!in_array($paymentMethodKey, ['cash', 'card', 'paypal'], true)) {
+            $_SESSION['form_errors'] = ['Please select a valid payment method.'];
+            header('Location: ' . $newOrderRoute);
+            exit;
+        }
+
         require_once __DIR__ . '/../Models/OrderModel.php';
         $orderModel = new \App\Models\OrderModel();
         $cart = $orderModel->normalizeCartForTrustedPricing(
@@ -668,6 +773,39 @@ class AdminController extends Controller
             $orderData['return_datetime'] ?? null,
             $orderData['sale_type'] ?? 'rental'
         );
+
+        if (in_array($paymentMethodKey, ['card', 'paypal'], true)) {
+            $_SESSION['walkin_checkout_draft'] = [
+                'prefill' => [
+                    'first_name' => $orderData['guest_first_name'] ?? '',
+                    'last_name' => $orderData['guest_last_name'] ?? '',
+                    'email' => $orderData['guest_email'] ?? '',
+                    'phone' => $orderData['guest_phone'] ?? '',
+                    'client_weight_option' => $orderData['client_weight_option'] ?? '',
+                    'pickup_datetime' => $orderData['pickup_datetime'] ?? '',
+                    'return_datetime' => $orderData['return_datetime'] ?? '',
+                    'delivery_type' => $orderData['delivery_type'] ?? 'hotel',
+                    'hotel_id' => $orderData['hotel_id'] ?? '',
+                    'return_hotel_id' => $orderData['return_hotel_id'] ?? '',
+                    'pickup_location' => $orderData['pickup_location'] ?? '',
+                    'address1' => $orderData['address1'] ?? '',
+                    'address2' => $orderData['address2'] ?? '',
+                    'state' => $orderData['state'] ?? '',
+                    'zip' => $orderData['zip'] ?? '',
+                    'notes' => $orderData['notes'] ?? '',
+                    'sale_type' => $orderData['sale_type'] ?? 'rental',
+                    'payment' => $paymentMethodKey,
+                    'booking_source' => 'walk-in',
+                    'created_by_admin_id' => (int)($_SESSION['admin_id'] ?? 0) ?: null,
+                    'created_by_admin_role' => strtolower(trim((string)($_SESSION['admin_role'] ?? ''))),
+                    'created_by_admin_name' => trim((string)($_SESSION['admin_username'] ?? '')),
+                ],
+                'cart' => $cart,
+            ];
+
+            header('Location: /walkin-booking/checkout');
+            exit;
+        }
 
         $cartSubtotal = 0.0;
         foreach ($cart as $item) {
@@ -697,9 +835,26 @@ class AdminController extends Controller
             $appliedPromoId = (int)$validPromo['id'];
         }
 
+        $deliveryFee = 0.0;
+        if (($orderData['delivery_type'] ?? '') === 'hotel' && !empty($orderData['hotel_id'])) {
+            $pdo = \App\Utils\Database::getInstance();
+            $deliveryFeeStmt = $pdo->prepare("SELECT delivery_fee FROM partner_hotels WHERE id = ? LIMIT 1");
+            $deliveryFeeStmt->execute([(int)$orderData['hotel_id']]);
+            $deliveryHotelFee = max(0, round((float)$deliveryFeeStmt->fetchColumn(), 2));
+
+            $returnHotelFee = 0.0;
+            if (!empty($orderData['return_hotel_id'])) {
+                $returnFeeStmt = $pdo->prepare("SELECT delivery_fee FROM partner_hotels WHERE id = ? LIMIT 1");
+                $returnFeeStmt->execute([(int)$orderData['return_hotel_id']]);
+                $returnHotelFee = max(0, round((float)$returnFeeStmt->fetchColumn(), 2));
+            }
+
+            $deliveryFee = max($deliveryHotelFee, $returnHotelFee);
+        }
+
         $securityDeposit = 100.00;
         $productTotalWithTax = round(max(0, $cartSubtotal - $discountAmount), 2);
-        $calculatedFinalTotalAmount = round($productTotalWithTax + $securityDeposit, 2);
+        $calculatedFinalTotalAmount = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
         $finalTotalAmount = $calculatedFinalTotalAmount;
         if ($finalPriceEditedBySuperadmin && $finalPriceOverrideAmount !== null && $finalPriceOverrideAmount > $calculatedFinalTotalAmount) {
             $_SESSION['form_errors'] = [
@@ -911,6 +1066,12 @@ class AdminController extends Controller
         $discountAmount = (float)$discountAmount;
         $promoCode = (string)($orderData['promo_code'] ?? '');
         $paymentMethod = (string)($payment_method ?? '');
+        $paymentCardLast4 = $orderModel->resolveOrderPaymentCardLast4([
+            'payment_method' => $paymentMethod,
+            'payment_provider' => strtolower($paymentMethod) === 'card' ? 'stripe' : (strtolower($paymentMethod) === 'paypal' ? 'paypal' : ''),
+            'provider_payment_intent_id' => (string)($orderData['provider_payment_intent_id'] ?? ($_POST['provider_payment_intent_id'] ?? '')),
+            'provider_charge_id' => (string)($orderData['provider_charge_id'] ?? ($_POST['provider_charge_id'] ?? '')),
+        ]);
         $pickupLocation = (string)($pickup_location ?? '');
         $deliveryType = (string)($orderData['delivery_type'] ?? '');
 
@@ -978,15 +1139,21 @@ class AdminController extends Controller
         if ($orderId) {
             require_once __DIR__ . '/../Models/OrderModel.php';
             $orderModel = new \App\Models\OrderModel();
-            $transition = $orderModel->transitionOrderStatus($orderId, 'cancelled');
-            if (!($transition['success'] ?? false)) {
-                $_SESSION['order_cancel_message'] = (string)($transition['error'] ?? 'Order could not be rejected.');
+            $transitionCheck = $orderModel->getOrderStatusTransitionCheck($orderId, 'cancelled');
+            if (!($transitionCheck['allowed'] ?? false)) {
+                $_SESSION['order_cancel_message'] = (string)($transitionCheck['error'] ?? 'Order could not be rejected.');
             } else {
+                $adminId = isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null;
+                if ($adminId !== null && $adminId <= 0) {
+                    $adminId = null;
+                }
+                $message = $orderModel->cancelOrderProcess($orderId, $adminId);
                 $this->logAdminAction('order_rejected', 'order', $orderId, [
-                    'previous_status' => $transition['current_status'] ?? null,
+                    'previous_status' => $transitionCheck['current_status'] ?? null,
                     'new_status' => 'cancelled',
+                    'message' => $message,
                 ]);
-                $_SESSION['order_complete_message'] = "Order {$orderId} rejected/cancelled.";
+                $_SESSION['order_complete_message'] = $message;
             }
         }
         header('Location: /admin/orders');
@@ -1021,6 +1188,201 @@ class AdminController extends Controller
             }
         }
         header('Location: /admin/orders');
+        exit;
+    }
+
+    public function updateOrderDetails() {
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (empty($_SESSION['admin_id'])) {
+            http_response_code(401);
+            echo json_encode([
+                'error' => 'Session expired. Please log in again.',
+                'auth_required' => true,
+            ]);
+            exit;
+        }
+
+        $this->requireAdminRoleJson(
+            ['admin', 'superadmin'],
+            'Only admins can edit order details.'
+        );
+
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'Method not allowed']);
+            exit;
+        }
+
+        if (!isset($_POST['csrf_token']) || !hash_equals((string)($_SESSION['csrf_token'] ?? ''), (string)$_POST['csrf_token'])) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $orderId = isset($_POST['order_id']) ? (int)$_POST['order_id'] : 0;
+        if ($orderId <= 0) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Invalid order ID']);
+            exit;
+        }
+
+        $allowedFields = [
+            'status' => 'enum',
+            'payment_method' => 'enum',
+            'booking_source' => 'enum',
+            'guest_first_name' => 'string',
+            'guest_last_name' => 'string',
+            'guest_email' => 'email',
+            'guest_phone' => 'phone',
+            'pickup_datetime' => 'datetime',
+            'return_datetime' => 'datetime',
+            'hotel_id' => 'int',
+            'return_hotel_id' => 'int',
+            'pickup_location' => 'string',
+            'notes' => 'string',
+            'total_amount' => 'float',
+            'promo_discount' => 'float',
+            'security_deposit' => 'float',
+        ];
+
+        $updates = [];
+        $params = [];
+
+        foreach ($allowedFields as $field => $validator) {
+            if (!array_key_exists($field, $_POST)) {
+                continue;
+            }
+
+            $rawValue = trim((string)($_POST[$field] ?? ''));
+            $normalized = null;
+
+            switch ($validator) {
+                case 'enum':
+                    $allowedValues = [
+                        'status' => ['pending', 'approved', 'paid', 'completed', 'cancelled'],
+                        'payment_method' => ['card', 'paypal', 'cash', 'manual', 'bank_transfer'],
+                        'booking_source' => ['online', 'walk-in', 'website', 'admin'],
+                    ];
+                    if ($rawValue === '') {
+                        continue 2;
+                    }
+                    $value = strtolower(trim($rawValue));
+                    if (!in_array($value, $allowedValues[$field], true)) {
+                        http_response_code(422);
+                        echo json_encode(['error' => 'Invalid value for ' . $field]);
+                        exit;
+                    }
+                    $normalized = $value;
+                    break;
+
+                case 'string':
+                    $normalized = $rawValue;
+                    if (in_array($field, ['guest_first_name', 'guest_last_name', 'guest_email', 'guest_phone', 'pickup_location', 'notes'], true) && strlen($normalized) > 5000) {
+                        http_response_code(422);
+                        echo json_encode(['error' => ucfirst(str_replace('_', ' ', $field)) . ' is too long.']);
+                        exit;
+                    }
+                    if ($field === 'notes' && strlen($normalized) > 2000) {
+                        http_response_code(422);
+                        echo json_encode(['error' => 'Order notes are too long.']);
+                        exit;
+                    }
+                    break;
+
+                case 'email':
+                    if ($rawValue === '') {
+                        $normalized = '';
+                        break;
+                    }
+                    $normalized = filter_var($rawValue, FILTER_VALIDATE_EMAIL) ?: '';
+                    if ($normalized === '') {
+                        http_response_code(422);
+                        echo json_encode(['error' => 'Guest email is invalid.']);
+                        exit;
+                    }
+                    break;
+
+                case 'phone':
+                    $normalized = preg_replace('/\D+/', '', $rawValue);
+                    break;
+
+                case 'datetime':
+                    if ($rawValue === '') {
+                        $normalized = null;
+                        break;
+                    }
+                    $normalized = str_replace('T', ' ', $rawValue);
+                    if (strtotime($normalized) === false) {
+                        http_response_code(422);
+                        echo json_encode(['error' => 'Invalid date/time for ' . $field]);
+                        exit;
+                    }
+                    $normalized = date('Y-m-d H:i:s', strtotime($normalized));
+                    break;
+
+                case 'int':
+                    if ($rawValue === '') {
+                        $normalized = null;
+                        break;
+                    }
+                    $numeric = filter_var($rawValue, FILTER_VALIDATE_INT);
+                    if ($numeric === false) {
+                        http_response_code(422);
+                        echo json_encode(['error' => 'Invalid integer value for ' . $field]);
+                        exit;
+                    }
+                    $normalized = (int)$numeric;
+                    break;
+
+                case 'float':
+                    if ($rawValue === '') {
+                        $normalized = 0.0;
+                        break;
+                    }
+                    if (!is_numeric($rawValue)) {
+                        http_response_code(422);
+                        echo json_encode(['error' => 'Invalid numeric value for ' . $field]);
+                        exit;
+                    }
+                    $normalized = round((float)$rawValue, 2);
+                    break;
+
+                default:
+                    $normalized = $rawValue;
+                    break;
+            }
+
+            if ($normalized === null && in_array($field, ['hotel_id', 'return_hotel_id'], true)) {
+                $normalized = null;
+            }
+
+            $updates[] = $field . ' = ?';
+            $params[] = $normalized;
+        }
+
+        if (empty($updates)) {
+            http_response_code(422);
+            echo json_encode(['error' => 'No valid order fields were supplied.']);
+            exit;
+        }
+
+        $pdo = \App\Utils\Database::getInstance();
+        $sql = 'UPDATE orders SET ' . implode(', ', $updates) . ' WHERE order_id = ?';
+        $params[] = $orderId;
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+
+        $this->logAdminAction('order_details_updated', 'order', $orderId, [
+            'updated_fields' => array_keys(array_flip(array_map(fn ($entry) => explode(' =', $entry, 2)[0], $updates))),
+            'admin_username' => $_SESSION['admin_username'] ?? null,
+        ]);
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Order details updated successfully.',
+        ]);
         exit;
     }
 
@@ -1176,12 +1538,6 @@ class AdminController extends Controller
         if ($refundAmount > 10000) {
             http_response_code(422);
             echo json_encode(['error' => 'Refund amount is too high']);
-            exit;
-        }
-
-        if ($reason === '' || strlen($reason) < 5) {
-            http_response_code(422);
-            echo json_encode(['error' => 'Please provide a reason (at least 5 characters).']);
             exit;
         }
 

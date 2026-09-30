@@ -799,15 +799,6 @@ class ProductModel{
             return (float)$baseTierPrice;
         }
 
-        if ($variationIdNorm !== null) {
-            $stmt = $this->db->prepare("SELECT price FROM product_variations WHERE variation_id = ? AND product_id = ? LIMIT 1");
-            $stmt->execute([$variationIdNorm, $productId]);
-            $variationPrice = $stmt->fetchColumn();
-            if ($variationPrice !== false) {
-                return (float)$variationPrice;
-            }
-        }
-
         $stmt = $this->db->prepare("SELECT price FROM products WHERE product_id = ? LIMIT 1");
         $stmt->execute([$productId]);
         $productPrice = $stmt->fetchColumn();

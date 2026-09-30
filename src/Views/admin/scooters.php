@@ -10,7 +10,15 @@ $isStaff = ($role === 'staff');
 
     <div class="flex flex-1 items-center justify-center w-full">
         <div class="bg-white rounded-2xl shadow-xl p-10 w-full max-w-6xl mx-auto border border-blue-200">
-            <h2 class="text-3xl font-bold mb-8 text-[#062B41] tracking-tight">Scooter Inventory</h2>
+            <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+                <h2 class="text-3xl font-bold text-[#062B41] tracking-tight">Scooter Inventory</h2>
+                <?php if (!$isStaff): ?>
+                    <form method="post" action="/admin/scooters/auto-number-missing" onsubmit="return confirm('Auto-assign scooter numbers for all products with missing numbers?');">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors">Auto-Assign Missing Scooter Numbers</button>
+                    </form>
+                <?php endif; ?>
+            </div>
 
             <!-- Success or status change messages -->
             <?php if (!empty($_SESSION['status_changes'])): ?>
@@ -86,9 +94,33 @@ $isStaff = ($role === 'staff');
                 let allVariations = [];
                 let selectedVariation = '';
                 function renderScooterTable(data, page, filterVariation) {
+                    const escAttr = (value) => String(value ?? '')
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                    const toSortableNumber = (value) => {
+                        const raw = String(value ?? '').trim();
+                        if (!/^\d+$/.test(raw)) {
+                            return Number.POSITIVE_INFINITY;
+                        }
+                        return parseInt(raw, 10);
+                    };
                     let html = "";
+                    const sortedData = Array.isArray(data) ? [...data].sort((a, b) => {
+                        const aNum = toSortableNumber(a.scooter_number);
+                        const bNum = toSortableNumber(b.scooter_number);
+                        if (aNum !== bNum) {
+                            return aNum - bNum;
+                        }
+
+                        const aId = parseInt(String(a.scooter_id ?? '0'), 10);
+                        const bId = parseInt(String(b.scooter_id ?? '0'), 10);
+                        return aId - bId;
+                    }) : [];
                     // Filter data by variation and barcode search
-                    var filteredData = data;
+                    var filteredData = sortedData;
                     if (filterVariation && filterVariation !== 'all') {
                         filteredData = filteredData.filter(function(scooter) { return String(scooter.variation_id) === String(filterVariation); });
                     }
@@ -127,7 +159,7 @@ $isStaff = ($role === 'staff');
                             <table class="min-w-full bg-white shadow text-sm overflow-hidden">
                                 <thead class="bg-blue-100 text-blue-900">
                                     <tr>
-                                        <th class="py-2 px-2 border-b w-16 font-semibold">ID</th>
+                                        <th class="py-2 px-2 border-b w-24 font-semibold">Scooter Number</th>
                                         <th class="py-2 px-2 border-b w-24 font-semibold">Status</th>
                                         <th class="py-2 px-2 border-b w-40 font-semibold">Variation</th>
                                         <th class="py-2 px-2 border-b w-40 font-semibold">Barcode</th>
@@ -144,7 +176,9 @@ $isStaff = ($role === 'staff');
                         const scooterVariationId = typeof scooter.variation_id !== 'undefined' ? scooter.variation_id : '';
                         html += `
                             <tr>
-                                <td class="py-1 px-2 border-b">${scooter.scooter_id}</td>
+                                <td class="py-1 px-2 border-b">
+                                    <input type="number" name="scooter_number[${scooter.scooter_id}]" value="${escAttr(scooter.scooter_number || '')}" inputmode="numeric" min="0" step="1" oninput="this.value=this.value.replace(/\D/g,'')" class="border rounded px-1 py-1 w-12 text-xs" ${isStaff ? 'disabled' : ''}>
+                                </td>
                                 <td class="py-1 px-2 border-b">
                                     <select name="status[${scooter.scooter_id}]" class="border rounded px-1 py-1 w-full text-xs" ${isStaff ? 'disabled' : ''}>
                                         <option value="available" ${scooter.status === 'available' ? 'selected' : ''}>Available</option>
@@ -195,6 +229,7 @@ $isStaff = ($role === 'staff');
 
                     if (!isStaff) {
                         html += `
+                            <button type="button" id="autoNumberBtn" class="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600 ml-4 cursor-pointer">Auto Number Empty</button>
                             <button type="button" id="addBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 ml-4 cursor-pointer">Add Scooter</button>
                             <button type="submit" class="bg-[#0086C9] text-white px-4 py-2 rounded hover:bg-[#006a9c] ml-2 cursor-pointer">Save</button>
                         `;
@@ -259,6 +294,33 @@ $isStaff = ($role === 'staff');
 
                     // Only attach handlers if not staff
                     if (!isStaff) {
+                        const autoNumberBtn = document.getElementById('autoNumberBtn');
+                        if (autoNumberBtn) {
+                            autoNumberBtn.onclick = function() {
+                                let maxNumber = 0;
+
+                                (Array.isArray(data) ? data : []).forEach((scooter) => {
+                                    const raw = String(scooter && scooter.scooter_number ? scooter.scooter_number : '').trim();
+                                    if (/^\d+$/.test(raw)) {
+                                        const numericValue = parseInt(raw, 10);
+                                        if (Number.isFinite(numericValue) && numericValue > maxNumber) {
+                                            maxNumber = numericValue;
+                                        }
+                                    }
+                                });
+
+                                (Array.isArray(data) ? data : []).forEach((scooter) => {
+                                    const raw = String(scooter && scooter.scooter_number ? scooter.scooter_number : '').trim();
+                                    if (raw === '') {
+                                        maxNumber += 1;
+                                        scooter.scooter_number = String(maxNumber);
+                                    }
+                                });
+
+                                renderScooterTable(data, currentPage, selectedVariation);
+                            };
+                        }
+
                         // Delete row
                         document.querySelectorAll('.deleteBtn').forEach(btn => {
                             btn.onclick = function() {
@@ -300,7 +362,9 @@ $isStaff = ($role === 'staff');
                                 variationSelect += `</select>`;
 
                                 row.innerHTML = `
-                                    <td class="py-1 px-2 border-b">New</td>
+                                    <td class="py-1 px-2 border-b">
+                                        <input type="number" name="scooter_number[new][]" inputmode="numeric" min="0" step="1" oninput="this.value=this.value.replace(/\D/g,'')" placeholder="102" class="border rounded px-1 py-1 w-20 text-xs">
+                                    </td>
                                     <td class="py-1 px-2 border-b">
                                         <select name="status[new][]" class="border rounded px-1 py-1 w-full text-xs">
                                             <option value="available">Available</option>

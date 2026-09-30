@@ -47,6 +47,13 @@ $buildQuickPeriodLink = function (string $period) use ($currentQuery) {
 
 $quickPeriodActive = strtolower((string)($quickPeriodFilter ?? ''));
 
+$partnerHotelOptions = array_values(array_map(static function ($hotel) {
+    return [
+        'id' => isset($hotel['id']) ? (int)$hotel['id'] : 0,
+        'name' => (string)($hotel['name'] ?? ''),
+    ];
+}, is_array($partnerHotels ?? null) ? $partnerHotels : []));
+
 $formatDateTime = function ($value) {
     if (empty($value)) {
         return '';
@@ -375,7 +382,7 @@ $formatDateTime = function ($value) {
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                             <button type="submit" class="bg-green-500 text-white px-2 py-1 rounded text-xs hover:bg-green-600 cursor-pointer">Approve</button>
                                         </form>
-                                        <form method="post" action="/admin/orders/cancel" class="inline" onsubmit="return confirm('Are you sure you want to reject this order?');">
+                                        <form method="post" action="/admin/orders/cancel" class="inline order-cancel-form" data-cancel-label="reject" data-cancel-confirm="Are you sure you want to reject this order?">
                                             <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                             <button type="submit" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600 cursor-pointer">Reject</button>
@@ -386,6 +393,11 @@ $formatDateTime = function ($value) {
                                             <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                                             <button type="submit" class="bg-yellow-500 text-white px-2 py-1 rounded text-xs hover:bg-yellow-600 cursor-pointer">Mark as Paid</button>
                                         </form>
+                                        <form method="post" action="/admin/orders/cancel" class="inline order-cancel-form" data-cancel-label="cancel" data-cancel-confirm="Cancel this approved order?">
+                                            <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                            <button type="submit" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600 cursor-pointer">Cancel</button>
+                                        </form>
                                     <?php elseif ($order['status'] === 'paid' && $canCompleteOrders): ?>
                                         <form method="post" action="/admin/orders/complete" class="inline order-complete-form">
                                             <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
@@ -394,6 +406,13 @@ $formatDateTime = function ($value) {
                                             <input type="hidden" name="security_deposit_refunded_amount" value="<?= htmlspecialchars((string)($order['security_deposit_refunded_amount'] ?? '0')) ?>">
                                             <button type="submit" class="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600 cursor-pointer">Complete</button>
                                         </form>
+                                        <?php if ($canManageMoneyActions): ?>
+                                            <form method="post" action="/admin/orders/cancel" class="inline order-cancel-form" data-cancel-label="cancel" data-cancel-confirm="Cancel this paid order? A provider refund will be attempted automatically.">
+                                                <input type="hidden" name="order_id" value="<?= $order['order_id'] ?>">
+                                                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+                                                <button type="submit" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600 cursor-pointer">Cancel</button>
+                                            </form>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                         <span class="text-xs text-gray-400">No actions</span>
                                     <?php endif; ?>
@@ -521,6 +540,8 @@ $formatDateTime = function ($value) {
     const ADMIN_CSRF_TOKEN = <?= json_encode($_SESSION['csrf_token'] ?? '') ?>;
     const CAN_MANAGE_SECURITY_DEPOSIT = <?= $canManageSecurityDeposit ? 'true' : 'false' ?>;
     const CAN_REFUND_SECURITY_DEPOSIT = <?= $canRefundSecurityDeposit ? 'true' : 'false' ?>;
+    const CAN_EDIT_ORDER_DETAILS = <?= in_array($roleKey, ['admin', 'superadmin'], true) ? 'true' : 'false' ?>;
+    const PARTNER_HOTEL_OPTIONS = <?= json_encode($partnerHotelOptions, JSON_UNESCAPED_SLASHES) ?>;
 
     function showOrderActionLoadingState(title, message) {
         const overlay = document.getElementById('order-action-loading-overlay');
@@ -539,6 +560,15 @@ $formatDateTime = function ($value) {
             overlay.classList.remove('hidden');
             overlay.classList.add('flex');
         }
+    }
+
+    function hideOrderActionLoadingState() {
+        const overlay = document.getElementById('order-action-loading-overlay');
+        if (!overlay) {
+            return;
+        }
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
     }
 
     function toOrdinaryTime(value) {
@@ -600,6 +630,24 @@ $formatDateTime = function ($value) {
                 const customerPhone = order.guest_phone || order.customer_phone || 'N/A';
                 const paymentPlatform = order.payment_provider || refundSummary.payment_provider || (order.payment_method === 'paypal' ? 'paypal' : (order.payment_method === 'card' ? 'stripe' : 'unknown'));
                 const isWalkInBooking = String(order.booking_source || '').toLowerCase() === 'walk-in';
+                const selectedHotelId = String(order.hotel_id ?? '').trim();
+                const selectedReturnHotelId = String(order.return_hotel_id ?? '').trim();
+                const hotelOptionsHtml = ['<option value="">Select a partner hotel</option>']
+                    .concat((Array.isArray(PARTNER_HOTEL_OPTIONS) ? PARTNER_HOTEL_OPTIONS : []).map((hotel) => {
+                        const hotelId = String(hotel?.id ?? '').trim();
+                        const hotelName = String(hotel?.name ?? '');
+                        const selected = hotelId !== '' && hotelId === selectedHotelId ? 'selected' : '';
+                        return `<option value="${esc(hotelId)}" ${selected}>${esc(hotelName)}</option>`;
+                    }))
+                    .join('');
+                const returnHotelOptionsHtml = ['<option value="">Select return hotel</option>']
+                    .concat((Array.isArray(PARTNER_HOTEL_OPTIONS) ? PARTNER_HOTEL_OPTIONS : []).map((hotel) => {
+                        const hotelId = String(hotel?.id ?? '').trim();
+                        const hotelName = String(hotel?.name ?? '');
+                        const selected = hotelId !== '' && hotelId === selectedReturnHotelId ? 'selected' : '';
+                        return `<option value="${esc(hotelId)}" ${selected}>${esc(hotelName)}</option>`;
+                    }))
+                    .join('');
                 const weightOptionRaw = String(order.client_weight_option || '').trim();
                 const weightLbsRaw = Number(order.client_weight_lbs || 0);
                 const weightDisplay = weightOptionRaw !== ''
@@ -617,22 +665,117 @@ $formatDateTime = function ($value) {
                     : 'provider';
 
                 let html = `
-                    <div class="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-2">
-                        <div><span class="font-semibold text-[#062B41]">Order ID:</span> ${esc(order.order_id || '')}</div>
-                        <div><span class="font-semibold text-[#062B41]">Status:</span> ${esc(order.status || '')}</div>
-                        <div><span class="font-semibold text-[#062B41]">Customer:</span> ${esc(customerName)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Email:</span> ${esc(customerEmail)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Client Weight (lbs):</span> ${esc(weightDisplay)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Client Height:</span> ${esc(heightDisplay)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method || 'N/A')}</div>
-                        <div><span class="font-semibold text-[#062B41]">Platform:</span> ${esc(String(paymentPlatform).toUpperCase())}</div>
-                        <div><span class="font-semibold text-[#062B41]">Pickup Location:</span> ${esc(order.pickup_location_name || order.pickup_location || 'N/A')}</div>
-                        <div><span class="font-semibold text-[#062B41]">Heard About Us:</span> ${esc(heardAboutDisplay)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${toOrdinaryTime(order.pickup_datetime)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Return:</span> ${toOrdinaryTime(order.return_datetime)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Total:</span> $${Number(order.total_amount || 0).toFixed(2)}</div>
-                        <div><span class="font-semibold text-[#062B41]">Ordered At:</span> ${toOrdinaryTime(order.order_date)}</div>
+                    <div class="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div class="mb-3 flex items-center justify-between gap-3">
+                            <div class="text-[11px] font-bold uppercase tracking-[0.16em] text-[#0b5f8a]">Order details</div>
+                            ${CAN_EDIT_ORDER_DETAILS ? `
+                                <button type="button" data-order-inline-edit-toggle class="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-white px-2 py-1 text-[11px] font-semibold text-[#0b5f8a] hover:bg-sky-50">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 1 1 2.828 2.828l-8.485 8.485-3.536 1.414 1.414-3.536 8.485-8.485zm-7.778 10.192 4.242 4.242-1.414 1.414-4.242-4.242 1.414-1.414z"/></svg>
+                                    Edit
+                                </button>
+                            ` : ''}
+                        </div>
+
+                        <div data-order-inline-view class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                            <div><span class="font-semibold text-[#062B41]">Order ID:</span> ${esc(order.order_id || '')}</div>
+                            <div><span class="font-semibold text-[#062B41]">Status:</span> ${esc(order.status || '')}</div>
+                            <div><span class="font-semibold text-[#062B41]">Customer:</span> ${esc(customerName)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Email:</span> ${esc(customerEmail)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Phone:</span> ${esc(customerPhone)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Client Weight (lbs):</span> ${esc(weightDisplay)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Client Height:</span> ${esc(heightDisplay)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Payment:</span> ${esc(order.payment_method || 'N/A')}</div>
+                            <div><span class="font-semibold text-[#062B41]">Platform:</span> ${esc(String(paymentPlatform).toUpperCase())}</div>
+                            <div><span class="font-semibold text-[#062B41]">Pickup Location:</span> ${esc(order.pickup_location_name || order.pickup_location || 'N/A')}</div>
+                            <div><span class="font-semibold text-[#062B41]">Heard About Us:</span> ${esc(heardAboutDisplay)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Pickup:</span> ${toOrdinaryTime(order.pickup_datetime)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Return:</span> ${toOrdinaryTime(order.return_datetime)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Total:</span> $${Number(order.total_amount || 0).toFixed(2)}</div>
+                            <div><span class="font-semibold text-[#062B41]">Ordered At:</span> ${toOrdinaryTime(order.order_date)}</div>
+                        </div>
+
+                        ${CAN_EDIT_ORDER_DETAILS ? `
+                            <form data-order-inline-edit-form class="mt-3 hidden grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <input type="hidden" name="order_id" value="${Number(order.order_id || orderId)}">
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Customer First Name</label>
+                                    <input type="text" name="guest_first_name" value="${esc(order.guest_first_name || '')}" class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-[#062B41] focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Customer Last Name</label>
+                                    <input type="text" name="guest_last_name" value="${esc(order.guest_last_name || '')}" class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-[#062B41] focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Email</label>
+                                    <input type="email" name="guest_email" value="${esc(customerEmail === 'N/A' ? '' : customerEmail)}" class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-[#062B41] focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Phone</label>
+                                    <input type="text" name="guest_phone" value="${esc(customerPhone === 'N/A' ? '' : customerPhone)}" class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-[#062B41] focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Status</label>
+                                    <div class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm">
+                                        ${esc(String(order.status || 'pending'))}
+                                    </div>
+                                    <input type="hidden" name="status" value="${esc(String(order.status || 'pending'))}">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Payment Method</label>
+                                    <div class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm">
+                                        ${esc(String(order.payment_method || 'N/A'))}
+                                    </div>
+                                    <input type="hidden" name="payment_method" value="${esc(String(order.payment_method || 'card'))}">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Pickup Date & Time</label>
+                                    <input type="text" data-order-detail-pickup name="pickup_datetime" value="${esc(order.pickup_datetime ? String(order.pickup_datetime) : '')}" readonly placeholder="Select pickup date and time" autocomplete="off" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm transition focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Return Date & Time</label>
+                                    <input type="text" data-order-detail-return name="return_datetime" value="${esc(order.return_datetime ? String(order.return_datetime) : '')}" readonly placeholder="Select return date and time" autocomplete="off" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm transition focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Hotel ID</label>
+                                    <select name="hotel_id" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                        ${hotelOptionsHtml}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Return Hotel</label>
+                                    <select name="return_hotel_id" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                        ${returnHotelOptionsHtml}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Pickup Location</label>
+                                    <input type="text" name="pickup_location" value="${esc(order.pickup_location_name || order.pickup_location || '')}" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm transition focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Booking Source</label>
+                                    <div class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm">
+                                        ${esc(String(order.booking_source || 'website'))}
+                                    </div>
+                                    <input type="hidden" name="booking_source" value="${esc(String(order.booking_source || 'website'))}">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Total Amount ($)</label>
+                                    <input type="number" step="0.01" min="0" name="total_amount" value="${Number(order.total_amount || 0).toFixed(2)}" class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-[#062B41] focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div>
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Promo Discount ($)</label>
+                                    <input type="number" step="0.01" min="0" name="promo_discount" value="${Number(order.promo_discount || 0).toFixed(2)}" class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-[#062B41] focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label class="mb-1 block text-xs font-semibold text-[#062B41]">Order Notes</label>
+                                    <textarea name="notes" rows="3" class="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-[#062B41] focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">${esc(order.notes || '')}</textarea>
+                                </div>
+                                <div class="md:col-span-2 flex justify-end gap-2 pt-2">
+                                    <button type="button" data-order-inline-edit-cancel class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100">Cancel</button>
+                                    <button type="submit" class="rounded-md bg-[#0086C9] px-4 py-2 text-sm font-semibold text-white hover:bg-[#005a99]">Save changes</button>
+                                </div>
+                            </form>
+                        ` : ''}
                     </div>
                 `;
 
@@ -653,6 +796,15 @@ $formatDateTime = function ($value) {
                     html += `<div class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-3"><span class="font-semibold text-[#062B41]">Order Notes:</span><div class="mt-1 whitespace-pre-wrap">${esc(order.notes)}</div></div>`;
                 }
 
+                const getScooterLabel = (item) => {
+                    const scooterNumber = String(item.scooter_number || '').trim();
+                    if (scooterNumber !== '') {
+                        return `#${scooterNumber}`;
+                    }
+                    const sid = Number(item.scooter_id || 0);
+                    return sid > 0 ? `ID ${sid}` : '';
+                };
+
                 // Group items by product name, variation, and price
                 const grouped = {};
                 (data.items || []).forEach(function(item) {
@@ -666,28 +818,28 @@ $formatDateTime = function ($value) {
                             variation: variation,
                             price: price,
                             quantity: 0,
-                            scooterIds: []
+                            scooterLabels: []
                         };
                     }
                     grouped[key].quantity += parseInt(item.quantity || 1);
-                    const sid = Number(item.scooter_id || 0);
-                    if (sid > 0 && !grouped[key].scooterIds.includes(sid)) {
-                        grouped[key].scooterIds.push(sid);
+                    const label = getScooterLabel(item);
+                    if (label !== '' && !grouped[key].scooterLabels.includes(label)) {
+                        grouped[key].scooterLabels.push(label);
                     }
                 });
 
                 const uniqueScooters = Array.from(new Set(
                     items
-                        .map(item => Number(item.scooter_id || 0))
-                        .filter(id => id > 0)
+                        .map(getScooterLabel)
+                        .filter(label => label !== '')
                 ));
 
                 if (uniqueScooters.length > 0) {
                     html += `
                         <div class="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
-                            <div class="mb-2 font-semibold text-[#062B41]">Assigned Scooter IDs</div>
+                            <div class="mb-2 font-semibold text-[#062B41]">Assigned Scooters</div>
                             <div class="flex flex-wrap gap-2">
-                                ${uniqueScooters.map(id => `<span class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200">#${id}</span>`).join('')}
+                                ${uniqueScooters.map(label => `<span class="rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200">${esc(label)}</span>`).join('')}
                             </div>
                         </div>
                     `;
@@ -713,8 +865,8 @@ $formatDateTime = function ($value) {
                 Object.values(grouped).forEach(function(item) {
                     const total = (parseFloat(item.price) * item.quantity).toFixed(2);
                     groupedSubtotal += Number(total);
-                    const scooterCell = item.scooterIds.length > 0
-                        ? item.scooterIds.map(id => `#${id}`).join(', ')
+                    const scooterCell = item.scooterLabels.length > 0
+                        ? item.scooterLabels.join(', ')
                         : '—';
                     html += `<tr>
                         <td class="border border-gray-200 px-2 py-1">${esc(item.name)}</td>
@@ -817,15 +969,14 @@ $formatDateTime = function ($value) {
                                     `}
                                 </div>
                                 <div class="md:col-span-7">
-                                    <label class="block text-xs font-semibold text-[#7c3e00]">Refund Reason (required)</label>
+                                    <label class="block text-xs font-semibold text-[#7c3e00]">Refund Reason (optional)</label>
                                     <textarea
                                         name="refund_reason"
                                         rows="2"
-                                        minlength="5"
                                         maxlength="1000"
-                                        placeholder="Example: Returned unused deposit after inspection"
+                                        placeholder="Optional note for staff reference"
                                         class="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00] focus:border-[#b45309] focus:outline-none focus:ring-2 focus:ring-amber-300/60"
-                                        ${refundableRemaining > 0 ? 'required' : 'disabled'}
+                                        ${refundableRemaining > 0 ? '' : 'disabled'}
                                     ></textarea>
                                 </div>
                                 <button type="submit" class="md:col-span-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 cursor-pointer" ${refundableRemaining > 0 ? '' : 'disabled'}>${refundableRemaining > 0 ? 'Refund Deposit' : 'No Balance'}</button>
@@ -887,6 +1038,99 @@ $formatDateTime = function ($value) {
                 }
 
                 content.innerHTML = html;
+
+                if (typeof flatpickr === 'function') {
+                    const pickupDateInput = content.querySelector('[data-order-detail-pickup]');
+                    const returnDateInput = content.querySelector('[data-order-detail-return]');
+
+                    if (pickupDateInput) {
+                        flatpickr(pickupDateInput, {
+                            enableTime: true,
+                            time_24hr: true,
+                            dateFormat: 'Y-m-d H:i',
+                            altInput: true,
+                            altFormat: 'F j, Y H:i',
+                            defaultDate: pickupDateInput.value ? pickupDateInput.value.replace('T', ' ') : null,
+                            allowInput: false,
+                            minuteIncrement: 15,
+                        });
+                    }
+
+                    if (returnDateInput) {
+                        flatpickr(returnDateInput, {
+                            enableTime: true,
+                            time_24hr: true,
+                            dateFormat: 'Y-m-d H:i',
+                            altInput: true,
+                            altFormat: 'F j, Y H:i',
+                            defaultDate: returnDateInput.value ? returnDateInput.value.replace('T', ' ') : null,
+                            allowInput: false,
+                            minuteIncrement: 15,
+                        });
+                    }
+                }
+
+                const inlineEditToggle = content.querySelector('[data-order-inline-edit-toggle]');
+                const inlineEditForm = content.querySelector('[data-order-inline-edit-form]');
+                const inlineView = content.querySelector('[data-order-inline-view]');
+                if (inlineEditToggle && inlineEditForm && inlineView) {
+                    inlineEditToggle.addEventListener('click', function () {
+                        inlineView.classList.add('hidden');
+                        inlineEditForm.classList.remove('hidden');
+                        inlineEditForm.classList.add('grid');
+                    });
+                    const inlineEditCancel = content.querySelector('[data-order-inline-edit-cancel]');
+                    if (inlineEditCancel) {
+                        inlineEditCancel.addEventListener('click', function () {
+                            inlineEditForm.classList.add('hidden');
+                            inlineEditForm.classList.remove('grid');
+                            inlineView.classList.remove('hidden');
+                        });
+                    }
+                    inlineEditForm.addEventListener('submit', function (event) {
+                        event.preventDefault();
+                        const feedback = document.createElement('div');
+                        feedback.className = 'mt-3 text-xs text-amber-800';
+                        feedback.textContent = 'Saving order changes...';
+                        inlineEditForm.appendChild(feedback);
+
+                        const payload = new URLSearchParams();
+                        payload.set('order_id', String(Number(order.order_id || orderId)));
+                        payload.set('csrf_token', ADMIN_CSRF_TOKEN);
+                        new FormData(inlineEditForm).forEach((value, key) => {
+                            payload.set(key, String(value));
+                        });
+
+                        fetch('/admin/orders/details/update', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: payload.toString()
+                        })
+                        .then(async (response) => {
+                            const rawText = await response.text();
+                            let body = {};
+                            if (rawText) {
+                                try { body = JSON.parse(rawText); } catch (_e) { body = { error: rawText }; }
+                            }
+                            if (!response.ok || body.error) {
+                                throw new Error(toFriendlyAjaxError(body.error || rawText, 'Failed to update order details.'));
+                            }
+                            return body;
+                        })
+                        .then(() => {
+                            feedback.className = 'mt-3 text-xs text-green-700';
+                            feedback.textContent = 'Order details saved successfully.';
+                            setTimeout(() => openOrderModal(Number(order.order_id || orderId)), 300);
+                        })
+                        .catch((error) => {
+                            feedback.className = 'mt-3 text-xs text-red-700';
+                            feedback.textContent = toFriendlyAjaxError(error.message, 'Failed to update order details.');
+                        });
+                    });
+                }
 
                 const depositForm = content.querySelector('[data-security-deposit-form]');
                 if (depositForm) {
@@ -1001,6 +1245,10 @@ $formatDateTime = function ($value) {
                     refundForm.addEventListener('submit', function (event) {
                         event.preventDefault();
 
+                        if (refundForm.dataset.submitting === '1') {
+                            return;
+                        }
+
                         const feedback = content.querySelector('[data-security-deposit-refund-feedback]');
                         const submitButton = refundForm.querySelector('button[type="submit"]');
                         const amountInput = refundForm.querySelector('input[name="refund_amount"]');
@@ -1025,31 +1273,31 @@ $formatDateTime = function ($value) {
                         }
 
                         const reason = String(reasonInput ? reasonInput.value : '').trim();
-                        if (reason.length < 5) {
-                            if (feedback) {
-                                feedback.className = 'mt-2 text-xs text-red-700';
-                                feedback.textContent = 'Please provide a reason of at least 5 characters.';
-                            }
-                            return;
-                        }
 
                         const refundMethod = String(methodInput ? methodInput.value : '').trim();
 
                         const confirmationTarget = isWalkInBooking
                             ? `record a ${refundMethod.replace('-', ' ')} refund`
                             : `refund via ${String(paymentPlatform).toUpperCase()}`;
-                        const confirmed = window.confirm(`Are you sure you want to ${confirmationTarget} for $${amount.toFixed(2)}?\n\nReason:\n${reason}`);
+                        const reasonSummary = reason !== '' ? `\n\nReason:\n${reason}` : '\n\nReason: (none provided)';
+                        const confirmed = window.confirm(`Are you sure you want to ${confirmationTarget} for $${amount.toFixed(2)}?${reasonSummary}`);
                         if (!confirmed) {
                             return;
                         }
 
+                        refundForm.dataset.submitting = '1';
+                        refundForm.classList.add('pointer-events-none', 'opacity-80');
+                        refundForm.querySelectorAll('input, select, textarea, button').forEach((field) => {
+                            field.disabled = true;
+                        });
+                        showOrderActionLoadingState('Processing refund', 'Please wait while the refund is being processed. Do not submit again.');
+
                         if (submitButton) {
-                            submitButton.disabled = true;
                             submitButton.textContent = 'Refunding...';
                         }
                         if (feedback) {
                             feedback.className = 'mt-2 text-xs text-amber-800';
-                            feedback.textContent = 'Processing refund...';
+                            feedback.textContent = 'Refund is being processed...';
                         }
 
                         const payload = new URLSearchParams();
@@ -1089,6 +1337,7 @@ $formatDateTime = function ($value) {
                                 feedback.className = 'mt-2 text-xs text-green-700';
                                 feedback.textContent = isWalkInBooking ? 'Walk-in refund recorded successfully.' : 'Refund processed successfully.';
                             }
+                            hideOrderActionLoadingState();
                             openOrderModal(Number(order.order_id || orderId));
                         })
                         .catch((error) => {
@@ -1098,8 +1347,13 @@ $formatDateTime = function ($value) {
                             }
                         })
                         .finally(() => {
+                            hideOrderActionLoadingState();
+                            refundForm.dataset.submitting = '0';
+                            refundForm.classList.remove('pointer-events-none', 'opacity-80');
+                            refundForm.querySelectorAll('input, select, textarea, button').forEach((field) => {
+                                field.disabled = false;
+                            });
                             if (submitButton) {
-                                submitButton.disabled = false;
                                 submitButton.textContent = 'Refund Deposit';
                             }
                         });
@@ -1165,6 +1419,32 @@ $formatDateTime = function ($value) {
                     submitButton.disabled = true;
                 }
                 showOrderActionLoadingState('Completing order', 'Please wait while inventory, PDFs, and order status are being finalized.');
+            });
+        });
+
+        document.querySelectorAll('.order-cancel-form').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                if (form.dataset.submitting === 'true') {
+                    e.preventDefault();
+                    return;
+                }
+
+                const confirmMessage = form.dataset.cancelConfirm || 'Cancel this order?';
+                const confirmed = window.confirm(confirmMessage);
+                if (!confirmed) {
+                    e.preventDefault();
+                    return;
+                }
+
+                form.dataset.submitting = 'true';
+                const submitButton = form.querySelector('button[type="submit"]');
+                if (submitButton) {
+                    submitButton.disabled = true;
+                }
+
+                const actionLabel = (form.dataset.cancelLabel || 'cancel').toLowerCase();
+                const title = actionLabel === 'reject' ? 'Rejecting order' : 'Cancelling order';
+                showOrderActionLoadingState(title, 'Please wait while order status and related records are being updated.');
             });
         });
 

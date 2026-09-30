@@ -14,11 +14,12 @@ if ($isAdminSurface) {
         "object-src 'none'",
         "frame-ancestors 'self'",
         "form-action 'self'",
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com https://www.paypal.com https://www.paypalobjects.com",
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
         "font-src 'self' data: https://fonts.gstatic.com",
-        "img-src 'self' data: blob:",
-        "connect-src 'self'",
+        "img-src 'self' data: blob: https:",
+        "connect-src 'self' https://api.stripe.com https://www.paypal.com https://*.paypal.com",
+        "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://www.paypal.com https://www.sandbox.paypal.com",
     ];
     header('Content-Security-Policy: ' . implode('; ', $cspReportOnly));
 } else {

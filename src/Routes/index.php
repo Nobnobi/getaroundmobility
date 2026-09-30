@@ -101,6 +101,7 @@ $router->get('/walkin-booking/logout', AdminController::class, 'walkinBookingLog
 $router->get('/walkin-booking', AdminController::class, 'walkinBooking');
 $router->post('/walkin-booking', AdminController::class, 'processWalkinBooking');
 $router->get('/walkin-booking/availability', AdminController::class, 'walkinBookingAvailability');
+$router->get('/walkin-booking/checkout', AdminController::class, 'walkinCheckout');
 
 /*
 |--------------------------------------------------------------------------
@@ -114,6 +115,7 @@ $router->get('/admin/orders/analytics', AdminController::class, 'orderAnalytics'
 $router->get('/admin/orders/new', AdminController::class, 'newOrder');
 $router->get('/admin/orders/availability', AdminController::class, 'newOrderAvailability');
 $router->get('/admin/orders/details', OrderController::class, 'ajaxOrderDetails');
+$router->post('/admin/orders/details/update', AdminController::class, 'updateOrderDetails');
 $router->get('/admin/orders/document', OrderController::class, 'downloadOrderDocument');
 
 $router->post('/admin/orders/approve', AdminController::class, 'approveOrder');
@@ -167,6 +169,7 @@ $router->get('/admin/scooters/edit', ScooterController::class, 'edit');
 $router->post('/admin/scooters/edit', ScooterController::class, 'update');
 $router->post('/admin/scooters/delete', ScooterController::class, 'delete');
 $router->post('/admin/scooters/save', ScooterController::class, 'save');
+$router->post('/admin/scooters/auto-number-missing', ScooterController::class, 'autoNumberMissing');
 $router->get('/admin/scooters/list', ScooterController::class, 'listByProduct');
 
 /*

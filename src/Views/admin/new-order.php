@@ -56,6 +56,10 @@ $panelClass = $kioskMode
                 <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                 <input type="hidden" name="cart" id="cart-json">
                 <input type="hidden" name="promo_code" id="promo-code-input" value="">
+                <input type="hidden" name="booking_source" value="walk-in">
+                <input type="hidden" name="created_by_admin_id" value="<?= htmlspecialchars((string)($_SESSION['admin_id'] ?? '')) ?>">
+                <input type="hidden" name="created_by_admin_role" value="<?= htmlspecialchars((string)($_SESSION['admin_role'] ?? '')) ?>">
+                <input type="hidden" name="created_by_admin_name" value="<?= htmlspecialchars((string)($_SESSION['admin_username'] ?? '')) ?>">
                 <?php if ($kioskMode): ?>
                     <input type="hidden" name="booking_context" value="kiosk">
                 <?php endif; ?>
@@ -95,11 +99,56 @@ $panelClass = $kioskMode
                                 <label class="mb-1 block text-sm font-medium text-slate-700">Notes</label>
                                 <textarea name="notes" rows="4" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20" placeholder="Enter any additional notes or special instructions"></textarea>
                             </div>
+                            <div class="md:col-span-2 rounded-xl border border-[#d8e0ea] bg-[#f8fbff] p-4">
+                                <p class="mb-3 text-sm font-semibold text-[#1f2937]">Delivery Setup</p>
+                                <div class="flex flex-wrap items-center gap-4">
+                                    <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                                        <input type="radio" name="delivery_type" value="hotel" checked class="h-4 w-4 text-[#0086C9] focus:ring-[#0086C9]">
+                                        Hotel delivery
+                                    </label>
+                                    <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                                        <input type="radio" name="delivery_type" value="pickup" class="h-4 w-4 text-[#0086C9] focus:ring-[#0086C9]">
+                                        Store pickup
+                                    </label>
+                                </div>
+                                <div id="walkin-hotel-fields" class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <div>
+                                        <label class="mb-1 block text-sm font-medium text-slate-700">Delivery Hotel <span class="text-red-500">*</span></label>
+                                        <select name="hotel_id" id="walkinHotelSelect" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                            <option value="">Select a partner hotel</option>
+                                            <?php foreach (($partnerHotels ?? []) as $hotel): ?>
+                                                <option value="<?= (int)$hotel['id'] ?>" data-delivery-fee="<?= htmlspecialchars(number_format((float)($hotel['delivery_fee'] ?? 0), 2, '.', '')) ?>">
+                                                    <?= htmlspecialchars($hotel['name']) ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="mb-1 block text-sm font-medium text-slate-700">Return Hotel <span class="text-red-500">*</span></label>
+                                        <select name="return_hotel_id" id="walkinReturnHotelSelect" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                            <option value="">Select return hotel</option>
+                                            <?php foreach (($partnerHotels ?? []) as $hotel): ?>
+                                                <option value="<?= (int)$hotel['id'] ?>" data-delivery-fee="<?= htmlspecialchars(number_format((float)($hotel['delivery_fee'] ?? 0), 2, '.', '')) ?>"><?= htmlspecialchars($hotel['name']) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="walkin-pickup-fields" class="mt-4 hidden">
+                                    <label class="mb-1 block text-sm font-medium text-slate-700">Pickup Location <span class="text-red-500">*</span></label>
+                                    <select name="pickup_location" id="walkinPickupLocationSelect" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                        <option value="">Select pickup location</option>
+                                        <?php foreach (($pickupLocations ?? []) as $location): ?>
+                                            <option value="<?= htmlspecialchars((string)$location['id']) ?>"><?= htmlspecialchars($location['name']) ?> - <?= htmlspecialchars($location['address']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="md:col-span-1 md:max-w-sm">
                                 <label class="mb-1 block text-sm font-medium text-slate-700">Payment Method <span class="text-red-500">*</span></label>
-                                <select name="payment_method" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
+                                <select name="payment_method" id="walkinPaymentMethod" class="w-full rounded-lg border border-[#c9d1dc] bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-[#0086C9] focus:outline-none focus:ring-2 focus:ring-[#0086C9]/20">
                                     <option value="cash">Cash</option>
-                                    <option value="card">Card</option>
+                                    <option value="card">Card (Stripe checkout)</option>
+                                    <option value="paypal">PayPal checkout</option>
                                 </select>
                             </div>
                         </div>
@@ -261,6 +310,10 @@ $panelClass = $kioskMode
                             <span id="security-deposit-amount">$100.00</span>
                         </div>
                         <div class="flex items-center justify-between text-sm text-slate-600">
+                            <span>Hotel Delivery Fee</span>
+                            <span id="delivery-fee-amount">$0.00</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm text-slate-600">
                             <span>Subtotal (Pre-Tax)</span>
                             <span id="pretax-amount">$0.00</span>
                         </div>
@@ -291,7 +344,7 @@ $panelClass = $kioskMode
                             <a href="<?= htmlspecialchars($cancelUrl) ?>" class="inline-flex cursor-pointer rounded-lg border border-gray-300 bg-white px-5 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100"><?= htmlspecialchars($cancelLabel) ?></a>
                         </div>
                     <?php endif; ?>
-                    <button type="submit" class="w-full cursor-pointer rounded-lg border border-[#0086C9] bg-white px-6 py-3 text-sm font-semibold text-[#0086C9] transition-colors hover:bg-[#e8f4fd]">Create Booking</button>
+                    <button id="walkinSubmitButton" type="submit" class="w-full cursor-pointer rounded-lg border border-[#0086C9] bg-white px-6 py-3 text-sm font-semibold text-[#0086C9] transition-colors hover:bg-[#e8f4fd]">Create Booking</button>
                 </div>
             </form>
         </div>
@@ -339,6 +392,50 @@ $panelClass = $kioskMode
         </div>
     </div>
 
+    <div id="walkinPaymentModal" class="fixed inset-0 z-[80] hidden items-center justify-center bg-black/60 p-4">
+        <div class="w-full max-w-2xl rounded-2xl border border-[#cfd8e3] bg-white shadow-2xl">
+            <div class="flex items-center justify-between border-b border-[#e5ebf2] px-5 py-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#0086C9]">Walk-in Payment Portal</p>
+                    <h3 class="mt-1 text-xl font-bold text-[#1f2937]">Complete Payment</h3>
+                </div>
+                <button type="button" id="walkinPaymentModalClose" class="rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700" aria-label="Close payment modal">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="px-5 py-4">
+                <p class="text-sm text-slate-600">Total to charge: <span id="walkinPaymentAmount" class="font-semibold text-slate-900">$0.00</span></p>
+                <p id="walkinPaymentError" class="mt-2 hidden rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"></p>
+                <div id="walkinPaymentProcessing" class="mt-3 hidden rounded-lg border border-[#c8def0] bg-[#edf7ff] px-3 py-2 text-sm font-medium text-[#0b5f8a]">
+                    Processing payment. Please do not close this window.
+                </div>
+
+                <div id="walkinStripePortal" class="mt-4 hidden rounded-xl border border-[#d5dde8] bg-[#fbfdff] p-4">
+                    <p class="mb-3 text-sm font-semibold text-slate-700">Card payment via Stripe</p>
+                    <div id="walkinStripePaymentElement"></div>
+                    <button type="button" id="walkinStripeConfirmBtn" class="mt-4 w-full rounded-lg bg-[#0086C9] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0873ab]">Confirm Card Payment</button>
+                </div>
+
+                <div id="walkinPaypalPortal" class="mt-4 hidden rounded-xl border border-[#d5dde8] bg-[#fbfdff] p-4">
+                    <p class="mb-3 text-sm font-semibold text-slate-700">PayPal payment</p>
+                    <div id="walkinPaypalButtonContainer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="walkinPaymentStatusModal" class="fixed inset-0 z-[90] hidden items-center justify-center bg-black/60 p-4">
+        <div class="w-full max-w-md rounded-2xl border border-[#d6deea] bg-white p-6 shadow-2xl">
+            <h3 id="walkinPaymentStatusTitle" class="text-xl font-bold text-[#1f2937]">Payment Update</h3>
+            <p id="walkinPaymentStatusMessage" class="mt-3 text-sm text-slate-600"></p>
+            <div class="mt-5 flex justify-end">
+                <button type="button" id="walkinPaymentStatusClose" class="rounded-lg bg-[#0086C9] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0873ab]">OK</button>
+            </div>
+        </div>
+    </div>
+
     <div id="policyModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
         <div class="w-full max-w-3xl rounded-md border border-gray-400 bg-[#fefbea] shadow-2xl">
             <div class="relative border-b border-gray-400 px-6 py-4 text-center">
@@ -369,6 +466,8 @@ window.WALKIN_PROMO_RULES[<?= json_encode($p['code']) ?>] = {type: <?= json_enco
 <?php endforeach; ?>
 </script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js" integrity="sha384-5JqMv4L/Xa0hfvtF06qboNdhvuYXUku9ZrhZh3bSk8VXF0A/RuSLHpLsSV9Zqhl6" crossorigin="anonymous"></script>
+<script src="https://js.stripe.com/v3/"></script>
+<script src="https://www.paypal.com/sdk/js?client-id=<?= htmlspecialchars(getenv('PAYPAL_CLIENT_ID') ?: ($_ENV['PAYPAL_CLIENT_ID'] ?? '')) ?>&currency=USD&components=buttons&enable-funding=card"></script>
 <script>
 const bookingForm = document.getElementById('walkin-booking-form');
 const bookingLoadingOverlay = document.getElementById('booking-loading-overlay');
@@ -398,6 +497,29 @@ const orderItemsTierText = document.getElementById('order-items-tier-text');
 const walkinPolicyCheckbox = document.getElementById('walkinPolicyCheckbox');
 const finalPriceOverrideInput = document.getElementById('final-price-override');
 const finalPriceOverrideFeedback = document.getElementById('final-price-override-feedback');
+const deliveryTypeInputs = bookingForm.querySelectorAll('input[name="delivery_type"]');
+const hotelFields = document.getElementById('walkin-hotel-fields');
+const pickupFields = document.getElementById('walkin-pickup-fields');
+const hotelSelect = document.getElementById('walkinHotelSelect');
+const returnHotelSelect = document.getElementById('walkinReturnHotelSelect');
+const pickupLocationSelect = document.getElementById('walkinPickupLocationSelect');
+const paymentMethodSelect = document.getElementById('walkinPaymentMethod');
+const walkinSubmitButton = document.getElementById('walkinSubmitButton');
+const deliveryFeeAmountEl = document.getElementById('delivery-fee-amount');
+const walkinPaymentModal = document.getElementById('walkinPaymentModal');
+const walkinPaymentModalClose = document.getElementById('walkinPaymentModalClose');
+const walkinPaymentAmount = document.getElementById('walkinPaymentAmount');
+const walkinPaymentError = document.getElementById('walkinPaymentError');
+const walkinPaymentProcessing = document.getElementById('walkinPaymentProcessing');
+const walkinStripePortal = document.getElementById('walkinStripePortal');
+const walkinPaypalPortal = document.getElementById('walkinPaypalPortal');
+const walkinStripePaymentElementRoot = document.getElementById('walkinStripePaymentElement');
+const walkinStripeConfirmBtn = document.getElementById('walkinStripeConfirmBtn');
+const walkinPaypalButtonContainer = document.getElementById('walkinPaypalButtonContainer');
+const walkinPaymentStatusModal = document.getElementById('walkinPaymentStatusModal');
+const walkinPaymentStatusTitle = document.getElementById('walkinPaymentStatusTitle');
+const walkinPaymentStatusMessage = document.getElementById('walkinPaymentStatusMessage');
+const walkinPaymentStatusClose = document.getElementById('walkinPaymentStatusClose');
 
 const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
 const SECURITY_DEPOSIT = <?php
@@ -414,6 +536,13 @@ const SECURITY_DEPOSIT = <?php
 
 const WALKIN_PROMO_RULES = window.WALKIN_PROMO_RULES || {};
 let activePromoCode = '';
+
+const stripePublishableKey = <?= json_encode($_ENV['STRIPE_PUBLISHABLE'] ?? getenv('STRIPE_PUBLISHABLE') ?: '', JSON_UNESCAPED_SLASHES) ?>;
+const walkinStripeClient = (stripePublishableKey && typeof Stripe !== 'undefined') ? Stripe(stripePublishableKey) : null;
+let walkinStripeElements = null;
+let walkinStripePaymentElement = null;
+let walkinStripeIntentId = '';
+let walkinPendingCart = [];
 
 function showBookingLoadingState() {
     if (bookingLoadingOverlay) {
@@ -492,7 +621,402 @@ function getComputedWalkinTotal() {
 
     const discount = calculatePromoDiscount(subtotal);
     const productTotalWithTax = Math.max(0, subtotal - discount);
-    return Number((productTotalWithTax + SECURITY_DEPOSIT).toFixed(2));
+    return Number((productTotalWithTax + SECURITY_DEPOSIT + getSelectedWalkinDeliveryFee()).toFixed(2));
+}
+
+function getSelectedDeliveryType() {
+    const checked = bookingForm.querySelector('input[name="delivery_type"]:checked');
+    return checked ? checked.value : 'hotel';
+}
+
+function getSelectedWalkinDeliveryFee() {
+    if (getSelectedDeliveryType() !== 'hotel') {
+        return 0;
+    }
+    if (!hotelSelect) {
+        return 0;
+    }
+
+    const deliveryOption = hotelSelect.options[hotelSelect.selectedIndex];
+    const returnOption = returnHotelSelect ? returnHotelSelect.options[returnHotelSelect.selectedIndex] : null;
+
+    const deliveryFee = Number(deliveryOption ? (deliveryOption.getAttribute('data-delivery-fee') || 0) : 0);
+    const returnFee = Number(returnOption ? (returnOption.getAttribute('data-delivery-fee') || 0) : 0);
+
+    const safeDeliveryFee = Number.isFinite(deliveryFee) && deliveryFee > 0 ? deliveryFee : 0;
+    const safeReturnFee = Number.isFinite(returnFee) && returnFee > 0 ? returnFee : 0;
+    return Math.max(safeDeliveryFee, safeReturnFee);
+}
+
+function updateWalkinSubmitLabel() {
+    if (!walkinSubmitButton || !paymentMethodSelect) {
+        return;
+    }
+    const payment = String(paymentMethodSelect.value || '').toLowerCase();
+    walkinSubmitButton.textContent = (payment === 'card' || payment === 'paypal')
+        ? 'Continue to Payment'
+        : 'Create Booking';
+}
+
+function updateWalkinDeliveryUI() {
+    const deliveryType = getSelectedDeliveryType();
+    const useHotel = deliveryType === 'hotel';
+
+    if (hotelFields) hotelFields.classList.toggle('hidden', !useHotel);
+    if (pickupFields) pickupFields.classList.toggle('hidden', useHotel);
+
+    if (hotelSelect) hotelSelect.required = useHotel;
+    if (returnHotelSelect) returnHotelSelect.required = useHotel;
+    if (pickupLocationSelect) pickupLocationSelect.required = !useHotel;
+
+    if (deliveryFeeAmountEl) {
+        deliveryFeeAmountEl.textContent = formatMoney(getSelectedWalkinDeliveryFee());
+    }
+
+    updateTotal();
+}
+
+function resetWalkinPaymentPortalState() {
+    walkinStripeIntentId = '';
+    walkinPendingCart = [];
+    if (walkinPaymentError) {
+        walkinPaymentError.textContent = '';
+        walkinPaymentError.classList.add('hidden');
+    }
+    if (walkinPaymentProcessing) {
+        walkinPaymentProcessing.classList.add('hidden');
+    }
+    if (walkinStripePortal) walkinStripePortal.classList.add('hidden');
+    if (walkinPaypalPortal) walkinPaypalPortal.classList.add('hidden');
+    if (walkinStripePaymentElementRoot) walkinStripePaymentElementRoot.innerHTML = '';
+    walkinStripeElements = null;
+    walkinStripePaymentElement = null;
+    if (walkinPaypalButtonContainer) walkinPaypalButtonContainer.innerHTML = '';
+}
+
+function setWalkinPaymentProcessing(active) {
+    walkinStripeProcessing = !!active;
+    if (!walkinPaymentProcessing) return;
+    if (active) {
+        walkinPaymentProcessing.classList.remove('hidden');
+    } else {
+        walkinPaymentProcessing.classList.add('hidden');
+    }
+
+    if (walkinStripeConfirmBtn) {
+        walkinStripeConfirmBtn.disabled = !!active;
+        walkinStripeConfirmBtn.classList.toggle('pointer-events-none', !!active);
+        walkinStripeConfirmBtn.classList.toggle('opacity-70', !!active);
+        walkinStripeConfirmBtn.setAttribute('aria-disabled', active ? 'true' : 'false');
+    }
+}
+
+function openWalkinPaymentStatusModal(title, message, onClose) {
+    if (!walkinPaymentStatusModal || !walkinPaymentStatusTitle || !walkinPaymentStatusMessage) {
+        if (typeof onClose === 'function') onClose();
+        return;
+    }
+
+    walkinPaymentStatusTitle.textContent = String(title || 'Payment Update');
+    walkinPaymentStatusMessage.textContent = String(message || '');
+    walkinPaymentStatusModal.classList.remove('hidden');
+    walkinPaymentStatusModal.classList.add('flex');
+
+    const closeHandler = () => {
+        walkinPaymentStatusModal.classList.add('hidden');
+        walkinPaymentStatusModal.classList.remove('flex');
+        walkinPaymentStatusClose?.removeEventListener('click', closeHandler);
+        walkinPaymentStatusModal?.removeEventListener('click', overlayCloseHandler);
+        if (typeof onClose === 'function') {
+            onClose();
+        }
+    };
+
+    const overlayCloseHandler = (event) => {
+        if (event.target === walkinPaymentStatusModal) {
+            closeHandler();
+        }
+    };
+
+    walkinPaymentStatusClose?.addEventListener('click', closeHandler);
+    walkinPaymentStatusModal?.addEventListener('click', overlayCloseHandler);
+}
+
+function showWalkinPaymentError(message) {
+    if (!walkinPaymentError) return;
+    walkinPaymentError.textContent = String(message || 'Payment failed. Please try again.');
+    walkinPaymentError.classList.remove('hidden');
+}
+
+function openWalkinPaymentModal() {
+    if (!walkinPaymentModal) return;
+    walkinPaymentModal.classList.remove('hidden');
+    walkinPaymentModal.classList.add('flex');
+}
+
+function closeWalkinPaymentModal() {
+    if (!walkinPaymentModal) return;
+    walkinPaymentModal.classList.add('hidden');
+    walkinPaymentModal.classList.remove('flex');
+    resetWalkinPaymentPortalState();
+}
+
+function buildWalkinPaymentFormData(cartItems) {
+    const formData = new FormData(bookingForm);
+    const firstName = String(formData.get('guest_first_name') || '').trim();
+    const lastName = String(formData.get('guest_last_name') || '').trim();
+    formData.set('cart', JSON.stringify(cartItems || []));
+    formData.set('booking_source', 'walk-in');
+    formData.set('acknowledge_id_presence', '1');
+    formData.set('first_name', firstName);
+    formData.set('last_name', lastName);
+    formData.set('name', `${firstName} ${lastName}`.trim());
+    formData.set('created_by_admin_id', String(formData.get('created_by_admin_id') || '').trim());
+    formData.set('created_by_admin_role', String(formData.get('created_by_admin_role') || '').trim());
+    formData.set('created_by_admin_name', String(formData.get('created_by_admin_name') || '').trim());
+
+    if (!String(formData.get('client_height') || '').trim()) {
+        formData.set('client_height', 'walk-in');
+    }
+    if (!String(formData.get('heard_about_option_id') || '').trim()) {
+        formData.set('heard_about_option_id', '-1');
+        formData.set('heard_about_other_text', 'Walk-in booking');
+    }
+
+    return formData;
+}
+
+function formDataToCheckoutSnapshot(formData) {
+    const keys = [
+        'first_name', 'last_name', 'email', 'phone',
+        'client_weight_option', 'client_height',
+        'address1', 'address2', 'state', 'zip',
+        'delivery_type', 'hotel_id', 'return_hotel_id',
+        'pickup_datetime', 'return_datetime', 'pickup_location',
+        'notes', 'heard_about_option_id', 'heard_about_other_text',
+        'sale_type', 'booking_source',
+        'created_by_admin_id', 'created_by_admin_role', 'created_by_admin_name',
+    ];
+    const snapshot = {};
+    keys.forEach(key => {
+        if (formData.has(key)) {
+            snapshot[key] = String(formData.get(key) || '').trim();
+        }
+    });
+
+    const first = String(formData.get('guest_first_name') || '').trim();
+    const last = String(formData.get('guest_last_name') || '').trim();
+    if (!snapshot.first_name && first) snapshot.first_name = first;
+    if (!snapshot.last_name && last) snapshot.last_name = last;
+
+    return snapshot;
+}
+
+async function initializeWalkinStripePortal(formData) {
+    if (!walkinStripeClient) {
+        throw new Error('Stripe SDK is unavailable. Please refresh the page and verify CSP/network settings.');
+    }
+
+    const response = await fetch('/create-payment-intent', {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin'
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data || data.error || !data.clientSecret) {
+        throw new Error(data?.error || 'Unable to initialize Stripe payment.');
+    }
+
+    walkinStripeIntentId = String(data.paymentIntentId || '');
+    walkinStripeElements = walkinStripeClient.elements({
+        clientSecret: data.clientSecret,
+        appearance: { theme: 'stripe' }
+    });
+    walkinStripePaymentElement = walkinStripeElements.create('payment', {
+        layout: { type: 'tabs' }
+    });
+    walkinStripePaymentElement.mount('#walkinStripePaymentElement');
+}
+
+async function confirmWalkinStripePayment(formData) {
+    if (!walkinStripeClient || !walkinStripeElements) {
+        throw new Error('Stripe payment form is not ready yet.');
+    }
+
+    const result = await walkinStripeClient.confirmPayment({
+        elements: walkinStripeElements,
+        confirmParams: {
+            return_url: `${window.location.origin}/walkin-booking`
+        },
+        redirect: 'if_required'
+    });
+
+    if (result.error) {
+        throw new Error(result.error.message || 'Stripe payment failed.');
+    }
+
+    if (!result.paymentIntent || result.paymentIntent.status !== 'succeeded') {
+        throw new Error('Stripe payment was not completed.');
+    }
+
+    const finalizeResponse = await fetch('/stripe-finalize-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            payment_intent_id: result.paymentIntent.id,
+            acknowledge_id_presence: '1',
+            agree_policy: '1',
+            cart_json: JSON.stringify(walkinPendingCart || []),
+            checkout_snapshot: formDataToCheckoutSnapshot(formData),
+        })
+    });
+
+    const finalizeData = await finalizeResponse.json().catch(() => ({}));
+    if (!finalizeResponse.ok || !finalizeData || finalizeData.error || !finalizeData.success) {
+        throw new Error(finalizeData?.error || 'Payment succeeded, but order finalization failed.');
+    }
+
+    return finalizeData;
+}
+
+function renderWalkinPaypalButtons(cartItems) {
+    if (!window.paypal || !walkinPaypalButtonContainer) {
+        throw new Error('PayPal SDK failed to load.');
+    }
+
+    walkinPaypalButtonContainer.innerHTML = '';
+    window.paypal.Buttons({
+        style: {
+            shape: 'rect',
+            layout: 'vertical',
+            color: 'gold',
+            label: 'paypal',
+        },
+        async createOrder() {
+            const formData = buildWalkinPaymentFormData(cartItems);
+            const saveResponse = await fetch('/save-checkout-form', {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin'
+            });
+            const saveData = await saveResponse.json().catch(() => ({}));
+            if (!saveResponse.ok || (saveData && saveData.error)) {
+                throw new Error(saveData?.error || 'Could not save walk-in checkout form data.');
+            }
+
+            const createResponse = await fetch('/api/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cart: (cartItems || []).map(item => ({
+                        id: item.id,
+                        name: item.name,
+                        quantity: item.qty,
+                        price: item.price,
+                        variation_id: (typeof item.variation_id !== 'undefined') ? item.variation_id : null,
+                        variation_name: (typeof item.variation_name !== 'undefined') ? item.variation_name : null,
+                        image_url: (typeof item.image_url !== 'undefined') ? item.image_url : null,
+                        type: item.type,
+                        sale_type: item.sale_type
+                    }))
+                })
+            });
+
+            const createData = await createResponse.json().catch(() => ({}));
+            if (!createResponse.ok || !createData || createData.error || !createData.id) {
+                throw new Error(createData?.error || 'Could not create PayPal order.');
+            }
+
+            return createData.id;
+        },
+        async onApprove(data) {
+            setWalkinPaymentProcessing(true);
+            const captureResponse = await fetch(`/api/orders/${data.orderID}/capture`, { method: 'POST' });
+            const captureData = await captureResponse.json().catch(() => ({}));
+            if (!captureResponse.ok || (captureData && captureData.error)) {
+                setWalkinPaymentProcessing(false);
+                throw new Error(captureData?.error || 'PayPal capture failed.');
+            }
+
+            const orderId = captureData.local_order_id ? `#${captureData.local_order_id}` : '';
+            setWalkinPaymentProcessing(false);
+            openWalkinPaymentStatusModal(
+                'Payment Successful',
+                `Walk-in booking ${orderId || ''} has been created successfully.`.trim(),
+                () => {
+                    window.location.href = '/walkin-booking';
+                }
+            );
+        },
+        onError(err) {
+            setWalkinPaymentProcessing(false);
+            const message = (err && err.message) ? err.message : 'PayPal payment failed.';
+            showWalkinPaymentError(message);
+            openWalkinPaymentStatusModal('Payment Failed', message);
+        }
+    }).render('#walkinPaypalButtonContainer');
+}
+
+async function startWalkinPortalPayment(paymentMethod, cartItems) {
+    const formData = buildWalkinPaymentFormData(cartItems);
+    walkinPendingCart = Array.isArray(cartItems) ? cartItems : [];
+
+    if (walkinPaymentAmount) {
+        walkinPaymentAmount.textContent = document.getElementById('total-amount')?.textContent || '$0.00';
+    }
+
+    openWalkinPaymentModal();
+    if (walkinPaymentError) {
+        walkinPaymentError.textContent = '';
+        walkinPaymentError.classList.add('hidden');
+    }
+
+    if (paymentMethod === 'card') {
+        if (walkinStripePortal) walkinStripePortal.classList.remove('hidden');
+        if (walkinPaypalPortal) walkinPaypalPortal.classList.add('hidden');
+        await initializeWalkinStripePortal(formData);
+
+        if (walkinStripeConfirmBtn) {
+            walkinStripeConfirmBtn.onclick = async function() {
+                if (walkinStripeConfirmBtn.dataset.busy === '1' || walkinStripeProcessing) return;
+                walkinStripeConfirmBtn.dataset.busy = '1';
+                walkinStripeConfirmBtn.disabled = true;
+                const originalText = walkinStripeConfirmBtn.textContent;
+                walkinStripeConfirmBtn.textContent = 'Processing payment...';
+                setWalkinPaymentProcessing(true);
+                try {
+                    const finalizeData = await confirmWalkinStripePayment(formData);
+                    const orderId = finalizeData.orderId ? `#${finalizeData.orderId}` : '';
+                    setWalkinPaymentProcessing(false);
+                    openWalkinPaymentStatusModal(
+                        'Payment Successful',
+                        `Walk-in booking ${orderId || ''} has been created successfully.`.trim(),
+                        () => {
+                            window.location.href = '/walkin-booking';
+                        }
+                    );
+                } catch (err) {
+                    const message = err?.message || 'Stripe payment failed.';
+                    setWalkinPaymentProcessing(false);
+                    showWalkinPaymentError(message);
+                    openWalkinPaymentStatusModal('Payment Failed', message);
+                } finally {
+                    walkinStripeConfirmBtn.dataset.busy = '0';
+                    walkinStripeConfirmBtn.disabled = false;
+                    walkinStripeConfirmBtn.textContent = originalText;
+                }
+            };
+        }
+        return;
+    }
+
+    if (paymentMethod === 'paypal') {
+        if (walkinPaypalPortal) walkinPaypalPortal.classList.remove('hidden');
+        if (walkinStripePortal) walkinStripePortal.classList.add('hidden');
+        renderWalkinPaypalButtons(cartItems);
+        return;
+    }
 }
 
 function updateOrderItemsTierText() {
@@ -552,11 +1076,27 @@ function getRentalDays() {
 }
 
 function getTieredPrice(productId, variationId, days) {
-    if (!window.rentalPrices || !window.rentalPrices[productId] || !window.rentalPrices[productId][variationId]) {
+    if (!window.rentalPrices || !window.rentalPrices[productId]) {
         return null;
     }
 
-    const tiers = window.rentalPrices[productId][variationId];
+    const productTiers = window.rentalPrices[productId];
+    const hasVariationId = variationId !== null && variationId !== undefined && String(variationId).trim() !== '';
+    let tiers = null;
+
+    if (hasVariationId && Object.prototype.hasOwnProperty.call(productTiers, String(variationId))) {
+        tiers = productTiers[String(variationId)];
+    }
+
+    // Fallback to base (no-variation) rental tier when variation-specific tier is missing.
+    if (!tiers && Object.prototype.hasOwnProperty.call(productTiers, 'null')) {
+        tiers = productTiers['null'];
+    }
+
+    if (!tiers) {
+        return null;
+    }
+
     const normalizedDays = Math.min(Math.max(parseInt(days, 10) || 1, 1), 31);
     const key = String(normalizedDays);
     if (!Object.prototype.hasOwnProperty.call(tiers, key)) {
@@ -758,16 +1298,21 @@ function validateRentalWindow() {
 function getVariationKey(row) {
     const variationSelect = row.querySelector('.variation-select');
     if (!variationSelect || variationSelect.style.display === 'none' || !variationSelect.value) {
-        return 'null';
+        return null;
     }
     return variationSelect.value;
+}
+
+function rowRequiresVariation(row) {
+    const variationSelect = row.querySelector('.variation-select');
+    return !!(variationSelect && variationSelect.style.display !== 'none');
 }
 
 function getEffectiveRowPrice(row) {
     const productSelect = row.querySelector('.product-select');
     const selected = productSelect.options[productSelect.selectedIndex];
     if (!selected || !selected.value) {
-        return 0;
+        return null;
     }
 
     const basePrice = Number(selected.getAttribute('data-price')) || 0;
@@ -775,7 +1320,23 @@ function getEffectiveRowPrice(row) {
         return basePrice;
     }
 
-    const tieredPrice = getTieredPrice(selected.value, getVariationKey(row), getRentalDays());
+    if (rowRequiresVariation(row)) {
+        const variationId = getVariationKey(row);
+        if (!variationId) {
+            // Variation is required for this product row; defer pricing until selected.
+            return null;
+        }
+
+        const variationTieredPrice = getTieredPrice(selected.value, variationId, getRentalDays());
+        if (variationTieredPrice !== null) {
+            return variationTieredPrice;
+        }
+
+        const baseTieredPrice = getTieredPrice(selected.value, null, getRentalDays());
+        return baseTieredPrice !== null ? baseTieredPrice : basePrice;
+    }
+
+    const tieredPrice = getTieredPrice(selected.value, null, getRentalDays());
     return tieredPrice !== null ? tieredPrice : basePrice;
 }
 
@@ -874,6 +1435,12 @@ function updateRowPrice(row) {
     }
 
     const price = getEffectiveRowPrice(row);
+    if (price === null || !Number.isFinite(Number(price))) {
+        priceLabel.textContent = '--';
+        row.dataset.effectivePrice = '0';
+        return;
+    }
+
     row.dataset.effectivePrice = String(price);
     priceLabel.textContent = formatMoney(price);
 }
@@ -949,9 +1516,6 @@ function updateProductRow(select) {
     const scooterCount = parseInt(selected.getAttribute('data-scooter-count')) || 0;
     const row = select.closest('.product-row');
     
-    // Update price display
-    updateRowPrice(row);
-    
     // Update stock display with color coding
     const stockSpan = row.querySelector('.product-stock');
     if (stock === 0) {
@@ -1006,6 +1570,9 @@ function updateProductRow(select) {
         variationSelect.required = false;
         variationSelect.onchange = null;
     }
+
+    // Recalculate after variation visibility/requirement is set.
+    updateRowPrice(row);
     updateTotal();
 }
 
@@ -1035,7 +1602,8 @@ function updateTotal() {
 
     const discount = calculatePromoDiscount(subtotal);
     const productTotalWithTax = Math.max(0, subtotal - discount);
-    const total = productTotalWithTax + SECURITY_DEPOSIT;
+    const deliveryFee = getSelectedWalkinDeliveryFee();
+    const total = productTotalWithTax + SECURITY_DEPOSIT + deliveryFee;
     const pretaxSubtotal = productTotalWithTax > 0 ? (productTotalWithTax / NV_TAX_INCLUSIVE_FACTOR) : 0;
     const taxIncluded = Math.max(0, productTotalWithTax - pretaxSubtotal);
     const manualOverrideAmount = getManualOverrideAmount();
@@ -1045,6 +1613,7 @@ function updateTotal() {
     if (subtotalAmountEl) subtotalAmountEl.textContent = formatMoney(subtotal);
     if (discountAmountEl) discountAmountEl.textContent = `-$${Number(discount).toFixed(2)}`;
     if (securityDepositAmountEl) securityDepositAmountEl.textContent = formatMoney(SECURITY_DEPOSIT);
+    if (deliveryFeeAmountEl) deliveryFeeAmountEl.textContent = formatMoney(deliveryFee);
     if (pretaxAmountEl) pretaxAmountEl.textContent = formatMoney(pretaxSubtotal);
     if (taxAmountEl) taxAmountEl.textContent = formatMoney(taxIncluded);
     document.getElementById('total-amount').textContent = `$${displayTotal.toFixed(2)}`;
@@ -1125,8 +1694,8 @@ if (finalPriceOverrideInput) {
     });
 }
 
-const BUSINESS_OPEN_MINUTES = (8 * 60) + 30;
-const BUSINESS_CLOSE_MINUTES = (17 * 60) + 30;
+const BUSINESS_OPEN_MINUTES = 0;
+const BUSINESS_CLOSE_MINUTES = (23 * 60) + 45;
 const MIN_RETURN_GAP_MINUTES = 30;
 const MAX_RENTAL_DAYS = 31;
 
@@ -1143,6 +1712,7 @@ const walkinDateTimeModalSave = document.getElementById('walkinDateTimeModalSave
 let walkinModalCalendarPicker = null;
 let walkinActiveField = 'pickup';
 let walkinPreviousSelection = { pickup: '', ret: '' };
+let walkinStripeProcessing = false;
 
 function padDatePart(value) {
     return String(value).padStart(2, '0');
@@ -1182,18 +1752,10 @@ function normalizeToBusinessHours(date) {
         normalized.setMinutes(normalized.getMinutes() + (15 - remainder));
     }
 
-    while (true) {
-        const minutes = (normalized.getHours() * 60) + normalized.getMinutes();
-        if (minutes < BUSINESS_OPEN_MINUTES) {
-            normalized.setHours(8, 30, 0, 0);
-            break;
-        }
-        if (minutes > BUSINESS_CLOSE_MINUTES) {
-            normalized.setDate(normalized.getDate() + 1);
-            normalized.setHours(8, 30, 0, 0);
-            continue;
-        }
-        break;
+    const minutes = (normalized.getHours() * 60) + normalized.getMinutes();
+    if (minutes > BUSINESS_CLOSE_MINUTES) {
+        normalized.setDate(normalized.getDate() + 1);
+        normalized.setHours(0, 0, 0, 0);
     }
 
     return normalized;
@@ -1210,7 +1772,7 @@ function getMinimumReturnDateTime(pickupDate) {
 function getMaximumReturnDateTime(pickupDate) {
     const max = new Date(pickupDate);
     max.setDate(max.getDate() + MAX_RENTAL_DAYS);
-    max.setHours(17, 30, 0, 0);
+    max.setHours(23, 45, 0, 0);
     return max;
 }
 
@@ -1451,6 +2013,32 @@ saleTypeSelect.addEventListener('change', function() {
 updateOrderItemsTierText();
 updateSaleTypeUI();
 refreshAvailabilityForWindow();
+updateWalkinSubmitLabel();
+updateWalkinDeliveryUI();
+
+if (walkinPaymentModalClose) {
+    walkinPaymentModalClose.addEventListener('click', closeWalkinPaymentModal);
+}
+if (walkinPaymentModal) {
+    walkinPaymentModal.addEventListener('click', function(event) {
+        if (event.target === walkinPaymentModal) {
+            closeWalkinPaymentModal();
+        }
+    });
+}
+
+deliveryTypeInputs.forEach(input => {
+    input.addEventListener('change', updateWalkinDeliveryUI);
+});
+if (hotelSelect) {
+    hotelSelect.addEventListener('change', updateWalkinDeliveryUI);
+}
+if (returnHotelSelect) {
+    returnHotelSelect.addEventListener('change', updateWalkinDeliveryUI);
+}
+if (paymentMethodSelect) {
+    paymentMethodSelect.addEventListener('change', updateWalkinSubmitLabel);
+}
 
 // Build cart JSON before submit
 bookingForm.addEventListener('submit', function(e) {
@@ -1469,6 +2057,27 @@ bookingForm.addEventListener('submit', function(e) {
     if (!walkinPolicyCheckbox || !walkinPolicyCheckbox.checked) {
         e.preventDefault();
         alert('You must agree to the rental policy and terms before proceeding.');
+        return;
+    }
+
+    const deliveryType = getSelectedDeliveryType();
+    if (deliveryType === 'hotel') {
+        if (!hotelSelect || !hotelSelect.value) {
+            e.preventDefault();
+            alert('Please select a delivery hotel.');
+            hotelSelect?.focus();
+            return;
+        }
+        if (!returnHotelSelect || !returnHotelSelect.value) {
+            e.preventDefault();
+            alert('Please select a return hotel.');
+            returnHotelSelect?.focus();
+            return;
+        }
+    } else if (!pickupLocationSelect || !pickupLocationSelect.value) {
+        e.preventDefault();
+        alert('Please select a pickup location.');
+        pickupLocationSelect?.focus();
         return;
     }
 
@@ -1540,6 +2149,15 @@ bookingForm.addEventListener('submit', function(e) {
     }
 
     document.getElementById('cart-json').value = JSON.stringify(cart);
+
+    const paymentMethod = String(paymentMethodSelect?.value || '').toLowerCase();
+    if (paymentMethod === 'card' || paymentMethod === 'paypal') {
+        e.preventDefault();
+        startWalkinPortalPayment(paymentMethod, cart).catch(err => {
+            showWalkinPaymentError(err?.message || 'Unable to initialize walk-in payment portal.');
+        });
+        return;
+    }
 
     bookingForm.dataset.submitting = 'true';
     showBookingLoadingState();

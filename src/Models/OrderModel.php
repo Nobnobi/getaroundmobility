@@ -127,6 +127,9 @@ class OrderModel {
                     if ($baseTierPrice !== false) {
                         return (float)$baseTierPrice;
                     }
+
+                    // Rental pricing falls back to product base price, never variation table price.
+                    return $this->getCatalogBasePrice($productId, null);
                 }
 
                 return $this->getCatalogBasePrice($productId, $variationId);
@@ -153,7 +156,9 @@ class OrderModel {
                     return 0.0;
                 }
 
-                return $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
+                $deliveryHotelFee = $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
+                $returnHotelFee = $this->getHotelDeliveryFeeById($source['return_hotel_id'] ?? null);
+                return max($deliveryHotelFee, $returnHotelFee);
             }
 
             private function getDefaultSecurityDeposit(): float {
@@ -270,6 +275,114 @@ class OrderModel {
                 }
 
                 return null;
+            }
+
+            public function regenerateProformaDocument(int $orderId): ?string {
+                $orderId = (int)$orderId;
+                if ($orderId <= 0) {
+                    return null;
+                }
+
+                $orderStmt = $this->db->prepare("SELECT * FROM orders WHERE order_id = ? LIMIT 1");
+                $orderStmt->execute([$orderId]);
+                $order = $orderStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+                if (!$order) {
+                    return null;
+                }
+
+                $itemsStmt = $this->db->prepare(
+                    "SELECT product_name, variation_name, quantity, price
+                     FROM order_items
+                     WHERE order_id = ?
+                     ORDER BY order_item_id ASC"
+                );
+                $itemsStmt->execute([$orderId]);
+                $items = $itemsStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+                $subtotal = 0.0;
+                $invoiceItemsTable = '';
+                foreach ($items as $item) {
+                    $qty = max(1, (int)($item['quantity'] ?? 1));
+                    $name = trim((string)($item['product_name'] ?? 'Item') . (!empty($item['variation_name']) ? ' - ' . (string)$item['variation_name'] : ''));
+                    $price = (float)($item['price'] ?? 0);
+                    $lineTotalValue = $qty * $price;
+                    $subtotal += $lineTotalValue;
+
+                    $safeQty = htmlspecialchars((string)$qty);
+                    $safeName = htmlspecialchars($name);
+                    $unitPrice = '$' . number_format($price, 2);
+                    $lineTotal = '$' . number_format($lineTotalValue, 2);
+                    $invoiceItemsTable .= "<tr><td class='border p-2'>{$safeQty}</td><td class='border p-2'>{$safeName}</td><td class='border p-2'>{$unitPrice}</td><td class='border p-2'>{$lineTotal}</td></tr>";
+                }
+
+                $logoSrc = '';
+                if (extension_loaded('gd')) {
+                    $logoPath = __DIR__ . '/../../public/img/Original logo.png';
+                    if (!file_exists($logoPath)) {
+                        $logoPath = __DIR__ . '/../../public/img/Original logo.svg';
+                    }
+                    if (file_exists($logoPath)) {
+                        $mime = mime_content_type($logoPath);
+                        $data = file_get_contents($logoPath);
+                        $logoSrc = 'data:' . $mime . ';base64,' . base64_encode($data);
+                    }
+                }
+
+                $itemsTable = $invoiceItemsTable;
+                $orderDate = (string)($order['order_date'] ?? date('Y-m-d H:i:s'));
+                $pickup_datetime = (string)($order['pickup_datetime'] ?? '');
+                $return_datetime = (string)($order['return_datetime'] ?? '');
+                $customerName = trim((string)($order['guest_first_name'] ?? '') . ' ' . (string)($order['guest_last_name'] ?? ''));
+                $customerEmail = (string)($order['guest_email'] ?? '');
+                $customerPhone = (string)($order['guest_phone'] ?? '');
+                $customerAddress = trim((string)($order['address1'] ?? '') . ' ' . (string)($order['address2'] ?? ''));
+                $pickupLocation = (string)($order['pickup_location'] ?? '');
+                $deliveryType = (string)($order['delivery_type'] ?? '');
+                $paymentMethod = (string)($order['payment_method'] ?? '');
+                $paymentCardLast4 = $this->resolveOrderPaymentCardLast4($order);
+                $promoCode = (string)($order['promo_code'] ?? '');
+                $discountAmount = (float)($order['promo_discount'] ?? 0);
+
+                $deliveryFee = max(0, round((float)($order['delivery_fee'] ?? 0), 2));
+                $productTotalWithTax = round(max(0, $subtotal - $discountAmount), 2);
+                $storedSecurityDeposit = isset($order['security_deposit']) ? (float)$order['security_deposit'] : 0.0;
+                $securityDeposit = round(max(0, $storedSecurityDeposit), 2);
+
+                $totals = (new \App\Services\OrderTotalsService())->calculateFromSubtotal($productTotalWithTax, 0.0, $securityDeposit, $deliveryFee);
+                $productPreTax = $totals['product_pre_tax'];
+                $totalAmount = $totals['total_amount'];
+                $tax = $totals['tax'];
+                $totalAmountWithTax = $totals['total_amount_with_tax'];
+
+                try {
+                    ob_start();
+                    include __DIR__ . '/../../Proformas/proforma-template.php';
+                    $invoiceHtml = ob_get_clean();
+
+                    $invoiceOptions = new \Dompdf\Options();
+                    $invoiceOptions->set('isRemoteEnabled', true);
+                    $invoiceOptions->set('isHtml5ParserEnabled', true);
+
+                    $invoiceDompdf = new \Dompdf\Dompdf($invoiceOptions);
+                    $invoiceDompdf->loadHtml($invoiceHtml);
+                    $invoiceDompdf->setPaper('A4', 'portrait');
+                    $invoiceDompdf->render();
+
+                    $invoiceDir = $this->getPrivateDocumentDir('proformas');
+                    $invoicePath = $invoiceDir . "proforma-{$orderId}.pdf";
+                    $written = @file_put_contents($invoicePath, $invoiceDompdf->output());
+                    if ($written === false || !is_file($invoicePath) || filesize($invoicePath) === 0) {
+                        return null;
+                    }
+
+                    $this->upsertOrderDocumentMetadata($orderId, 'proforma', $invoicePath, 'generated');
+                    return $invoicePath;
+                } catch (\Throwable $e) {
+                    @ob_end_clean();
+                    $invoicePath = $this->getPrivateDocumentDir('proformas') . "proforma-{$orderId}.pdf";
+                    $this->upsertOrderDocumentMetadata($orderId, 'proforma', $invoicePath, 'failed', $e->getMessage());
+                    return null;
+                }
             }
 
             private function executeOrThrow(\PDOStatement $stmt, array $params): void {
@@ -761,8 +874,8 @@ class OrderModel {
         }
 
         $reasonText = trim($reason);
-        if ($reasonText === '' || strlen($reasonText) < 5) {
-            return ['success' => false, 'error' => 'Please provide a refund reason (at least 5 characters).'];
+        if ($reasonText === '') {
+            $reasonText = 'Quick refund (no reason provided)';
         }
 
         $orderStmt = $this->db->prepare("SELECT * FROM orders WHERE order_id = ? LIMIT 1");
@@ -1074,6 +1187,400 @@ class OrderModel {
             'provider_transaction_reference' => $captureId,
             'raw_response' => $refundData,
         ];
+    }
+
+    private function resolvePaymentProviderFromOrder(array $order): string
+    {
+        $provider = strtolower(trim((string)($order['payment_provider'] ?? '')));
+        if ($provider !== '') {
+            return $provider;
+        }
+
+        $method = strtolower(trim((string)($order['payment_method'] ?? '')));
+        if ($method === 'card') {
+            return 'stripe';
+        }
+        if ($method === 'paypal') {
+            return 'paypal';
+        }
+
+        return '';
+    }
+
+    private function getStripeApiKey(): string
+    {
+        $stripeSecret = getenv('STRIPE_SECRET_KEY');
+        if ($stripeSecret === false || trim((string)$stripeSecret) === '') {
+            $stripeSecret = $_ENV['STRIPE_SECRET_KEY'] ?? '';
+        }
+        return trim((string)$stripeSecret);
+    }
+
+    private function getApprovedRefundTotalForOrder(int $orderId): float
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COALESCE(SUM(approved_amount), 0)
+             FROM order_refunds
+             WHERE order_id = ?
+               AND LOWER(COALESCE(status, '')) IN ('succeeded', 'completed', 'pending')"
+        );
+        $stmt->execute([$orderId]);
+        return round((float)$stmt->fetchColumn(), 2);
+    }
+
+    private function issueStripeOrderCancellationRefund(array $order, float $amount, string $reason, string $idempotencyKey): array
+    {
+        $intentId = trim((string)($order['provider_payment_intent_id'] ?? ''));
+        if ($intentId === '') {
+            return ['success' => false, 'error' => 'Missing Stripe payment intent reference for this order.'];
+        }
+
+        $stripeSecret = $this->getStripeApiKey();
+        if ($stripeSecret === '') {
+            return ['success' => false, 'error' => 'Stripe secret not configured.'];
+        }
+
+        \Stripe\Stripe::setApiKey($stripeSecret);
+
+        try {
+            $refund = \Stripe\Refund::create([
+                'payment_intent' => $intentId,
+                'amount' => (int)round($amount * 100),
+                'reason' => 'requested_by_customer',
+                'metadata' => [
+                    'order_id' => (string)($order['order_id'] ?? ''),
+                    'order_cancellation_refund_reason' => $reason,
+                ],
+            ], [
+                'idempotency_key' => $idempotencyKey,
+            ]);
+
+            $status = strtolower((string)($refund->status ?? 'succeeded'));
+            $approvedAmount = isset($refund->amount) ? ((float)$refund->amount / 100) : $amount;
+
+            return [
+                'success' => true,
+                'approved_amount' => round($approvedAmount, 2),
+                'status' => $status,
+                'provider_refund_id' => (string)($refund->id ?? ''),
+                'provider_transaction_reference' => $intentId,
+                'raw_response' => method_exists($refund, 'toArray') ? $refund->toArray() : (array)$refund,
+            ];
+        } catch (\Throwable $e) {
+            return ['success' => false, 'error' => 'Stripe order-cancellation refund error: ' . $e->getMessage()];
+        }
+    }
+
+    private function issuePaypalOrderCancellationRefund(array $order, float $amount, string $reason, string $idempotencyKey): array
+    {
+        $captureId = trim((string)($order['provider_paypal_capture_id'] ?? ''));
+        if ($captureId === '') {
+            return ['success' => false, 'error' => 'Missing PayPal capture reference for this order.'];
+        }
+
+        $clientId = getenv('PAYPAL_CLIENT_ID') ?: ($_ENV['PAYPAL_CLIENT_ID'] ?? '');
+        $clientSecret = getenv('PAYPAL_CLIENT_SECRET') ?: ($_ENV['PAYPAL_CLIENT_SECRET'] ?? '');
+        if ($clientId === '' || $clientSecret === '') {
+            return ['success' => false, 'error' => 'PayPal credentials are not configured.'];
+        }
+
+        $mode = strtolower(trim((string)(getenv('PAYPAL_MODE') ?: ($_ENV['PAYPAL_MODE'] ?? 'sandbox'))));
+        $baseUrl = $mode === 'live'
+            ? 'https://api-m.paypal.com'
+            : 'https://api-m.sandbox.paypal.com';
+
+        $ch = curl_init($baseUrl . '/v1/oauth2/token');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
+            CURLOPT_USERPWD => $clientId . ':' . $clientSecret,
+            CURLOPT_POSTFIELDS => 'grant_type=client_credentials',
+            CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        $authBody = curl_exec($ch);
+        $authHttp = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $authErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($authErr !== '') {
+            return ['success' => false, 'error' => 'PayPal auth request failed: ' . $authErr];
+        }
+
+        $authData = json_decode((string)$authBody, true);
+        $accessToken = is_array($authData) ? (string)($authData['access_token'] ?? '') : '';
+        if ($authHttp < 200 || $authHttp >= 300 || $accessToken === '') {
+            return ['success' => false, 'error' => 'PayPal auth failed.'];
+        }
+
+        $currency = strtoupper((string)($order['currency_code'] ?? 'USD'));
+        if ($currency === '') {
+            $currency = 'USD';
+        }
+
+        $payload = [
+            'amount' => [
+                'value' => number_format($amount, 2, '.', ''),
+                'currency_code' => $currency,
+            ],
+            'note_to_payer' => $reason,
+        ];
+
+        $ch = curl_init($baseUrl . '/v2/payments/captures/' . rawurlencode($captureId) . '/refund');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $accessToken,
+                'PayPal-Request-Id: ' . $idempotencyKey,
+            ],
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        $refundBody = curl_exec($ch);
+        $refundHttp = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $refundErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($refundErr !== '') {
+            return ['success' => false, 'error' => 'PayPal refund request failed: ' . $refundErr];
+        }
+
+        $refundData = json_decode((string)$refundBody, true);
+        if ($refundHttp < 200 || $refundHttp >= 300 || !is_array($refundData)) {
+            return ['success' => false, 'error' => 'PayPal refund rejected.'];
+        }
+
+        $status = strtolower((string)($refundData['status'] ?? 'completed'));
+        $approvedAmount = isset($refundData['amount']['value']) ? (float)$refundData['amount']['value'] : $amount;
+        return [
+            'success' => in_array($status, ['completed', 'pending'], true),
+            'approved_amount' => round($approvedAmount, 2),
+            'status' => $status,
+            'provider_refund_id' => (string)($refundData['id'] ?? ''),
+            'provider_transaction_reference' => $captureId,
+            'raw_response' => $refundData,
+        ];
+    }
+
+    private function autoRefundCancellation(int $orderId, array $order, ?int $adminId = null): array
+    {
+        $provider = $this->resolvePaymentProviderFromOrder($order);
+        if (!in_array($provider, ['stripe', 'paypal'], true)) {
+            return ['success' => false, 'skipped' => true, 'message' => 'Auto-refund skipped: payment provider is not Stripe/PayPal.'];
+        }
+
+        $totalAmount = round(max(0, (float)($order['total_amount'] ?? 0)), 2);
+        if ($totalAmount <= 0) {
+            return ['success' => false, 'skipped' => true, 'message' => 'Auto-refund skipped: no refundable amount on this order.'];
+        }
+
+        $alreadyRefunded = $this->getApprovedRefundTotalForOrder($orderId);
+        if ($alreadyRefunded >= $totalAmount) {
+            return ['success' => true, 'skipped' => true, 'message' => 'Auto-refund skipped: payment is already fully refunded.'];
+        }
+
+        $amountToRefund = round(max(0, $totalAmount - $alreadyRefunded), 2);
+        if ($amountToRefund <= 0) {
+            return ['success' => true, 'skipped' => true, 'message' => 'Auto-refund skipped: no remaining refundable balance.'];
+        }
+
+        $reasonText = 'Order cancelled (auto refund)';
+        $idempotencyKey = 'order_cancel_refund_' . $orderId . '_' . str_replace('.', '', (string)$amountToRefund);
+
+        if ($provider === 'stripe') {
+            $providerResult = $this->issueStripeOrderCancellationRefund($order, $amountToRefund, $reasonText, $idempotencyKey);
+        } else {
+            $providerResult = $this->issuePaypalOrderCancellationRefund($order, $amountToRefund, $reasonText, $idempotencyKey);
+        }
+
+        if (!($providerResult['success'] ?? false)) {
+            return [
+                'success' => false,
+                'error' => (string)($providerResult['error'] ?? 'Auto-refund failed.'),
+            ];
+        }
+
+        $approvedAmount = round((float)($providerResult['approved_amount'] ?? $amountToRefund), 2);
+        $status = (string)($providerResult['status'] ?? 'succeeded');
+        $providerRefundId = (string)($providerResult['provider_refund_id'] ?? '');
+        $providerTxnRef = (string)($providerResult['provider_transaction_reference'] ?? '');
+        $snapshot = json_encode($providerResult['raw_response'] ?? [], JSON_UNESCAPED_SLASHES);
+
+        $this->db->beginTransaction();
+        try {
+            $this->insertOrderRefundRecord([
+                'order_id' => $orderId,
+                'payment_provider' => $provider,
+                'refund_method' => 'provider',
+                'requested_amount' => $amountToRefund,
+                'approved_amount' => $approvedAmount,
+                'reason' => $reasonText,
+                'admin_id' => $adminId,
+                'provider_refund_id' => $providerRefundId !== '' ? $providerRefundId : null,
+                'provider_transaction_reference' => $providerTxnRef !== '' ? $providerTxnRef : null,
+                'status' => $status,
+                'provider_response_snapshot' => $snapshot !== false ? $snapshot : null,
+                'idempotency_key' => $idempotencyKey,
+            ]);
+
+            $depositCharged = max(0, round((float)($order['security_deposit'] ?? 0), 2));
+            $currentDepositRefunded = max(0, round((float)($order['security_deposit_refunded_amount'] ?? 0), 2));
+            $updatedDepositRefunded = min($depositCharged, round($currentDepositRefunded + $approvedAmount, 2));
+            $updateOrderStmt = $this->db->prepare(
+                "UPDATE orders
+                 SET security_deposit_refunded_amount = ?,
+                     last_security_deposit_refund_at = NOW()
+                 WHERE order_id = ?"
+            );
+            $updateOrderStmt->execute([$updatedDepositRefunded, $orderId]);
+
+            $this->db->commit();
+            return [
+                'success' => true,
+                'approved_amount' => $approvedAmount,
+                'payment_provider' => $provider,
+                'status' => $status,
+            ];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return [
+                'success' => false,
+                'error' => 'Refund was processed but local tracking failed: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    private function resolveStripeCardLast4FromReferences(?string $intentId, ?string $chargeId): ?string
+    {
+        $intentId = trim((string)$intentId);
+        $chargeId = trim((string)$chargeId);
+        if ($intentId === '' && $chargeId === '') {
+            return null;
+        }
+
+        $stripeSecret = $this->getStripeApiKey();
+        if ($stripeSecret === '') {
+            return null;
+        }
+
+        try {
+            \Stripe\Stripe::setApiKey($stripeSecret);
+
+            if ($intentId !== '') {
+                $paymentIntent = \Stripe\PaymentIntent::retrieve($intentId);
+
+                if (isset($paymentIntent->charges) && isset($paymentIntent->charges->data) && is_array($paymentIntent->charges->data)) {
+                    foreach ($paymentIntent->charges->data as $charge) {
+                        $last4 = trim((string)($charge->payment_method_details->card->last4 ?? ''));
+                        if ($last4 !== '') {
+                            return $last4;
+                        }
+                    }
+                }
+
+                if (!empty($paymentIntent->latest_charge)) {
+                    $latestChargeId = is_string($paymentIntent->latest_charge)
+                        ? $paymentIntent->latest_charge
+                        : (string)($paymentIntent->latest_charge->id ?? '');
+                    if ($latestChargeId !== '') {
+                        $chargeId = $latestChargeId;
+                    }
+                }
+
+                $paymentMethodId = trim((string)($paymentIntent->payment_method ?? ''));
+                if ($paymentMethodId !== '') {
+                    $paymentMethod = \Stripe\PaymentMethod::retrieve($paymentMethodId);
+                    $last4 = trim((string)($paymentMethod->card->last4 ?? ''));
+                    if ($last4 !== '') {
+                        return $last4;
+                    }
+                }
+            }
+
+            if ($chargeId !== '') {
+                $charge = \Stripe\Charge::retrieve($chargeId);
+                $last4 = trim((string)($charge->payment_method_details->card->last4 ?? ''));
+                if ($last4 !== '') {
+                    return $last4;
+                }
+            }
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        return null;
+    }
+
+    public function resolveOrderPaymentCardLast4(array $order): ?string
+    {
+        $paymentMethod = strtolower(trim((string)($order['payment_method'] ?? '')));
+        $paymentProvider = $this->resolvePaymentProviderFromOrder($order);
+
+        $intentId = trim((string)($order['provider_payment_intent_id'] ?? ''));
+        $chargeId = trim((string)($order['provider_charge_id'] ?? ''));
+        $orderId = isset($order['order_id']) ? (int)$order['order_id'] : 0;
+
+        if ($orderId > 0 && ($intentId === '' || $chargeId === '' || $paymentProvider === '' || $paymentMethod === '')) {
+            $orderLookupStmt = $this->db->prepare(
+                "SELECT payment_method, payment_provider, provider_payment_intent_id, provider_charge_id
+                 FROM orders
+                 WHERE order_id = ?
+                 LIMIT 1"
+            );
+            $orderLookupStmt->execute([$orderId]);
+            $dbOrder = $orderLookupStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+            if ($paymentMethod === '') {
+                $paymentMethod = strtolower(trim((string)($dbOrder['payment_method'] ?? '')));
+            }
+            if ($paymentProvider === '') {
+                $paymentProvider = strtolower(trim((string)($dbOrder['payment_provider'] ?? '')));
+            }
+            if ($intentId === '') {
+                $intentId = trim((string)($dbOrder['provider_payment_intent_id'] ?? ''));
+            }
+            if ($chargeId === '') {
+                $chargeId = trim((string)($dbOrder['provider_charge_id'] ?? ''));
+            }
+        }
+
+        if ($orderId > 0 && $intentId === '') {
+            $checkoutStmt = $this->db->prepare(
+                "SELECT provider_payment_intent_id
+                 FROM checkout_sessions
+                 WHERE finalized_order_id = ?
+                   AND provider = 'stripe'
+                   AND provider_payment_intent_id IS NOT NULL
+                   AND provider_payment_intent_id <> ''
+                 ORDER BY id DESC
+                 LIMIT 1"
+            );
+            $checkoutStmt->execute([$orderId]);
+            $checkoutIntent = $checkoutStmt->fetchColumn();
+            if ($checkoutIntent !== false && $checkoutIntent !== null) {
+                $intentId = trim((string)$checkoutIntent);
+            }
+        }
+
+        if ($paymentMethod !== 'card' && $paymentProvider !== 'stripe') {
+            return null;
+        }
+
+        $last4 = $this->resolveStripeCardLast4FromReferences($intentId, $chargeId);
+        if ($last4 === null || $last4 === '') {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', $last4);
+        if (!is_string($digits) || strlen($digits) < 4) {
+            return null;
+        }
+        return substr($digits, -4);
     }
 
     public function syncStripeRefundFromWebhook(array $refundPayload): array
@@ -2978,9 +3485,22 @@ class OrderModel {
             $discountAmount = isset($orderData['promo_discount']) ? (float)$orderData['promo_discount'] : 0.0;
             $promoCode = (string)($orderData['promo_code'] ?? '');
             $orderDate = date('Y-m-d H:i:s');
-            $paymentMethod = (string)($payment_method ?? '');
+            $paymentMethod = strtolower(trim((string)($payment ?? ($form['payment'] ?? ''))));
+            $paymentProvider = (string)($form['payment_provider'] ?? '');
+            if ($paymentProvider === '') {
+                $paymentProvider = $paymentMethod === 'card'
+                    ? 'stripe'
+                    : ($paymentMethod === 'paypal' ? 'paypal' : '');
+            }
+            $paymentCardLast4 = $this->resolveOrderPaymentCardLast4([
+                'payment_method' => $paymentMethod,
+                'payment_provider' => $paymentProvider,
+                'provider_payment_intent_id' => (string)($form['provider_payment_intent_id'] ?? ''),
+                'provider_charge_id' => (string)($form['provider_charge_id'] ?? ''),
+                'order_id' => (int)$orderId,
+            ]);
             $pickupLocation = (string)($pickup_location ?? '');
-            $deliveryType = (string)($delivery_type ?? '');
+            $deliveryType = (string)($deliveryType ?? ($form['delivery_type'] ?? ''));
 
             $itemsTable = $invoiceItemsTable;
             $deliveryFee = $this->resolveDeliveryFeeForOrder($form);
@@ -3228,6 +3748,7 @@ class OrderModel {
         $securityDepositBaseline = self::SECURITY_DEPOSIT;
         $orderDate = (string)($order['order_date'] ?? date('Y-m-d H:i:s'));
         $paymentMethod = (string)($order['payment_method'] ?? '');
+        $paymentCardLast4 = $this->resolveOrderPaymentCardLast4($order);
         $pickupLocation = (string)($order['pickup_location'] ?? '');
         $deliveryType = (string)($order['delivery_type'] ?? '');
         $deliveryFee = max(0, round((float)($order['delivery_fee'] ?? 0), 2));
@@ -3416,6 +3937,7 @@ class OrderModel {
         }
         $securityDepositBaseline = self::SECURITY_DEPOSIT;
         $paymentMethod = (string)($order['payment_method'] ?? '');
+        $paymentCardLast4 = $this->resolveOrderPaymentCardLast4($order);
         $pickupLocation = (string)($order['pickup_location'] ?? '');
         $deliveryType = (string)($order['delivery_type'] ?? '');
         $deliveryFee = max(0, round((float)($order['delivery_fee'] ?? 0), 2));
@@ -3568,8 +4090,16 @@ class OrderModel {
     /**
      * Cancel an order: set scooter status to available, set order status to cancelled, return message
      */
-    public function cancelOrderProcess($orderId) {
+    public function cancelOrderProcess($orderId, ?int $adminId = null) {
         $pdo = $this->db;
+
+        $orderStmt = $pdo->prepare("SELECT * FROM orders WHERE order_id = ? LIMIT 1");
+        $orderStmt->execute([$orderId]);
+        $order = $orderStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$order) {
+            return "Order {$orderId} was not found.";
+        }
+
         $transition = $this->transitionOrderStatus($orderId, 'cancelled');
         if (!($transition['success'] ?? false)) {
             return (string)($transition['error'] ?? 'This order cannot be cancelled right now.');
@@ -3598,7 +4128,22 @@ class OrderModel {
         $stmtReservations = $pdo->prepare("UPDATE reservations SET status = 'cancelled' WHERE order_id = ?");
         $stmtReservations->execute([$orderId]);
 
-        return "Order $orderId has been cancelled and inventory restored.";
+        $message = "Order $orderId has been cancelled and inventory restored.";
+        $previousStatus = strtolower(trim((string)($order['status'] ?? '')));
+        if ($previousStatus === 'paid') {
+            $refundResult = $this->autoRefundCancellation((int)$orderId, $order, $adminId);
+            if (($refundResult['success'] ?? false) && !($refundResult['skipped'] ?? false)) {
+                $approvedAmount = (float)($refundResult['approved_amount'] ?? 0);
+                $provider = strtoupper((string)($refundResult['payment_provider'] ?? 'provider'));
+                $message .= " Auto refund succeeded via {$provider} ($" . number_format($approvedAmount, 2) . ").";
+            } elseif (($refundResult['skipped'] ?? false) === true) {
+                $message .= ' ' . (string)($refundResult['message'] ?? 'Auto-refund was skipped.');
+            } else {
+                $message .= ' Auto refund failed: ' . (string)($refundResult['error'] ?? 'Unknown refund error. Please refund manually.');
+            }
+        }
+
+        return $message;
     }
 
     /**
@@ -3610,8 +4155,8 @@ class OrderModel {
         $stmt = $pdo->prepare("SELECT o.*, h.name AS hotel_name, rh.name AS return_hotel_name, pl.name AS pickup_location_name FROM orders o LEFT JOIN partner_hotels h ON o.hotel_id = h.id LEFT JOIN partner_hotels rh ON o.return_hotel_id = rh.id LEFT JOIN pickup_locations pl ON o.pickup_location = pl.id WHERE o.order_id = ?");
         $stmt->execute([$orderId]);
         $order = $stmt->fetch(\PDO::FETCH_ASSOC);
-        // Fetch order items
-        $stmt = $pdo->prepare("SELECT * FROM order_items WHERE order_id = ?");
+        // Fetch order items with scooter numbers for UI display
+        $stmt = $pdo->prepare("SELECT oi.*, s.scooter_number FROM order_items oi LEFT JOIN scooters s ON s.scooter_id = oi.scooter_id WHERE oi.order_id = ?");
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         $scriptDir = isset($_SERVER['SCRIPT_NAME']) ? rtrim(str_replace('\\', '/', dirname((string)$_SERVER['SCRIPT_NAME'])), '/') : '';

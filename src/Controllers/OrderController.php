@@ -150,6 +150,7 @@ class OrderController extends Controller
 
         return [
             'checkout_ref' => trim((string)($post['checkout_ref'] ?? '')),
+            'booking_source' => trim((string)($post['booking_source'] ?? 'online')),
             'first_name' => trim((string)($post['first_name'] ?? '')),
             'last_name' => trim((string)($post['last_name'] ?? '')),
             'guest_email' => trim((string)($post['email'] ?? '')),
@@ -238,19 +239,23 @@ class OrderController extends Controller
             return 'Invalid pickup/return datetime provided.';
         }
 
-        $minPickupTs = time() + (24 * 60 * 60);
-        if ($pickupTs < $minPickupTs) {
-            return 'Bookings must be made at least 24 hours in advance.';
+        $bookingSource = strtolower(trim((string)($source['booking_source'] ?? 'online')));
+        $isWalkinOrAdmin = in_array($bookingSource, ['walk-in', 'walkin', 'admin', 'kiosk'], true);
+        if (!$isWalkinOrAdmin) {
+            $minPickupTs = time() + (24 * 60 * 60);
+            if ($pickupTs < $minPickupTs) {
+                return 'Bookings must be made at least 24 hours in advance.';
+            }
+
+            $pickupMins = ((int)date('G', $pickupTs) * 60) + (int)date('i', $pickupTs);
+            $returnMins = ((int)date('G', $returnTs) * 60) + (int)date('i', $returnTs);
+            if ($pickupMins < 510 || $pickupMins > 1050 || $returnMins < 510 || $returnMins > 1050) {
+                return 'Pickups and returns are available from 8:30 am to 5:30 pm only.';
+            }
         }
 
         if ($returnTs <= $pickupTs) {
             return 'Return date/time must be after pickup date/time.';
-        }
-
-        $pickupMins = ((int)date('G', $pickupTs) * 60) + (int)date('i', $pickupTs);
-        $returnMins = ((int)date('G', $returnTs) * 60) + (int)date('i', $returnTs);
-        if ($pickupMins < 510 || $pickupMins > 1050 || $returnMins < 510 || $returnMins > 1050) {
-            return 'Pickups and returns are available from 8:30 am to 5:30 pm only.';
         }
 
         $orderModel = new OrderModel();
@@ -320,7 +325,9 @@ class OrderController extends Controller
             return 0.0;
         }
 
-        return $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
+        $deliveryHotelFee = $this->getHotelDeliveryFeeById($source['hotel_id'] ?? null);
+        $returnHotelFee = $this->getHotelDeliveryFeeById($source['return_hotel_id'] ?? null);
+        return max($deliveryHotelFee, $returnHotelFee);
     }
 
     private function resolveSecurityDepositForCart(array $cart): float
@@ -607,7 +614,11 @@ class OrderController extends Controller
             exit;
         }
 
-        $message = $orderModel->cancelOrderProcess($orderId);
+        $adminId = isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null;
+        if ($adminId !== null && $adminId <= 0) {
+            $adminId = null;
+        }
+        $message = $orderModel->cancelOrderProcess($orderId, $adminId);
         $this->logAdminAction('order_cancelled', 'order', $orderId, [
             'previous_status' => $transitionCheck['current_status'] ?? null,
             'new_status' => 'cancelled',
@@ -663,6 +674,13 @@ class OrderController extends Controller
         }
 
         $orderModel = new OrderModel();
+        if ($type === 'proforma') {
+            try {
+                $orderModel->regenerateProformaDocument($orderId);
+            } catch (\Throwable $e) {
+                error_log('Proforma regeneration warning for order ' . $orderId . ': ' . $e->getMessage());
+            }
+        }
         $path = $orderModel->resolveOrderDocumentPath($orderId, $type);
         if (!$path || !is_file($path) || !is_readable($path)) {
             http_response_code(404);
@@ -943,7 +961,7 @@ class OrderController extends Controller
                 'delivery_type', 'hotel_id', 'return_hotel_id',
                 'pickup_datetime', 'return_datetime', 'pickup_location',
                 'notes', 'heard_about_option_id', 'heard_about_other_text',
-                'sale_type'
+                'sale_type', 'booking_source'
             ];
 
             foreach ($allowedSnapshotKeys as $key) {
@@ -1033,6 +1051,7 @@ class OrderController extends Controller
                 'heard_about_other_text' => $meta['heard_about_other_text'] ?? '',
                 'acknowledge_id_presence' => $meta['acknowledge_id_presence'] ?? '',
                 'sale_type' => $meta['sale_type'] ?? 'rental',
+                'booking_source' => $meta['booking_source'] ?? 'online',
                 'guest_first_name' => $meta['first_name'] ?? '',
                 'guest_last_name' => $meta['last_name'] ?? '',
                 'guest_email' => $guestEmail,
@@ -1680,6 +1699,13 @@ class OrderController extends Controller
                 $discountAmount = 0.0;
                 $promoCode = (isset($meta) && is_object($meta)) ? (string)($meta->promo_code ?? '') : '';
                 $paymentMethod = 'card';
+                $paymentCardLast4 = $orderModel->resolveOrderPaymentCardLast4([
+                    'payment_method' => 'card',
+                    'payment_provider' => 'stripe',
+                    'provider_payment_intent_id' => (string)($paymentIntentId ?? ''),
+                    'provider_charge_id' => (string)($chargeId ?? ''),
+                    'order_id' => (int)$orderId,
+                ]);
                 $pickupLocation = (string)($pickup_location ?? '');
                 $deliveryType = (string)($delivery_type ?? '');
                 ob_start();
@@ -2268,7 +2294,12 @@ class OrderController extends Controller
             return (int)$existingOrderId;
         }
 
-        $guestName = htmlspecialchars(trim($formData['name'] ?? ''));
+        $firstNameFromForm = trim((string)($formData['first_name'] ?? $formData['guest_first_name'] ?? ''));
+        $lastNameFromForm = trim((string)($formData['last_name'] ?? $formData['guest_last_name'] ?? ''));
+        $guestName = htmlspecialchars(trim((string)($formData['name'] ?? '')));
+        if ($guestName === '') {
+            $guestName = htmlspecialchars(trim($firstNameFromForm . ' ' . $lastNameFromForm));
+        }
         $guestEmail = filter_var(trim($formData['email'] ?? ''), FILTER_VALIDATE_EMAIL);
         $guestPhone = preg_replace('/\D/', '', $formData['phone'] ?? '');
         $clientWeightOption = htmlspecialchars(trim($formData['client_weight_option'] ?? ''));
@@ -2374,15 +2405,28 @@ class OrderController extends Controller
 
         // Insert order
         // Extract first and last name from formData (PayPal checkout)
-        $first_name = $formData['first_name'] ?? '';
-        $last_name = $formData['last_name'] ?? '';
+        $first_name = $firstNameFromForm;
+        $last_name = $lastNameFromForm;
+        $bookingSource = strtolower(trim((string)($formData['booking_source'] ?? 'online')));
+        $isWalkinOrAdmin = in_array($bookingSource, ['walk-in', 'walkin', 'admin', 'kiosk'], true);
+        $createdByAdminId = null;
+        $createdByAdminRole = null;
+        $createdByAdminName = null;
+        if ($isWalkinOrAdmin) {
+            $createdByAdminIdRaw = trim((string)($formData['created_by_admin_id'] ?? $_SESSION['admin_id'] ?? ''));
+            $createdByAdminId = ctype_digit($createdByAdminIdRaw) ? (int)$createdByAdminIdRaw : null;
+            $createdByAdminRole = strtolower(trim((string)($formData['created_by_admin_role'] ?? $_SESSION['admin_role'] ?? '')));
+            $createdByAdminRole = $createdByAdminRole !== '' ? $createdByAdminRole : null;
+            $createdByAdminName = trim((string)($formData['created_by_admin_name'] ?? $_SESSION['admin_username'] ?? ''));
+            $createdByAdminName = $createdByAdminName !== '' ? $createdByAdminName : null;
+        }
         $heardAboutResolved = $this->resolveHeardAboutSelection($formData);
         $heardAboutOptionId = $heardAboutResolved['option_id'];
         $heardAboutLabel = $heardAboutResolved['label'];
         $stmt = $pdo->prepare(
             "INSERT INTO orders (
-                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, total_amount, security_deposit, delivery_fee, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                user_id, guest_id, guest_first_name, guest_last_name, guest_email, guest_phone, client_weight_option, client_weight_lbs, client_height, total_amount, security_deposit, delivery_fee, order_date, status, address1, address2, state, zip, pickup_location, notes, heard_about_option_id, heard_about_label, payment_method, payment_provider, provider_paypal_order_id, provider_paypal_capture_id, customer_type, booking_source, created_by_admin_id, created_by_admin_role, created_by_admin_name, sale_type, pickup_datetime, return_datetime, delivery_type, hotel_id, return_hotel_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         try {
             $stmt->execute([
@@ -2391,7 +2435,7 @@ class OrderController extends Controller
                 $address1, $address2, $state, $zip, $pickupLocation, $notes,
                 $heardAboutOptionId,
                 $heardAboutLabel,
-                'paypal', 'paypal', $paypalOrderId, $paypalCaptureId, $customerType, $formData['sale_type'] ?? 'rental',
+                'paypal', 'paypal', $paypalOrderId, $paypalCaptureId, $customerType, $bookingSource, $createdByAdminId, $createdByAdminRole, $createdByAdminName, $formData['sale_type'] ?? 'rental',
                 $pickup_datetime, $return_datetime, $formData['delivery_type'] ?? 'preferred', $formData['hotel_id'] ?? null, $formData['return_hotel_id'] ?? null
             ]);
         } catch (\PDOException $e) {
@@ -2614,6 +2658,7 @@ class OrderController extends Controller
         $discountAmount = 0.0;
         $promoCode = '';
         $paymentMethod = 'paypal';
+        $paymentCardLast4 = null;
         $pickupLocation = (string)($pickupLocation ?? '');
         $deliveryType = (string)($deliveryType ?? ($formData['delivery_type'] ?? ''));
 

@@ -38,7 +38,7 @@ class ReservationModel {
             $params[':status'] = $status;
         }
         if ($search !== '') {
-            $whereClauses[] = "(r.order_id LIKE :search OR r.reservation_id LIKE :search OR r.scooter_id LIKE :search)";
+            $whereClauses[] = "(r.order_id LIKE :search OR r.reservation_id LIKE :search OR r.scooter_id LIKE :search OR s.scooter_number LIKE :search)";
             $params[':search'] = '%' . $search . '%';
         }
         if ($orderId !== null) {
@@ -61,7 +61,8 @@ class ReservationModel {
         $totalPages = max(1, ceil($totalReservations / $perPage));
 
         $sql = "SELECT r.*,
-                       p.product_name
+                       p.product_name,
+                       s.scooter_number
                 FROM reservations r
             LEFT JOIN orders o ON o.order_id = r.order_id
                 LEFT JOIN scooters s ON s.scooter_id = r.scooter_id
@@ -138,7 +139,10 @@ class ReservationModel {
         $scooterStmt->execute([$currentScooterId]);
         $currentScooter = $scooterStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$currentScooter) {
-            return [$currentScooterId];
+            return [[
+                'scooter_id' => $currentScooterId,
+                'scooter_number' => null,
+            ]];
         }
 
         $productId = (int)$currentScooter['product_id'];
@@ -146,7 +150,7 @@ class ReservationModel {
         $variationIsNull = ($variationId === null || (int)$variationId === 0);
 
         $sql = "
-            SELECT s.scooter_id
+            SELECT s.scooter_id, s.scooter_number
             FROM scooters s
             WHERE s.product_id = :product_id
               AND (
@@ -180,12 +184,29 @@ class ReservationModel {
         $stmt->bindValue(':return_datetime', (string)$reservation['return_datetime'], \PDO::PARAM_STR);
         $stmt->execute();
 
-        $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
-        $rows = array_map('intval', $rows);
-        if (!in_array($currentScooterId, $rows, true)) {
-            array_unshift($rows, $currentScooterId);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $normalized = [];
+        foreach ($rows as $row) {
+            $sid = (int)($row['scooter_id'] ?? 0);
+            if ($sid <= 0) {
+                continue;
+            }
+            $normalized[$sid] = [
+                'scooter_id' => $sid,
+                'scooter_number' => isset($row['scooter_number']) && $row['scooter_number'] !== null
+                    ? trim((string)$row['scooter_number'])
+                    : null,
+            ];
         }
-        return array_values(array_unique($rows));
+
+        if (!isset($normalized[$currentScooterId])) {
+            $normalized[$currentScooterId] = [
+                'scooter_id' => $currentScooterId,
+                'scooter_number' => null,
+            ];
+        }
+
+        return array_values($normalized);
     }
 
     public function updateReservationAssignment(int $reservationId, int $newScooterId, string $notes = ''): array
