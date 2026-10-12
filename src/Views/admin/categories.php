@@ -30,8 +30,7 @@ $isStaff = ($role === 'staff');
                         <table class="min-w-full bg-white rounded-xl shadow text-center" id="categoryTable">
                             <thead class="bg-[#062B41] text-white">
                                 <tr>
-                                    <th class="py-3 px-4 rounded-tl-xl">ID</th>
-                                    <th class="py-3 px-4">Name</th>
+                                    <th class="py-3 px-4 rounded-tl-xl">Name</th>
                                     <?php if (!$isStaff): ?>
                                         <th class="py-3 px-4 rounded-tr-xl">Actions</th>
                                     <?php endif; ?>
@@ -40,7 +39,6 @@ $isStaff = ($role === 'staff');
                             <tbody>
                                 <?php foreach ($categories as $category): ?>
                                 <tr class="hover:bg-gray-100 transition-colors">
-                                    <td class="py-2 px-4 border-b border-gray-200 font-semibold text-gray-700"><?= $category['category_id'] ?></td>
                                     <td class="py-2 px-4 border-b border-gray-200">
                                         <input type="text" name="category_name[<?= $category['category_id'] ?>]" value="<?= htmlspecialchars($category['category_name']) ?>" class="border border-gray-300 rounded-lg px-2 py-1 w-full focus:ring-2 focus:ring-[#062B41] focus:outline-none" disabled>
                                     </td>
@@ -92,7 +90,6 @@ $isStaff = ($role === 'staff');
             const table = document.getElementById('categoryTable').getElementsByTagName('tbody')[0];
             const row = table.insertRow(-1); // Insert at the end
             row.innerHTML = `
-                <td class="py-2 px-4 border-b">New</td>
                 <td class="py-2 px-4 border-b"><input type="text" name="category_name[new][]" class="border rounded px-2 py-1 w-full"></td>
                 <td class="py-2 px-4 border-b"><button type="button" class="deleteBtn bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600" style="display:inline-block;">Delete</button></td>
             `;

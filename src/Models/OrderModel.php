@@ -899,20 +899,20 @@ class OrderModel {
         $resolvedRefundMethod = strtolower(trim((string)($refundMethod ?? '')));
         if ($resolvedRefundMethod === '' && $bookingSource === 'walk-in') {
             $walkInPaymentMethod = strtolower(trim((string)($order['payment_method'] ?? '')));
-            if ($walkInPaymentMethod === 'card') {
-                $resolvedRefundMethod = 'card-terminal';
-            } elseif ($walkInPaymentMethod === 'cash') {
+            if ($walkInPaymentMethod === 'cash') {
                 $resolvedRefundMethod = 'cash';
+            } elseif (in_array($walkInPaymentMethod, ['card', 'paypal'], true)) {
+                $resolvedRefundMethod = 'provider';
             }
         }
 
         $isManualRefund =
-            $bookingSource === 'walk-in' ||
+            ($bookingSource === 'walk-in' && $resolvedRefundMethod === 'cash') ||
             $resolvedRefundMethod === 'cash' ||
             !in_array($provider, ['stripe', 'paypal'], true);
 
         if ($isManualRefund) {
-            if (!in_array($resolvedRefundMethod, ['cash', 'card-terminal', 'manual'], true)) {
+            if (!in_array($resolvedRefundMethod, ['cash', 'manual'], true)) {
                 $resolvedRefundMethod = 'manual';
             }
             $provider = 'manual';
@@ -3698,7 +3698,7 @@ class OrderModel {
 
         // WRAP PDF GENERATION IN TRY-CATCH
         try {
-            if ($pdfPath && (!file_exists($pdfPath) || filesize($pdfPath) === 0)) {
+            if ($pdfPath) {
                 ob_start();
                 include __DIR__ . '/../../Contracts/contract-template.php';
                 $html = ob_get_clean();

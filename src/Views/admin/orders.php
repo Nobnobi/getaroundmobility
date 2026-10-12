@@ -661,7 +661,7 @@ $formatDateTime = function ($value) {
                     heardAboutDisplay = heardAboutOptionId > 0 ? heardAboutRaw : `Other - ${heardAboutRaw}`;
                 }
                 const defaultRefundMethod = isWalkInBooking
-                    ? (String(order.payment_method || '').toLowerCase() === 'cash' ? 'cash' : 'card-terminal')
+                    ? (String(order.payment_method || '').toLowerCase() === 'cash' ? 'cash' : 'provider')
                     : 'provider';
 
                 let html = `
@@ -957,8 +957,8 @@ $formatDateTime = function ($value) {
                                             class="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-[#7c3e00] focus:border-[#b45309] focus:outline-none focus:ring-2 focus:ring-amber-300/60"
                                             ${refundableRemaining > 0 ? '' : 'disabled'}
                                         >
-                                            <option value="card-terminal" ${defaultRefundMethod === 'card-terminal' ? 'selected' : ''}>Card terminal</option>
                                             <option value="cash" ${defaultRefundMethod === 'cash' ? 'selected' : ''}>Cash</option>
+                                            <option value="provider" ${defaultRefundMethod === 'provider' ? 'selected' : ''}>Original payment method (${esc(String(paymentPlatform).toUpperCase())})</option>
                                         </select>
                                     ` : `
                                         <label class="block text-xs font-semibold text-[#7c3e00]">Refund Method</label>

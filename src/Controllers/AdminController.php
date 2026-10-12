@@ -852,7 +852,7 @@ class AdminController extends Controller
             $deliveryFee = max($deliveryHotelFee, $returnHotelFee);
         }
 
-        $securityDeposit = 100.00;
+        $securityDeposit = $orderModel->resolveSecurityDepositForCart($cart);
         $productTotalWithTax = round(max(0, $cartSubtotal - $discountAmount), 2);
         $calculatedFinalTotalAmount = round($productTotalWithTax + $securityDeposit + $deliveryFee, 2);
         $finalTotalAmount = $calculatedFinalTotalAmount;
@@ -1547,7 +1547,7 @@ class AdminController extends Controller
             exit;
         }
 
-        if ($refundMethod !== '' && !in_array($refundMethod, ['cash', 'card-terminal', 'manual', 'provider'], true)) {
+        if ($refundMethod !== '' && !in_array($refundMethod, ['cash', 'manual', 'provider'], true)) {
             http_response_code(422);
             echo json_encode(['error' => 'Invalid refund method.']);
             exit;

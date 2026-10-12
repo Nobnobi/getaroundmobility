@@ -1105,6 +1105,29 @@ function appUrl(path) {
     return `${basePath}${cleanPath}`;
 }
 
+const PUBLIC_CHECKOUT_PROVIDER_KEY = 'getaround_public_checkout_provider';
+
+function acquireCheckoutProvider(provider, keyName = PUBLIC_CHECKOUT_PROVIDER_KEY) {
+    const normalizedProvider = String(provider || '').toLowerCase();
+    const currentProvider = localStorage.getItem(keyName);
+
+    if (!normalizedProvider) {
+        return false;
+    }
+
+    if (currentProvider && currentProvider !== normalizedProvider) {
+        alert('This checkout is already in progress with a different payment method. Please finish or cancel that payment before continuing.');
+        return false;
+    }
+
+    localStorage.setItem(keyName, normalizedProvider);
+    return true;
+}
+
+function releaseCheckoutProvider(keyName = PUBLIC_CHECKOUT_PROVIDER_KEY) {
+    localStorage.removeItem(keyName);
+}
+
 async function initializeStripePaymentElement(form) {
     if (!stripeClient) {
         throw new Error('Stripe publishable key is not configured.');
@@ -1235,6 +1258,9 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
         const overlay = document.getElementById('loadingOverlay');
 
         try {
+            if (!acquireCheckoutProvider('stripe')) {
+                return;
+            }
             if (form.dataset.submitting === '1') return;
             form.dataset.submitting = '1';
             if (submitBtn) {
@@ -1298,6 +1324,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
                 if (!finalizeResponse.ok || !finalizeData || finalizeData.error) {
                     throw new Error(finalizeData?.error || 'Payment succeeded, but order finalization failed.');
                 }
+                releaseCheckoutProvider();
                 window.location.href = finalizeData.redirectUrl || appUrl('/stripe-return');
                 return;
             }
@@ -1305,6 +1332,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async functio
             console.error('Stripe payment failed', err);
             showStripeError(err.message || 'Stripe payment failed.');
             alert(err.message || 'Stripe payment failed.');
+            releaseCheckoutProvider();
         } finally {
             form.dataset.submitting = '0';
             if (submitBtn) {
@@ -1500,6 +1528,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const submitBtn = document.getElementById('checkoutForm').querySelector('button[type="submit"]');
             
             if (this.value === 'paypal') {
+                if (!acquireCheckoutProvider('paypal')) {
+                    radio.checked = false;
+                    return;
+                }
                 if (stripeWrapper) stripeWrapper.classList.add('hidden');
                 paypalContainer.style.display = 'block';
                 submitBtn.style.display = 'none';
@@ -1681,6 +1713,9 @@ function renderPayPalButton() {
     }).render('#paypal-button-container');
 }
 
+window.addEventListener('beforeunload', function() {
+    releaseCheckoutProvider();
+});
 
 
 document.addEventListener('DOMContentLoaded', function() {

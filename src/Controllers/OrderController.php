@@ -1630,7 +1630,7 @@ class OrderController extends Controller
                 $_SESSION["order_token_{$orderId}"] = $token;
 
                 // --- PDF & INVOICE GENERATION FOR STRIPE SUCCESSFUL CHECKOUT ---
-                // Contract PDF
+                // Regenerate the contract PDF each time so environment changes (like SECURITY_DEPOSIT_DEFAULT) are reflected.
                 $customerName = trim($first_name . ' ' . $last_name);
                 $customerEmail = $guestEmail;
                 $customerPhone = $guestPhone;

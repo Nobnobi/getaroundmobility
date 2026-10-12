@@ -43,8 +43,7 @@ $isStaff = ($role === 'staff');
 					<table class="min-w-full bg-white rounded-xl shadow text-center" id="variationTable">
 						<thead class="bg-[#062B41] text-white">
 							<tr>
-								<th class="py-3 px-4 rounded-tl-xl">ID</th>
-								<th class="py-3 px-4">Product Name</th>
+								<th class="py-3 px-4 rounded-tl-xl">Product Name</th>
 								<th class="py-3 px-4">Variation Name</th>
 								<th class="py-3 px-4">Price</th>
                                 
@@ -56,7 +55,6 @@ $isStaff = ($role === 'staff');
 						<tbody>
 							<?php foreach ($variations as $variation): ?>
 							<tr class="hover:bg-gray-100 transition-colors">
-								<td class="py-2 px-4 border-b border-gray-200 font-semibold text-gray-700"><?= $variation['variation_id'] ?></td>
 								<td class="py-2 px-4 border-b border-gray-200">
 									<select name="product_id[<?= $variation['variation_id'] ?>]" class="border border-gray-300 rounded-lg px-2 py-1 w-full focus:ring-2 focus:ring-[#062B41] focus:outline-none" disabled>
 										<?php foreach ($products as $product): ?>
@@ -126,7 +124,6 @@ document.getElementById('addBtn').onclick = function() {
 	const table = document.getElementById('variationTable').getElementsByTagName('tbody')[0];
 	const row = table.insertRow(-1); // Insert at the end
 	row.innerHTML = `
-		<td class="py-2 px-4 border-b">New</td>
 		<td class="py-2 px-4 border-b">
 			<select name="product_id[new][]" class="border rounded px-2 py-1 w-full">
 				<?php foreach ($products as $product): ?>

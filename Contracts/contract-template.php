@@ -10,6 +10,46 @@ $customerName = $customerName ?? '';
 $pickupDate = $pickupDate ?? '';
 $returnDate = $returnDate ?? '';
 $totalAmountWithTax = $totalAmountWithTax ?? 0;
+$resolveSecurityDepositDefault = static function (): float {
+    $raw = getenv('SECURITY_DEPOSIT_DEFAULT');
+    if ($raw === false || trim((string)$raw) === '') {
+        $raw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
+    }
+    if ($raw === null || trim((string)$raw) === '') {
+        $envPath = dirname(__DIR__) . '/.env';
+        if (is_file($envPath) && is_readable($envPath)) {
+            $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if (is_array($lines)) {
+                foreach ($lines as $line) {
+                    $trimmed = trim($line);
+                    if ($trimmed === '' || str_starts_with($trimmed, '#')) {
+                        continue;
+                    }
+                    $parts = explode('=', $trimmed, 2);
+                    if (count($parts) === 2 && strcasecmp(trim($parts[0]), 'SECURITY_DEPOSIT_DEFAULT') === 0) {
+                        $raw = trim($parts[1]);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!is_numeric((string)$raw)) {
+        return 100.0;
+    }
+
+    return round(max(0, (float)$raw), 2);
+};
+
+$securityDepositAmount = isset($securityDeposit)
+    ? (float)$securityDeposit
+    : (isset($security_deposit) ? (float)$security_deposit : null);
+if ($securityDepositAmount === null || !is_numeric($securityDepositAmount)) {
+    $securityDepositAmount = $resolveSecurityDepositDefault();
+} else {
+    $securityDepositAmount = round(max(0, (float)$securityDepositAmount), 2);
+}
 $deliveryFee = isset($deliveryFee)
     ? (float)$deliveryFee
     : (isset($delivery_fee) ? (float)$delivery_fee : 0.0);
@@ -71,9 +111,9 @@ $itemsTable = $itemsTable ?? '';
     <div class="mb-6">
         <h3 class="font-semibold text-lg mb-2">4. Security Deposit</h3>
         A refundable security deposit of 
-        <span class="border-b border-black px-2">$100</span> shall be paid by the Renter upon pickup.  
-        The deposit may be used to cover damages, loss, or unpaid fees.  
-        The deposit will be returned within 7 days after the scooter is returned, 
+        <span class="border-b border-black px-2">$<?= htmlspecialchars(number_format($securityDepositAmount, 2)) ?></span> shall be paid by the Renter upon pickup.
+        The deposit may be used to cover damages, loss, or unpaid fees.
+        The deposit will be returned within 7 days after the scooter is returned,
         less any deductions for damages or late fees.
     </div>
 

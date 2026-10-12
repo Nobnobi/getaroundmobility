@@ -13,7 +13,7 @@ $error = $error ?? '';
                     <div class="bg-red-100 text-red-700 px-4 py-2 rounded mb-4 text-center"><?= htmlspecialchars($error) ?></div>
                 <?php endif; ?>
 
-                <form method="post" action="/register" id="registerForm">
+                <form method="post" action="/register" id="registerPageForm">
                     <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
 
                     <div class="mb-4">
@@ -66,8 +66,8 @@ $error = $error ?? '';
     <script>
         const passwordInput = document.querySelector('input[name="password"]');
         const confirmInput = document.querySelector('input[name="confirm_password"]');
-        const submitBtn = document.querySelector('button[type="submit"]');
-        const form = document.getElementById('registerForm');
+        const submitBtn = document.querySelector('#registerPageForm button[type="submit"]');
+        const form = document.getElementById('registerPageForm');
 
         // Create error elements
         const passwordError = document.createElement('div');
@@ -142,6 +142,23 @@ $error = $error ?? '';
 
                 // Scroll to error
                 passwordInput.scrollIntoView({ behavior: "smooth", block: "center" });
+                return;
             }
+
+            const submittingModal = document.getElementById('registerPageSubmittingModal');
+            if (submittingModal) {
+                submittingModal.classList.remove('hidden');
+                submittingModal.classList.add('flex');
+            }
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+            submitBtn.textContent = 'Creating Account...';
         });
     </script>
+
+    <div id="registerPageSubmittingModal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-black/50 px-4">
+        <div class="w-full max-w-sm rounded-xl bg-white p-6 text-center shadow-xl">
+            <p class="text-base font-semibold text-slate-800">Creating your account...</p>
+            <p class="mt-2 text-sm text-slate-600">Please wait while we complete your sign up.</p>
+        </div>
+    </div>

@@ -45,8 +45,7 @@ $isStaff = ($role === 'staff');
                     <table class="min-w-full bg-white rounded-xl shadow text-center" id="scooterSaleTable">
                         <thead class="bg-[#062B41] text-white">
                             <tr>
-                                <th class="py-3 px-4 rounded-tl-xl">ID</th>
-                                <th class="py-3 px-4">Name</th>
+                                <th class="py-3 px-4 rounded-tl-xl">Name</th>
                                 <th class="py-3 px-4">Category</th>
                                 <th class="py-3 px-4">Price</th>
                                 <th class="py-3 px-4">Stock</th>
@@ -58,7 +57,6 @@ $isStaff = ($role === 'staff');
                         <tbody>
                             <?php foreach ($scooters as $scooter): ?>
                             <tr class="hover:bg-gray-100 transition-colors">
-                                <td class="py-2 px-4 border-b border-gray-200 font-semibold text-gray-700"><?= $scooter['product_id'] ?></td>
                                 <td class="py-2 px-4 border-b border-gray-200">
                                     <input type="text" name="product_name[<?= $scooter['product_id'] ?>]" value="<?= htmlspecialchars($scooter['product_name']) ?>" class="border border-gray-300 rounded-lg px-2 py-1 w-full text-xs focus:ring-2 focus:ring-[#062B41] focus:outline-none" disabled>
                                 </td>
@@ -144,7 +142,6 @@ $isStaff = ($role === 'staff');
         const table = document.getElementById('scooterSaleTable').getElementsByTagName('tbody')[0];
         const row = table.insertRow(-1);
         row.innerHTML = `
-            <td class="py-1 px-2 border-b">New</td>
             <td class="py-1 px-2 border-b"><input type="text" name="product_name[new][]" class="border rounded px-1 py-1 w-full text-xs"></td>
             <td class="py-1 px-2 border-b">
                 <select name="product_category_id[new][]" class="border rounded px-1 py-1 w-full text-xs">

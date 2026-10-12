@@ -46,8 +46,7 @@ $isStaff = ($role === 'staff');
                         <table class="min-w-full bg-white rounded-xl shadow text-center" id="productTable">
                             <thead class="bg-[#062B41] text-white">
                                 <tr>
-                                    <th class="py-3 px-4 rounded-tl-xl">Product ID</th>
-                                    <th class="py-3 px-4">Product Name</th>
+                                    <th class="py-3 px-4 rounded-tl-xl">Product Name</th>
                                     <th class="py-3 px-4">Category</th>
                                     <th class="py-3 px-4">Price/day ($)</th>
                                     <th class="py-3 px-4">Quantity</th>
@@ -63,7 +62,6 @@ $isStaff = ($role === 'staff');
                             <tbody>
                                 <?php foreach ($products as $product): ?>
                                 <tr class="hover:bg-gray-100 transition-colors">
-                                    <td class="py-2 px-4 border-b border-gray-200 font-semibold text-gray-700"><?= $product['product_id'] ?></td>
                                     <td class="py-2 px-3 border-b border-gray-200 whitespace-normal break-words min-w-[160px] max-w-[260px]">
                                         <input type="text" name="product_name[<?= $product['product_id'] ?>]" value="<?= htmlspecialchars($product['product_name']) ?>" class="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm focus:ring-2 focus:ring-[#062B41] focus:outline-none" style="min-width:140px;max-width:240px;" disabled>
                                     </td>
@@ -214,7 +212,6 @@ $isStaff = ($role === 'staff');
                     const table = document.getElementById('productTable').getElementsByTagName('tbody')[0];
                     const row = table.insertRow(-1); // Insert at the end
                     row.innerHTML = `
-                <td class="py-1 px-2 border-b">New</td>
                 <td class="py-1 px-2 border-b"><input type="text" name="product_name[new][]" class="border rounded px-1 py-1 w-full text-xs"></td>
                 <td class="py-1 px-2 border-b">
                     <select name="product_category_id[new][]" class="border rounded px-1 py-1 w-full text-xs">

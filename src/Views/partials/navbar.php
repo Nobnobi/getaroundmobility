@@ -311,7 +311,7 @@ if ($displayFullName === '') {
         <div id="registerModalContent" class="relative bg-white p-3 sm:p-4 md:p-6 rounded-lg shadow-xl border border-gray-200 w-full max-w-[90vw] sm:max-w-xs md:max-w-md mx-1 mt-32 md:mt-0 max-h-[calc(100vh-8rem)] overflow-y-auto">
                 <button onclick="closeRegisterModal()" class="absolute top-2 right-2 sm:top-2 sm:right-2 text-gray-500 hover:text-black text-2xl cursor-pointer" style="right:0.5rem;top:0.5rem;">&times;</button>
         <h2 class="text-lg sm:text-xl md:text-2xl font-bold mb-3 md:mb-4 text-center font-[Barlow] pr-6">Sign Up</h2>
-        <form method="post" class="font-sans" action="/register" id="registerForm">
+        <form method="post" class="font-sans" action="/register" id="registerModalForm">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
             <div class="mb-2.5 md:mb-4">
                 <label for="reg_first_name" class="block mb-1 text-sm">First Name</label>
@@ -345,6 +345,13 @@ if ($displayFullName === '') {
             <div id="registerConfirmError" class="text-red-600 text-xs mb-2"></div>
             <button type="submit" class="w-full bg-[#0086C9] text-white py-2 rounded font-bold cursor-pointer text-sm" id="registerSubmitBtn">Register</button>
         </form>
+
+        <div id="registerSubmittingModal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-black/50 px-4">
+            <div class="w-full max-w-sm rounded-xl bg-white p-6 text-center shadow-xl">
+                <p class="text-base font-semibold text-slate-800">Creating your account...</p>
+                <p class="mt-2 text-sm text-slate-600">Please wait while we complete your sign up.</p>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -1442,10 +1449,21 @@ window.addForSaleToCart = addForSaleToCart;
     regPasswordInput.addEventListener('input', updateRegSubmitState);
     regConfirmInput.addEventListener('input', updateRegSubmitState);
 
-    document.getElementById('registerForm').addEventListener('submit', function(e) {
+    document.getElementById('registerModalForm').addEventListener('submit', function(e) {
         if (!(validateRegPassword() && validateRegConfirm())) {
             e.preventDefault();
+            return;
         }
+
+        const submittingModal = document.getElementById('registerSubmittingModal');
+        if (submittingModal) {
+            submittingModal.classList.remove('hidden');
+            submittingModal.classList.add('flex');
+        }
+
+        regSubmitBtn.disabled = true;
+        regSubmitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+        regSubmitBtn.textContent = 'Creating Account...';
     });
 
     updateRegSubmitState();

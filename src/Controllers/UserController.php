@@ -15,13 +15,21 @@ class UserController extends Controller{
         }
 
         $base = trim((string)$envUrl);
-        if ($base === '') {
-            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $host = trim((string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
-            $base = $scheme . '://' . $host;
+        if ($base !== '') {
+            // Normalize common APP_URL values that end with /index.php.
+            $base = preg_replace('#/index\.php$#i', '', $base) ?? $base;
+            return rtrim($base, '/');
         }
 
-        return rtrim($base, '/');
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = trim((string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
+        $scriptName = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
+        $scriptDir = rtrim(dirname($scriptName), '/');
+        if ($scriptDir === '.' || $scriptDir === '\\') {
+            $scriptDir = '';
+        }
+
+        return rtrim($scheme . '://' . $host . $scriptDir, '/');
     }
 
     private function isStrongPassword(string $password): bool
@@ -359,7 +367,18 @@ class UserController extends Controller{
                                 $mail->addAddress($email);
 
                                 $mail->Subject = 'Password Reset Request';
-                                $mail->Body = "Hello,\n\nTo reset your password, click the link below:\n$resetLink\n\nThis link will expire in 1 hour.\n\nIf you did not request a password reset, kindly contact our support team.";
+                                $safeResetLink = htmlspecialchars($resetLink, ENT_QUOTES, 'UTF-8');
+                                $mail->isHTML(true);
+                                $mail->Body = "
+                                    <p>Hello,</p>
+                                    <p>We received a request to reset your password.</p>
+                                    <p><a href=\"{$safeResetLink}\" style=\"display:inline-block;background:#0086C9;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;\">Reset Password</a></p>
+                                    <p>If the button does not work, copy and paste this URL into your browser:</p>
+                                    <p><a href=\"{$safeResetLink}\">{$safeResetLink}</a></p>
+                                    <p>This link expires in 1 hour.</p>
+                                    <p>If you did not request this, you can safely ignore this email.</p>
+                                ";
+                                $mail->AltBody = "Hello,\n\nWe received a request to reset your password.\n\nReset link: {$resetLink}\n\nThis link expires in 1 hour.\nIf you did not request this, you can ignore this email.";
 
                                 $mail->send();
                             } catch (\Exception $e) {
@@ -393,10 +412,32 @@ class UserController extends Controller{
         $success = $_SESSION['reset_success'] ?? '';
         unset($_SESSION['reset_success']);
 
+        $token = trim((string)($_GET['token'] ?? ''));
+        $tokenValid = false;
+
+        if ($token !== '') {
+            $userModel = new \App\Models\UserModel();
+            $userModel->cleanExpiredPasswordResets();
+            $row = $userModel->getPasswordResetByToken($token);
+            if ($row && strtotime((string)($row['expires_at'] ?? '')) >= time()) {
+                $tokenValid = true;
+            } else {
+                if ($error === '') {
+                    $error = 'Invalid or expired reset link.';
+                }
+            }
+        } else {
+            if ($error === '') {
+                $error = 'Invalid or missing reset link.';
+            }
+        }
+
         $this->render('reset-password', [
             'csrf_token' => $_SESSION['csrf_token'],
             'error' => $error,
-            'success' => $success
+            'success' => $success,
+            'token' => $token,
+            'token_valid' => $tokenValid,
         ]);
     }
 
@@ -409,16 +450,30 @@ class UserController extends Controller{
             if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
                 $error = 'Invalid CSRF token';
             } else {
-                $token = $_POST['token'] ?? '';
+                $token = trim((string)($_POST['token'] ?? ''));
                 $password = $_POST['password'] ?? '';
                 $userModel = new \App\Models\UserModel();
+
+                if ($token === '') {
+                    $error = 'Invalid or missing reset token.';
+                    $this->render('reset-password', [
+                        'csrf_token' => $_SESSION['csrf_token'],
+                        'error' => $error,
+                        'success' => $success,
+                        'token' => $token,
+                        'token_valid' => false,
+                    ]);
+                    return;
+                }
 
                 if (!$this->isStrongPassword($password)) {
                     $error = 'Password must be at least 8 characters, include an uppercase letter, a number, and a special character.';
                     $this->render('reset-password', [
                         'csrf_token' => $_SESSION['csrf_token'],
                         'error' => $error,
-                        'success' => $success
+                        'success' => $success,
+                        'token' => $token,
+                        'token_valid' => true,
                     ]);
                     return;
                 }
@@ -442,7 +497,9 @@ class UserController extends Controller{
         $this->render('reset-password', [
             'csrf_token' => $_SESSION['csrf_token'],
             'error' => $error,
-            'success' => $success
+            'success' => $success,
+            'token' => $token ?? '',
+            'token_valid' => empty($success) && empty($error),
         ]);
     }
 

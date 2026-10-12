@@ -23,6 +23,31 @@ $outerWrapClass = $kioskMode
 $panelClass = $kioskMode
     ? 'w-full max-w-6xl mx-auto'
     : 'rounded-2xl p-10 w-full max-w-2xl mx-auto';
+
+$securityDepositDefault = 100.0;
+$securityDepositDefaultRaw = getenv('SECURITY_DEPOSIT_DEFAULT');
+if ($securityDepositDefaultRaw === false || trim((string)$securityDepositDefaultRaw) === '') {
+    $securityDepositDefaultRaw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
+}
+if ($securityDepositDefaultRaw === null || trim((string)$securityDepositDefaultRaw) === '') {
+    $envPath = dirname(__DIR__, 3) . '/.env';
+    if (is_file($envPath) && is_readable($envPath)) {
+        foreach (file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '' || str_starts_with($trimmed, '#')) {
+                continue;
+            }
+            $parts = explode('=', $trimmed, 2);
+            if (count($parts) === 2 && strcasecmp(trim($parts[0]), 'SECURITY_DEPOSIT_DEFAULT') === 0) {
+                $securityDepositDefaultRaw = trim($parts[1]);
+                break;
+            }
+        }
+    }
+}
+if (is_numeric((string)$securityDepositDefaultRaw)) {
+    $securityDepositDefault = round(max(0, (float)$securityDepositDefaultRaw), 2);
+}
 ?>
 
     <div id="booking-loading-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-[#062B41]/70 px-6">
@@ -307,7 +332,7 @@ $panelClass = $kioskMode
                         </div>
                         <div class="flex items-center justify-between text-sm text-slate-600">
                             <span>Refundable Security Deposit</span>
-                            <span id="security-deposit-amount">$100.00</span>
+                            <span id="security-deposit-amount">$<?= htmlspecialchars(number_format($securityDepositDefault, 2)) ?></span>
                         </div>
                         <div class="flex items-center justify-between text-sm text-slate-600">
                             <span>Hotel Delivery Fee</span>
@@ -522,17 +547,7 @@ const walkinPaymentStatusMessage = document.getElementById('walkinPaymentStatusM
 const walkinPaymentStatusClose = document.getElementById('walkinPaymentStatusClose');
 
 const NV_TAX_INCLUSIVE_FACTOR = 1.08375;
-const SECURITY_DEPOSIT = <?php
-    $securityDepositDefaultRaw = getenv('SECURITY_DEPOSIT_DEFAULT');
-    if ($securityDepositDefaultRaw === false) {
-        $securityDepositDefaultRaw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
-    }
-    $securityDepositDefault = 100.0;
-    if ($securityDepositDefaultRaw !== null && trim((string)$securityDepositDefaultRaw) !== '' && is_numeric($securityDepositDefaultRaw)) {
-        $securityDepositDefault = round(max(0, (float)$securityDepositDefaultRaw), 2);
-    }
-    echo json_encode($securityDepositDefault, JSON_UNESCAPED_SLASHES);
-?>;
+const SECURITY_DEPOSIT = <?= json_encode($securityDepositDefault, JSON_UNESCAPED_SLASHES) ?>;
 
 const WALKIN_PROMO_RULES = window.WALKIN_PROMO_RULES || {};
 let activePromoCode = '';
@@ -748,6 +763,29 @@ function showWalkinPaymentError(message) {
     walkinPaymentError.classList.remove('hidden');
 }
 
+const WALKIN_CHECKOUT_PROVIDER_KEY = 'getaround_walkin_checkout_provider';
+
+function acquireWalkinCheckoutProvider(provider) {
+    const normalizedProvider = String(provider || '').toLowerCase();
+    const current = localStorage.getItem(WALKIN_CHECKOUT_PROVIDER_KEY);
+
+    if (!normalizedProvider) {
+        return false;
+    }
+
+    if (current && current !== normalizedProvider) {
+        alert('This walk-in booking already has a payment method in progress. Please finish or cancel it before switching providers.');
+        return false;
+    }
+
+    localStorage.setItem(WALKIN_CHECKOUT_PROVIDER_KEY, normalizedProvider);
+    return true;
+}
+
+function releaseWalkinCheckoutProvider() {
+    localStorage.removeItem(WALKIN_CHECKOUT_PROVIDER_KEY);
+}
+
 function openWalkinPaymentModal() {
     if (!walkinPaymentModal) return;
     walkinPaymentModal.classList.remove('hidden');
@@ -759,6 +797,7 @@ function closeWalkinPaymentModal() {
     walkinPaymentModal.classList.add('hidden');
     walkinPaymentModal.classList.remove('flex');
     resetWalkinPaymentPortalState();
+    releaseWalkinCheckoutProvider();
 }
 
 function buildWalkinPaymentFormData(cartItems) {
@@ -936,11 +975,13 @@ function renderWalkinPaypalButtons(cartItems) {
             const captureData = await captureResponse.json().catch(() => ({}));
             if (!captureResponse.ok || (captureData && captureData.error)) {
                 setWalkinPaymentProcessing(false);
+                releaseWalkinCheckoutProvider();
                 throw new Error(captureData?.error || 'PayPal capture failed.');
             }
 
             const orderId = captureData.local_order_id ? `#${captureData.local_order_id}` : '';
             setWalkinPaymentProcessing(false);
+            releaseWalkinCheckoutProvider();
             openWalkinPaymentStatusModal(
                 'Payment Successful',
                 `Walk-in booking ${orderId || ''} has been created successfully.`.trim(),
@@ -951,6 +992,7 @@ function renderWalkinPaypalButtons(cartItems) {
         },
         onError(err) {
             setWalkinPaymentProcessing(false);
+            releaseWalkinCheckoutProvider();
             const message = (err && err.message) ? err.message : 'PayPal payment failed.';
             showWalkinPaymentError(message);
             openWalkinPaymentStatusModal('Payment Failed', message);
@@ -959,6 +1001,10 @@ function renderWalkinPaypalButtons(cartItems) {
 }
 
 async function startWalkinPortalPayment(paymentMethod, cartItems) {
+    if (!acquireWalkinCheckoutProvider(paymentMethod)) {
+        return;
+    }
+
     const formData = buildWalkinPaymentFormData(cartItems);
     walkinPendingCart = Array.isArray(cartItems) ? cartItems : [];
 
@@ -989,6 +1035,7 @@ async function startWalkinPortalPayment(paymentMethod, cartItems) {
                     const finalizeData = await confirmWalkinStripePayment(formData);
                     const orderId = finalizeData.orderId ? `#${finalizeData.orderId}` : '';
                     setWalkinPaymentProcessing(false);
+                    releaseWalkinCheckoutProvider();
                     openWalkinPaymentStatusModal(
                         'Payment Successful',
                         `Walk-in booking ${orderId || ''} has been created successfully.`.trim(),
@@ -999,6 +1046,7 @@ async function startWalkinPortalPayment(paymentMethod, cartItems) {
                 } catch (err) {
                     const message = err?.message || 'Stripe payment failed.';
                     setWalkinPaymentProcessing(false);
+                    releaseWalkinCheckoutProvider();
                     showWalkinPaymentError(message);
                     openWalkinPaymentStatusModal('Payment Failed', message);
                 } finally {

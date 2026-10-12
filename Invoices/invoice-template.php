@@ -129,9 +129,45 @@ $securityDepositRefundReason = isset($securityDepositRefundReason)
             ? trim((string)$order['security_deposit_refund_reason'])
             : $securityDepositReason));
 
+$resolveSecurityDepositDefault = static function (): float {
+    $raw = getenv('SECURITY_DEPOSIT_DEFAULT');
+    if ($raw === false || trim((string)$raw) === '') {
+        $raw = $_ENV['SECURITY_DEPOSIT_DEFAULT'] ?? null;
+    }
+    if ($raw === null || trim((string)$raw) === '') {
+        $envPath = dirname(__DIR__) . '/.env';
+        if (is_file($envPath) && is_readable($envPath)) {
+            $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if (is_array($lines)) {
+                foreach ($lines as $line) {
+                    $trimmed = trim($line);
+                    if ($trimmed === '' || str_starts_with($trimmed, '#')) {
+                        continue;
+                    }
+                    $parts = explode('=', $trimmed, 2);
+                    if (count($parts) === 2 && strcasecmp(trim($parts[0]), 'SECURITY_DEPOSIT_DEFAULT') === 0) {
+                        $raw = trim($parts[1]);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!is_numeric((string)$raw)) {
+        return 100.0;
+    }
+
+    return round(max(0, (float)$raw), 2);
+};
+
 $securityDepositBaseline = isset($securityDepositBaseline)
     ? (float)$securityDepositBaseline
-    : 100.0;
+    : null;
+
+if ($securityDepositBaseline === null) {
+    $securityDepositBaseline = $resolveSecurityDepositDefault();
+}
 
 if ($securityDepositBaseline < 0) {
     $securityDepositBaseline = 0.0;
@@ -157,17 +193,9 @@ $refundedDepositForDisplay = 0.0;
 if (!$isProformaDocument) {
     $refundedDepositForDisplay = round(max(0, min($securityDeposit, $securityDepositRefundedAmount)), 2);
 }
-$showRefundReasonForPartial = !$isProformaDocument
-    && $refundedDepositForDisplay > 0
-    && abs($refundedDepositForDisplay - $securityDepositBaseline) > 0.0001
-    && $securityDepositRefundReason !== '';
+$showRefundReasonForPartial = false;
 $grandTotal = round(max(0, $totalAmountWithTax - $refundedDepositForDisplay), 2);
-$securityDepositDelta = round($securityDeposit - $securityDepositBaseline, 2);
-$addedSecurityDeposit = $securityDepositDelta > 0 ? $securityDepositDelta : 0.0;
 $displayedSecurityDeposit = $securityDeposit;
-if ($addedSecurityDeposit > 0) {
-    $displayedSecurityDeposit = $securityDepositBaseline;
-}
 
 $esc = static function ($value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -322,25 +350,9 @@ $fmtDate = static function ($value): string {
                     <td class="text-right"><?= $fmtMoney($deliveryFee) ?></td>
                 </tr>
                 <?php endif; ?>
-                <?php if ($addedSecurityDeposit > 0): ?>
-                <tr class="line">
-                    <td>
-                        Added security deposit
-                        <?php if ($securityDepositReason !== ''): ?>
-                            <span class="muted">(<?= $esc($securityDepositReason) ?>)</span>
-                        <?php endif; ?>
-                    </td>
-                    <td class="text-right"><?= $fmtMoney($addedSecurityDeposit) ?></td>
-                </tr>
-                <?php endif; ?>
                 <?php if ($refundedDepositForDisplay > 0): ?>
                 <tr class="line">
-                    <td>
-                        Security deposit refunded
-                        <?php if ($showRefundReasonForPartial): ?>
-                            <span class="muted">(<?= $esc($securityDepositRefundReason) ?>)</span>
-                        <?php endif; ?>
-                    </td>
+                    <td>Security deposit refunded</td>
                     <td class="text-right">-<?= $fmtMoney($refundedDepositForDisplay) ?></td>
                 </tr>
                 <?php endif; ?>
